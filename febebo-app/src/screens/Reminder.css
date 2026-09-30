@@ -1,0 +1,131 @@
+/* Reminder — Dark Green Theme */
+/* Hero Card */
+.reminder-hero {
+  margin: 16px;
+  background: linear-gradient(135deg, #064e3b, #166534);
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: white;
+  box-shadow: 0 8px 24px rgba(22, 101, 52, 0.35);
+}
+
+.reminder-hero-label {
+  font-size: 12px;
+  opacity: 0.85;
+  margin: 0 0 6px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.reminder-hero-amount {
+  font-size: 32px;
+  font-weight: 800;
+  margin: 0 0 4px;
+}
+
+.reminder-hero-date {
+  font-size: 13px;
+  opacity: 0.8;
+  margin: 0;
+}
+
+.reminder-hero-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 16px;
+  padding: 16px 20px;
+  font-size: 14px;
+  font-weight: 800;
+  backdrop-filter: blur(8px);
+}
+
+/* Reminders List */
+.reminder-section-title {
+  padding: 8px 16px 4px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+
+.reminder-list {
+  padding: 0 16px 100px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.reminder-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: white;
+  border: 1.5px solid #d1fae5;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(22, 101, 52, 0.06);
+  /* Color-coded left border */
+  border-left: 4px solid #bbf7d0;
+}
+.reminder-card[data-urgency="high"] { border-left-color: #ef4444; }
+.reminder-card[data-urgency="medium"] { border-left-color: #d97706; }
+.reminder-card[data-urgency="low"] { border-left-color: #166534; }
+
+.reminder-icon-wrap {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  background: #dcfce7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #166534;
+}
+
+.reminder-card-body { flex: 1; }
+
+.reminder-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.reminder-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.reminder-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: #dcfce7;
+  color: #166534;
+}
+.reminder-badge.overdue { background: #fee2e2; color: #ef4444; }
+
+.reminder-card-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin: 4px 0;
+  line-height: 1.5;
+}
+
+.reminder-card-amount {
+  font-size: 15px;
+  font-weight: 800;
+  color: #166534;
+  margin: 4px 0 0;
+}

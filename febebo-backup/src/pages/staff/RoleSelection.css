@@ -1,0 +1,41 @@
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.role-card {
+  background-color: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+  cursor: pointer;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.role-card:hover, .role-card:active {
+  border-color: var(--primary);
+  transform: scale(0.98);
+}
+
+.role-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background-color: var(--primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.role-title {
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+}

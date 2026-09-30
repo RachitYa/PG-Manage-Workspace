@@ -1,0 +1,99 @@
+FOUND: Created At: 2026-08-29T13:33:55+05:30
+Completed At: 2026-08-29T13:33:56+05:30
+
+				The command exited with code 0.
+				Output:
+				            <form onSubmit={approveApplication}>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase' }}>Select Room *</label>
+                <select value={allotForm.roomNo} onChange={e => setAllotForm(p => ({ ...p, roomNo: e.target.value }))} style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: 15, fontFamily: 'inherit', outline: 'none' }} required>
+                  <option value="">Choose a room...</option>
+                  {availableRooms.map(r => (<option key={r.id} value={r.roomNo}>Room {r.roomNo}</option>))}
+                </select>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase' }}>Bed Number</label>
+                <input type="text" placeholder="e.g. Bed 1, A, etc." value={allotForm.bedNo} onChange={e => setAllotForm(p => ({ ...p, bedNo: e.target.value }))} style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase' }}>Monthly Rent (₹) *</label>
+                <input type="number" value={allotForm.rentAmount} readOnly style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1px solid #cbd5e1', background: '#e2e8f0', color: '#475569', fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', fontWeight: 600 }} required />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase' }}>Security Deposit (₹)</label>
+                <input type="number" value={allotForm.securityAmount} readOnly style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1px solid #cbd5e1', background: '#e2e8f0', color: '#475569', fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', fontWeight: 600 }} />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase' }}>Token Amount Paid (₹)</label>
+                <input type="number" value={allotForm.tokenPaid} readOnly style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1px solid #cbd5e1', background: '#e2e8f0', color: '#475569', fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', fontWeight: 600 }} />
+              </div>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase' }}>Date of Joining</label>
+                <input type="date" value={allotForm.dateOfJoining} onChange={e => setAllotForm(p => ({ ...p, dateOfJoining: e.target.value }))} style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} required />
+              </div>
+              <button type="submit" disabled={actionLoading === 'approving'} style={{ width: '100%', padding: '16px', background: '#0891b2', color: 'white', border: 'none', borderRadius: 16, fontWeight: 800, fontSize: 16, cursor: actionLoading ? 'not-allowed' : 'pointer', opacity: actionLoading ? 0.7 : 1 }}>
+                {actionLoading === 'approving' ? 'Approving...' : 'Confirm & Allot Room'}
+              </button>
+            </form>
+            </>)}
+          </div>
+        </div>
+      )}
+
+      
+      
+      {/* Send Options Modal */}
+      {showSendOptionsModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 20 }}>
+          <div onClick={() => setShowSendOptionsModal(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)' }} />
+          <div style={{ position: 'relative', background: 'white', borderRadius: 24, padding: 24, zIndex: 201, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 20, color: '#0f172a', fontWeight: 800 }}>📤 Send Details</h3>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <button 
+                onClick={() => { setShowSendOptionsModal(false); setShowRoomDetailsModal(true); }}
+                style={{ padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', textAlign: 'left' }}
+              >
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                  <span className="material-symbols-outlined">bed</span>
+                </div>
+                <div>
+                  <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Room Details</h4>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Select a room and send its details</p>
+                </div>
+              </button>
+
+              <button 
+                onClick={sendMessMenu}
+                disabled={actionLoading === 'sending_details'}
+                style={{ padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', textAlign: 'left', opacity: actionLoading === 'sending_details' ? 0.7 : 1 }}
+              >
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#fffbeb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+                  <span className="material-symbols-outlined">restaurant</span>
+                </div>
+                <div>
+                  <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Mess Menu</h4>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Send weekly food timetable</p>
+                </div>
+              </button>
+
+              <button 
+                onClick={sendPGDetails}
+                disabled={actionLoading === 'sending_details'}
+                style={{ padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 16, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', textAlign: 'left', opacity: actionLoading === 'sending_details' ? 0.7 : 1 }}
+              >
+                <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
+                  <span className="material-symbols-outlined">apartment</span>
+                </div>
+                <div>
+                  <h4 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>PG Details</h4>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>Send PG info and cover image</p>
+                </div>
+              </button>
+            </div>
+
+            <button 
+              onClick={() => setShowSendOptionsModal(false)} 
+              style={{ width: '100%', marginTop: 20, padding: 14, background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: 'pointer' }}
+
+

@@ -1,0 +1,160 @@
+/* Visitor.css */
+
+.visitor-container {
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.add-visitor-btn {
+  width: 100%;
+  padding: 16px;
+  background: #166534;
+  color: #fff;
+  border-radius: 16px;
+  font-weight: 700;
+  font-size: 15px;
+  border: none;
+  display: flex;
+  alignItems: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(22, 101, 52, 0.2);
+  transition: all 0.2s;
+}
+.add-visitor-btn:active {
+  transform: scale(0.98);
+}
+
+.section-title {
+  margin: 10px 0 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.empty-icon-wrap {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #f0fdf4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.empty-title {
+  color: #94a3b8;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+}
+.empty-subtitle {
+  color: #cbd5e1;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* Visitor List */
+.visitor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.visitor-card {
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+
+.v-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f8fafc;
+}
+
+.v-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.v-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+
+.status-approved {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.status-pending {
+  background: #fffbeb;
+  color: #d97706;
+}
+
+.v-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.v-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #475569;
+}
+
+/* Popup Form Extras */
+.popup-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.btn-popup-submit-full {
+  width: 100%;
+  margin-top: 24px;
+  padding: 16px;
+  background: #166534;
+  color: #fff;
+  border-radius: 16px;
+  font-weight: 700;
+  font-size: 16px;
+  border: none;
+  cursor: pointer;
+}
+.btn-popup-submit-full:disabled {
+  background: #cbd5e1;
+  cursor: not-allowed;
+}

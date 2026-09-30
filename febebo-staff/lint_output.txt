@@ -1,0 +1,2351 @@
+
+> febebo@0.0.0 lint
+> oxlint
+
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[admin/src/context/AuthContext.jsx:54:14]
+ 53 | 
+ 54 | export const useAuth = () => useContext(AuthContext);
+    :              ^^^^^^^
+ 55 | 
+    `----
+
+  ! eslint(no-unused-vars): Variable 'cred' is declared but never used. Unused variables should start with a '_'.
+    ,-[test_admin_loop.mjs:26:15]
+ 25 |         console.log(`Trying ${e} : ${p}`);
+ 26 |         const cred = await signInWithEmailAndPassword(auth, e, p);
+    :               ^^|^
+    :                 `-- 'cred' is declared here
+ 27 |         console.log("!!! SUCCESS !!! ->", e, p);
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Catch parameter 'err' is caught but never used.
+    ,-[test_admin_loop.mjs:29:16]
+ 28 |         process.exit(0);
+ 29 |       } catch (err) {
+    :                ^|^
+    :                 `-- 'err' is declared here
+ 30 |         // ignore and continue
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Parameter 'path' is declared but never used. Unused parameters should start with a '_'.
+     ,-[src/pages/StaffOnboarding.jsx:111:35]
+ 110 | 
+ 111 |   const uploadFile = async (file, path) => {
+     :                                   ^^|^
+     :                                     `-- 'path' is declared here
+ 112 |     // Compress image and return Base64 instead of using Firebase Storage
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'user' is declared but never used. Unused variables should start with a '_'.
+    ,-[admin/src/pages/CreatePGProfile.jsx:22:11]
+ 21 |   const navigate = useNavigate();
+ 22 |   const { user, completeProfile } = useAuth();
+    :           ^^|^
+    :             `-- 'user' is declared here
+ 23 |   const [isOnLease, setIsOnLease] = useState(false);
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'total' is declared but never used. Unused variables should start with a '_'.
+    ,-[staff/src/pages/Transportation.jsx:82:9]
+ 81 | function DriverCard({ driver, onClick }) {
+ 82 |   const total = driver.students.reduce((s, st) => s + st.fee, 0);
+    :         ^^|^^
+    :           `-- 'total' is declared here
+ 83 |   return (
+    `----
+  help: Consider removing this declaration.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:123:27]
+ 122 |   const totalDue = dueData.amount || 10000;
+ 123 |   const [rent, setRent] = useState(String(Math.round(totalDue * 0.6)));
+     :                           ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                 `-- This Hook call is not reachable on every render path.
+ 124 |   const [meter, setMeter] = useState(String(Math.round(totalDue * 0.1)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:124:29]
+ 123 |   const [rent, setRent] = useState(String(Math.round(totalDue * 0.6)));
+ 124 |   const [meter, setMeter] = useState(String(Math.round(totalDue * 0.1)));
+     :                             ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                   `-- This Hook call is not reachable on every render path.
+ 125 |   const [food, setFood] = useState(String(Math.round(totalDue * 0.1)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:125:27]
+ 124 |   const [meter, setMeter] = useState(String(Math.round(totalDue * 0.1)));
+ 125 |   const [food, setFood] = useState(String(Math.round(totalDue * 0.1)));
+     :                           ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                 `-- This Hook call is not reachable on every render path.
+ 126 |   const [amenities, setAmenities] = useState(String(Math.round(totalDue * 0.1)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:126:37]
+ 125 |   const [food, setFood] = useState(String(Math.round(totalDue * 0.1)));
+ 126 |   const [amenities, setAmenities] = useState(String(Math.round(totalDue * 0.1)));
+     :                                     ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                           `-- This Hook call is not reachable on every render path.
+ 127 |   const [laundry, setLaundry] = useState(String(Math.round(totalDue * 0.05)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:127:33]
+ 126 |   const [amenities, setAmenities] = useState(String(Math.round(totalDue * 0.1)));
+ 127 |   const [laundry, setLaundry] = useState(String(Math.round(totalDue * 0.05)));
+     :                                 ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^^
+     :                                                       `-- This Hook call is not reachable on every render path.
+ 128 |   const [housekeeping, setHousekeeping] = useState(String(Math.round(totalDue * 0.05)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:128:43]
+ 127 |   const [laundry, setLaundry] = useState(String(Math.round(totalDue * 0.05)));
+ 128 |   const [housekeeping, setHousekeeping] = useState(String(Math.round(totalDue * 0.05)));
+     :                                           ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^^
+     :                                                                 `-- This Hook call is not reachable on every render path.
+ 129 |   const [other, setOther] = useState('0');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:129:29]
+ 128 |   const [housekeeping, setHousekeeping] = useState(String(Math.round(totalDue * 0.05)));
+ 129 |   const [other, setOther] = useState('0');
+     :                             ^^^^^^|^^^^^^
+     :                                   `-- This Hook call is not reachable on every render path.
+ 130 |   
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:131:41]
+ 130 |   
+ 131 |   const [paymentMode, setPaymentMode] = useState('UPI');
+     :                                         ^^^^^^^|^^^^^^^
+     :                                                `-- This Hook call is not reachable on every render path.
+ 132 |   const [receivedBy, setReceivedBy] = useState('Ravi Kumar (Manager)');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:132:39]
+ 131 |   const [paymentMode, setPaymentMode] = useState('UPI');
+ 132 |   const [receivedBy, setReceivedBy] = useState('Ravi Kumar (Manager)');
+     :                                       ^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^
+     :                                                       `-- This Hook call is not reachable on every render path.
+ 133 |   const [senderUPI, setSenderUPI] = useState('');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:133:37]
+ 132 |   const [receivedBy, setReceivedBy] = useState('Ravi Kumar (Manager)');
+ 133 |   const [senderUPI, setSenderUPI] = useState('');
+     :                                     ^^^^^^|^^^^^
+     :                                           `-- This Hook call is not reachable on every render path.
+ 134 |   const [receiverUPI, setReceiverUPI] = useState('febebo@upi');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[staff/src/components/DetailedReceiptModal.jsx:134:41]
+ 133 |   const [senderUPI, setSenderUPI] = useState('');
+ 134 |   const [receiverUPI, setReceiverUPI] = useState('febebo@upi');
+     :                                         ^^^^^^^^^^^|^^^^^^^^^^
+     :                                                    `-- This Hook call is not reachable on every render path.
+ 135 | 
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[staff/src/context/AuthContext.jsx:54:14]
+ 53 | 
+ 54 | export const useAuth = () => useContext(AuthContext);
+    :              ^^^^^^^
+ 55 | 
+    `----
+
+  ! eslint(no-unused-vars): Variable 'user' is declared but never used. Unused variables should start with a '_'.
+   ,-[admin/src/pages/CustomerDashboard.jsx:7:11]
+ 6 | export default function CustomerDashboard() {
+ 7 |   const { user, logout } = useAuth();
+   :           ^^|^
+   :             `-- 'user' is declared here
+ 8 |   const navigate = useNavigate();
+   `----
+  help: Consider removing this declaration.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:123:27]
+ 122 |   const totalDue = dueData.amount || 10000;
+ 123 |   const [rent, setRent] = useState(String(Math.round(totalDue * 0.6)));
+     :                           ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                 `-- This Hook call is not reachable on every render path.
+ 124 |   const [meter, setMeter] = useState(String(Math.round(totalDue * 0.1)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:124:29]
+ 123 |   const [rent, setRent] = useState(String(Math.round(totalDue * 0.6)));
+ 124 |   const [meter, setMeter] = useState(String(Math.round(totalDue * 0.1)));
+     :                             ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                   `-- This Hook call is not reachable on every render path.
+ 125 |   const [food, setFood] = useState(String(Math.round(totalDue * 0.1)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:125:27]
+ 124 |   const [meter, setMeter] = useState(String(Math.round(totalDue * 0.1)));
+ 125 |   const [food, setFood] = useState(String(Math.round(totalDue * 0.1)));
+     :                           ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                 `-- This Hook call is not reachable on every render path.
+ 126 |   const [amenities, setAmenities] = useState(String(Math.round(totalDue * 0.1)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:126:37]
+ 125 |   const [food, setFood] = useState(String(Math.round(totalDue * 0.1)));
+ 126 |   const [amenities, setAmenities] = useState(String(Math.round(totalDue * 0.1)));
+     :                                     ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                           `-- This Hook call is not reachable on every render path.
+ 127 |   const [laundry, setLaundry] = useState(String(Math.round(totalDue * 0.05)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:127:33]
+ 126 |   const [amenities, setAmenities] = useState(String(Math.round(totalDue * 0.1)));
+ 127 |   const [laundry, setLaundry] = useState(String(Math.round(totalDue * 0.05)));
+     :                                 ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^^
+     :                                                       `-- This Hook call is not reachable on every render path.
+ 128 |   const [housekeeping, setHousekeeping] = useState(String(Math.round(totalDue * 0.05)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:128:43]
+ 127 |   const [laundry, setLaundry] = useState(String(Math.round(totalDue * 0.05)));
+ 128 |   const [housekeeping, setHousekeeping] = useState(String(Math.round(totalDue * 0.05)));
+     :                                           ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^^
+     :                                                                 `-- This Hook call is not reachable on every render path.
+ 129 |   const [other, setOther] = useState('0');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:129:29]
+ 128 |   const [housekeeping, setHousekeeping] = useState(String(Math.round(totalDue * 0.05)));
+ 129 |   const [other, setOther] = useState('0');
+     :                             ^^^^^^|^^^^^^
+     :                                   `-- This Hook call is not reachable on every render path.
+ 130 |   
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:131:41]
+ 130 |   
+ 131 |   const [paymentMode, setPaymentMode] = useState('UPI');
+     :                                         ^^^^^^^|^^^^^^^
+     :                                                `-- This Hook call is not reachable on every render path.
+ 132 |   const [receivedBy, setReceivedBy] = useState('Ravi Kumar (Manager)');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:132:39]
+ 131 |   const [paymentMode, setPaymentMode] = useState('UPI');
+ 132 |   const [receivedBy, setReceivedBy] = useState('Ravi Kumar (Manager)');
+     :                                       ^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^
+     :                                                       `-- This Hook call is not reachable on every render path.
+ 133 |   const [senderUPI, setSenderUPI] = useState('');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:133:37]
+ 132 |   const [receivedBy, setReceivedBy] = useState('Ravi Kumar (Manager)');
+ 133 |   const [senderUPI, setSenderUPI] = useState('');
+     :                                     ^^^^^^|^^^^^
+     :                                           `-- This Hook call is not reachable on every render path.
+ 134 |   const [receiverUPI, setReceiverUPI] = useState('febebo@upi');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[src/components/DetailedReceiptModal.jsx:134:41]
+ 133 |   const [senderUPI, setSenderUPI] = useState('');
+ 134 |   const [receiverUPI, setReceiverUPI] = useState('febebo@upi');
+     :                                         ^^^^^^^^^^^|^^^^^^^^^^
+     :                                                    `-- This Hook call is not reachable on every render path.
+ 135 | 
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  ! eslint(no-unused-vars): Variable 'BED_INVENTORY' is declared but never used. Unused variables should start with a '_'.
+    ,-[admin/src/pages/Inventory.jsx:90:7]
+ 89 | 
+ 90 | const BED_INVENTORY = [
+    :       ^^^^^^|^^^^^^
+    :             `-- 'BED_INVENTORY' is declared here
+ 91 |   { room: 'Room No. 15', beds: 2 }, { room: 'Room No. 16', beds: 3 }, { room: 'Room No. 17', beds: 4 },
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-expressions): Expected expression to be used
+     ,-[admin/src/pages/Inventory.jsx:263:49]
+ 262 |           onClick={e => e.stopPropagation()}
+ 263 |           onChange={e => { e.stopPropagation(); onQtyChange && onQtyChange(parseInt(e.target.value) || 0); }}
+     :                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 264 |           style={{ width: 52, padding: '6px 8px', border: `1.5px solid ${cyan}`, borderRadius: 8, fontSize: 15, fontWeight: 700, color: '#0f172a', textAlign: 'center', outline: 'none', fontFamily: 'inherit', background: 'white' }}
+     `----
+  help: Consider using this expression or removing it
+
+  ! eslint(no-unused-vars): Variable 'user' is declared but never used. Unused variables should start with a '_'.
+    ,-[admin/src/pages/StaffDashboard.jsx:13:11]
+ 12 | export default function StaffDashboard() {
+ 13 |   const { user, logout } = useAuth();
+    :           ^^|^
+    :             `-- 'user' is declared here
+ 14 |   const navigate = useNavigate();
+    `----
+  help: Consider removing this declaration.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:123:27]
+ 122 |   const totalDue = dueData.amount || 10000;
+ 123 |   const [rent, setRent] = useState(String(Math.round(totalDue * 0.6)));
+     :                           ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                 `-- This Hook call is not reachable on every render path.
+ 124 |   const [meter, setMeter] = useState(String(Math.round(totalDue * 0.1)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:124:29]
+ 123 |   const [rent, setRent] = useState(String(Math.round(totalDue * 0.6)));
+ 124 |   const [meter, setMeter] = useState(String(Math.round(totalDue * 0.1)));
+     :                             ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                   `-- This Hook call is not reachable on every render path.
+ 125 |   const [food, setFood] = useState(String(Math.round(totalDue * 0.1)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:125:27]
+ 124 |   const [meter, setMeter] = useState(String(Math.round(totalDue * 0.1)));
+ 125 |   const [food, setFood] = useState(String(Math.round(totalDue * 0.1)));
+     :                           ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                 `-- This Hook call is not reachable on every render path.
+ 126 |   const [amenities, setAmenities] = useState(String(Math.round(totalDue * 0.1)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:126:37]
+ 125 |   const [food, setFood] = useState(String(Math.round(totalDue * 0.1)));
+ 126 |   const [amenities, setAmenities] = useState(String(Math.round(totalDue * 0.1)));
+     :                                     ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^
+     :                                                           `-- This Hook call is not reachable on every render path.
+ 127 |   const [laundry, setLaundry] = useState(String(Math.round(totalDue * 0.05)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:127:33]
+ 126 |   const [amenities, setAmenities] = useState(String(Math.round(totalDue * 0.1)));
+ 127 |   const [laundry, setLaundry] = useState(String(Math.round(totalDue * 0.05)));
+     :                                 ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^^
+     :                                                       `-- This Hook call is not reachable on every render path.
+ 128 |   const [housekeeping, setHousekeeping] = useState(String(Math.round(totalDue * 0.05)));
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:128:43]
+ 127 |   const [laundry, setLaundry] = useState(String(Math.round(totalDue * 0.05)));
+ 128 |   const [housekeeping, setHousekeeping] = useState(String(Math.round(totalDue * 0.05)));
+     :                                           ^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^^
+     :                                                                 `-- This Hook call is not reachable on every render path.
+ 129 |   const [other, setOther] = useState('0');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:129:29]
+ 128 |   const [housekeeping, setHousekeeping] = useState(String(Math.round(totalDue * 0.05)));
+ 129 |   const [other, setOther] = useState('0');
+     :                             ^^^^^^|^^^^^^
+     :                                   `-- This Hook call is not reachable on every render path.
+ 130 |   
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:131:41]
+ 130 |   
+ 131 |   const [paymentMode, setPaymentMode] = useState('UPI');
+     :                                         ^^^^^^^|^^^^^^^
+     :                                                `-- This Hook call is not reachable on every render path.
+ 132 |   const [receivedBy, setReceivedBy] = useState('Ravi Kumar (Manager)');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:132:39]
+ 131 |   const [paymentMode, setPaymentMode] = useState('UPI');
+ 132 |   const [receivedBy, setReceivedBy] = useState('Ravi Kumar (Manager)');
+     :                                       ^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^
+     :                                                       `-- This Hook call is not reachable on every render path.
+ 133 |   const [senderUPI, setSenderUPI] = useState('');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:133:37]
+ 132 |   const [receivedBy, setReceivedBy] = useState('Ravi Kumar (Manager)');
+ 133 |   const [senderUPI, setSenderUPI] = useState('');
+     :                                     ^^^^^^|^^^^^
+     :                                           `-- This Hook call is not reachable on every render path.
+ 134 |   const [receiverUPI, setReceiverUPI] = useState('febebo@upi');
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  x react-hooks(rules-of-hooks): React Hook "useState" is called conditionally. React Hooks must be called in the exact same order in every component render.
+     ,-[admin/src/components/DetailedReceiptModal.jsx:134:41]
+ 133 |   const [senderUPI, setSenderUPI] = useState('');
+ 134 |   const [receiverUPI, setReceiverUPI] = useState('febebo@upi');
+     :                                         ^^^^^^^^^^^|^^^^^^^^^^
+     :                                                    `-- This Hook call is not reachable on every render path.
+ 135 | 
+     `----
+  help: Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/context/AuthContext.jsx:82:14]
+ 81 | 
+ 82 | export const useAuth = () => useContext(AuthContext);
+    :              ^^^^^^^
+ 83 | 
+    `----
+
+  ! eslint(no-unused-vars): Identifier 'RadialBarChart' is imported but never used.
+   ,-[staff/src/pages/Reports.jsx:6:20]
+ 5 |   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+ 6 |   AreaChart, Area, RadialBarChart, RadialBar
+   :                    ^^^^^^^|^^^^^^
+   :                           `-- 'RadialBarChart' is imported here
+ 7 | } from 'recharts';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'RadialBar' is imported but never used.
+   ,-[staff/src/pages/Reports.jsx:6:36]
+ 5 |   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+ 6 |   AreaChart, Area, RadialBarChart, RadialBar
+   :                                    ^^^^|^^^^
+   :                                        `-- 'RadialBar' is imported here
+ 7 | } from 'recharts';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Variable 'now' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/Chat.jsx:107:9]
+ 106 |   const [imgOpen, setImgOpen] = useState(false);
+ 107 |   const now = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+     :         ^|^
+     :          `-- 'now' is declared here
+ 108 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'staticMap' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/Chat.jsx:159:11]
+ 158 |     const mapUrl = `https://www.google.com/maps?q=${msg.lat},${msg.lng}`;
+ 159 |     const staticMap = `https://maps.googleapis.com/maps/api/staticmap?center=${msg.lat},${msg.lng}&zoom=15&size=300x160&markers=${msg.lat},${msg.lng}&key=DEMO`;
+     :           ^^^^|^^^^
+     :               `-- 'staticMap' is declared here
+ 160 |     return (
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Identifier 'useEffect' is imported but never used.
+   ,-[admin/src/pages/AdminDashboard.jsx:1:27]
+ 1 | import React, { useState, useEffect } from 'react';
+   :                           ^^^^|^^^^
+   :                               `-- 'useEffect' is imported here
+ 2 | import { useNavigate } from 'react-router-dom';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Parameter 'user' is declared but never used. Unused parameters should start with a '_'.
+     ,-[admin/src/pages/UserProfile.modified.jsx:353:31]
+ 352 | // ─── SUB-VIEW: VISITOR HISTORY ────────────────────────────
+ 353 | function VisitorHistoryView({ user, onBack }) {
+     :                               ^^|^
+     :                                 `-- 'user' is declared here
+ 354 |   const [selectedVisitor, setSelectedVisitor] = useState(null);
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Parameter 'studentName' is declared but never used. Unused parameters should start with a '_'.
+     ,-[admin/src/pages/UserProfile.modified.jsx:444:28]
+ 443 | 
+ 444 | function StudentCookView({ studentName, onBack }) {
+     :                            ^^^^^|^^^^^
+     :                                 `-- 'studentName' is declared here
+ 445 |   const [period, setPeriod] = useState('week');
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'period' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/UserProfile.modified.jsx:445:10]
+ 444 | function StudentCookView({ studentName, onBack }) {
+ 445 |   const [period, setPeriod] = useState('week');
+     :          ^^^|^^
+     :             `-- 'period' is declared here
+ 446 |   const log = STUDENT_COOK_DATA.mealLog;
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setPeriod' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/UserProfile.modified.jsx:445:18]
+ 444 | function StudentCookView({ studentName, onBack }) {
+ 445 |   const [period, setPeriod] = useState('week');
+     :                  ^^^^|^^^^
+     :                      `-- 'setPeriod' is declared here
+ 446 |   const log = STUDENT_COOK_DATA.mealLog;
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'studentName' is declared but never used. Unused parameters should start with a '_'.
+     ,-[admin/src/pages/UserProfile.modified.jsx:554:31]
+ 553 | 
+ 554 | function StudentCleanerView({ studentName, roomNo, onBack }) {
+     :                               ^^^^^|^^^^^
+     :                                    `-- 'studentName' is declared here
+ 555 |   const statusColor = { Approved: '#16a34a', Rejected: '#ef4444', Pending: '#d97706' };
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Parameter 'user' is declared but never used. Unused parameters should start with a '_'.
+     ,-[admin/src/pages/UserProfile.jsx:360:31]
+ 359 | // ─── SUB-VIEW: VISITOR HISTORY ────────────────────────────
+ 360 | function VisitorHistoryView({ user, onBack }) {
+     :                               ^^|^
+     :                                 `-- 'user' is declared here
+ 361 |   const [selectedVisitor, setSelectedVisitor] = useState(null);
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Parameter 'studentName' is declared but never used. Unused parameters should start with a '_'.
+     ,-[admin/src/pages/UserProfile.jsx:456:28]
+ 455 | 
+ 456 | function StudentCookView({ studentName, onBack }) {
+     :                            ^^^^^|^^^^^
+     :                                 `-- 'studentName' is declared here
+ 457 |   const [period, setPeriod] = useState('week');
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'period' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/UserProfile.jsx:457:10]
+ 456 | function StudentCookView({ studentName, onBack }) {
+ 457 |   const [period, setPeriod] = useState('week');
+     :          ^^^|^^
+     :             `-- 'period' is declared here
+ 458 |   const log = STUDENT_COOK_DATA.mealLog;
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setPeriod' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/UserProfile.jsx:457:18]
+ 456 | function StudentCookView({ studentName, onBack }) {
+ 457 |   const [period, setPeriod] = useState('week');
+     :                  ^^^^|^^^^
+     :                      `-- 'setPeriod' is declared here
+ 458 |   const log = STUDENT_COOK_DATA.mealLog;
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'studentName' is declared but never used. Unused parameters should start with a '_'.
+     ,-[admin/src/pages/UserProfile.jsx:566:31]
+ 565 | 
+ 566 | function StudentCleanerView({ studentName, roomNo, onBack }) {
+     :                               ^^^^^|^^^^^
+     :                                    `-- 'studentName' is declared here
+ 567 |   const statusColor = { Approved: '#16a34a', Rejected: '#ef4444', Pending: '#d97706' };
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'finalSecurity' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/UserProfile.jsx:669:9]
+ 668 |   const totalDamages = damages.reduce((s,d) => s + d.cost, 0);
+ 669 |   const finalSecurity = profile.securityAmt - totalDamages;
+     :         ^^^^^^|^^^^^^
+     :               `-- 'finalSecurity' is declared here
+ 670 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setPayAmount' is declared but never used. Unused variables should start with a '_'.
+      ,-[admin/src/pages/UserProfile.jsx:1125:21]
+ 1124 |   const profile = USER_PROFILES[user?.id] || DEFAULT_PROFILE;
+ 1125 |   const [payAmount, setPayAmount] = useState(profile.pending > 0 ? (profile.rent - profile.pending) : profile.rent);
+      :                     ^^^^^^|^^^^^
+      :                           `-- 'setPayAmount' is declared here
+ 1126 |   const remainingDues = Math.max(0, profile.rent - payAmount);
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'now' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/Chat.jsx:107:9]
+ 106 |   const [imgOpen, setImgOpen] = useState(false);
+ 107 |   const now = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+     :         ^|^
+     :          `-- 'now' is declared here
+ 108 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'staticMap' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/Chat.jsx:159:11]
+ 158 |     const mapUrl = `https://www.google.com/maps?q=${msg.lat},${msg.lng}`;
+ 159 |     const staticMap = `https://maps.googleapis.com/maps/api/staticmap?center=${msg.lat},${msg.lng}&zoom=15&size=300x160&markers=${msg.lat},${msg.lng}&key=DEMO`;
+     :           ^^^^|^^^^
+     :               `-- 'staticMap' is declared here
+ 160 |     return (
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'idx' is declared but never used. Unused parameters should start with a '_'.
+     ,-[admin/src/pages/Complain.jsx:99:30]
+  98 | 
+  99 |         {filtered.map((comp, idx) => {
+     :                              ^|^
+     :                               `-- 'idx' is declared here
+ 100 |           const sc = STATUS_CONFIG[comp.status];
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'MONTHS_SHORT' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/ManageAccount.jsx:114:7]
+ 113 | 
+ 114 | const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+     :       ^^^^^^|^^^^^
+     :             `-- 'MONTHS_SHORT' is declared here
+ 115 | const MONTHS_FULL  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'cyan' is declared but never used. Unused variables should start with a '_'.
+   ,-[admin/src/pages/PriceMenu.jsx:4:7]
+ 3 | 
+ 4 | const cyan = '#0891b2';
+   :       ^^|^
+   :         `-- 'cyan' is declared here
+ 5 | 
+   `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'COOK_DATA' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/StaffWork.jsx:103:7]
+ 102 | 
+ 103 | const COOK_DATA = {
+     :       ^^^^|^^^^
+     :           `-- 'COOK_DATA' is declared here
+ 104 |   c1: {
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'COOK_DAY_STATS' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/StaffWork.jsx:124:7]
+ 123 | 
+ 124 | const COOK_DAY_STATS = {
+     :       ^^^^^^^|^^^^^^
+     :              `-- 'COOK_DAY_STATS' is declared here
+ 125 |   c1: [
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'CLEANER_DATA' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/StaffWork.jsx:140:7]
+ 139 | 
+ 140 | const CLEANER_DATA = {
+     :       ^^^^^^|^^^^^
+     :             `-- 'CLEANER_DATA' is declared here
+ 141 |   cl1: { assignedRooms: [
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'CLEANER_STATS' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/StaffWork.jsx:154:7]
+ 153 | 
+ 154 | const CLEANER_STATS = {
+     :       ^^^^^^|^^^^^^
+     :             `-- 'CLEANER_STATS' is declared here
+ 155 |   daily: { total: 8, breakdown: { full: 4, dusting: 2, bathroom: 2 } },
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setTargetStaff' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/StaffWork.jsx:445:23]
+ 444 | export function AssignWorkModal({ staffName, role, onClose, onSubmit }) {
+ 445 |   const [targetStaff, setTargetStaff] = useState(staffName || 'Ramesh Yadav');
+     :                       ^^^^^^^|^^^^^^
+     :                              `-- 'setTargetStaff' is declared here
+ 446 |   const [workType, setWorkType] = useState('Regular'); // 'Regular' | 'Special'
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'staffName' is declared but never used. Unused parameters should start with a '_'.
+     ,-[admin/src/pages/StaffWork.jsx:634:39]
+ 633 | 
+ 634 | export function AssignedWorkSection({ staffName, role, assignedTasks }) {
+     :                                       ^^^^|^^^^
+     :                                           `-- 'staffName' is declared here
+ 635 |   const tasks = assignedTasks || [];
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Parameter 'role' is declared but never used. Unused parameters should start with a '_'.
+     ,-[admin/src/pages/StaffWork.jsx:634:50]
+ 633 | 
+ 634 | export function AssignedWorkSection({ staffName, role, assignedTasks }) {
+     :                                                  ^^|^
+     :                                                    `-- 'role' is declared here
+ 635 |   const tasks = assignedTasks || [];
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'showAssignWorkModal' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/StaffWork.jsx:958:10]
+ 957 |   const [showPackedModal, setShowPackedModal] = useState(false);
+ 958 |   const [showAssignWorkModal, setShowAssignWorkModal] = useState(false);
+     :          ^^^^^^^^^|^^^^^^^^^
+     :                   `-- 'showAssignWorkModal' is declared here
+ 959 |   const [showProfileModal, setShowProfileModal] = useState(false);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'handleReqSubmit' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/StaffWork.jsx:977:9]
+ 976 | 
+ 977 |   const handleReqSubmit = (newReq) => {
+     :         ^^^^^^^|^^^^^^^
+     :                `-- 'handleReqSubmit' is declared here
+ 978 |     INITIAL_STAFF_PURCHASE_REQUISITIONS.unshift(newReq);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'handleAssignWorkSubmit' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/StaffWork.jsx:983:9]
+ 982 | 
+ 983 |   const handleAssignWorkSubmit = (newTask) => {
+     :         ^^^^^^^^^^^|^^^^^^^^^^
+     :                    `-- 'handleAssignWorkSubmit' is declared here
+ 984 |     INITIAL_ASSIGNED_STAFF_WORK.unshift(newTask);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'handleUpdateStatus' is declared but never used. Unused variables should start with a '_'.
+      ,-[admin/src/pages/StaffWork.jsx:1362:9]
+ 1361 | 
+ 1362 |   const handleUpdateStatus = (id, newStatus) => {
+      :         ^^^^^^^^^|^^^^^^^^
+      :                  `-- 'handleUpdateStatus' is declared here
+ 1363 |     setAssignedWork(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t));
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'handleReqSubmit' is declared but never used. Unused variables should start with a '_'.
+      ,-[admin/src/pages/StaffWork.jsx:1366:9]
+ 1365 | 
+ 1366 |   const handleReqSubmit = (newReq) => {
+      :         ^^^^^^^|^^^^^^^
+      :                `-- 'handleReqSubmit' is declared here
+ 1367 |     INITIAL_STAFF_PURCHASE_REQUISITIONS.unshift(newReq);
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setNotReqRooms' is declared but never used. Unused variables should start with a '_'.
+      ,-[admin/src/pages/StaffWork.jsx:1380:23]
+ 1379 |   ]);
+ 1380 |   const [notReqRooms, setNotReqRooms] = useState([
+      :                       ^^^^^^^|^^^^^^
+      :                              `-- 'setNotReqRooms' is declared here
+ 1381 |     { room: '301' }, { room: '302' }
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Function 'StaffMemberList' is declared but never used.
+      ,-[admin/src/pages/StaffWork.jsx:1879:10]
+ 1878 | // ─── STAFF MEMBER LIST ────────────────────────────────────────────────────────
+ 1879 | function StaffMemberList({ role, onBack, onSelect }) {
+      :          ^^^^^^^|^^^^^^^
+      :                 `-- 'StaffMemberList' is declared here
+ 1880 |   const members = STAFF_MEMBERS[role.id] || [];
+      `----
+  help: Consider removing this declaration.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[admin/src/pages/StaffWork.jsx:28:14]
+ 27 | // ─── DATA ─────────────────────────────────────────────────────────────────────
+ 28 | export const ROLES = [
+    :              ^^^^^
+ 29 |   { id: 'hr',          label: 'HR',              icon: 'manage_accounts',    category: 'A'       },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[admin/src/pages/StaffWork.jsx:41:14]
+ 40 | 
+ 41 | export const STAFF_MEMBERS = {
+    :              ^^^^^^^^^^^^^
+ 42 |   hr:          [{ id: 'h1',  name: 'Priya Mishra',     joined: 'Jan 2024', phone: '9876543210' }],
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[admin/src/pages/StaffWork.jsx:54:14]
+ 53 | 
+ 54 | export const INITIAL_STAFF_PURCHASE_REQUISITIONS = [
+    :              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 55 |   { id: 1, date: '2026-07-22', staffName: 'Ramesh Yadav', staffRole: 'Cook', item: 'Basmati Rice (25kg)', qty: '2 bags', vendor: 'Sharma Traders', status: 'Pending' },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[admin/src/pages/StaffWork.jsx:61:14]
+ 60 | 
+ 61 | export const INITIAL_ASSIGNED_STAFF_WORK = [
+    :              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 62 |   { id: 1, staffId: 'cl1', staffName: 'Mohan Das', role: 'cleaner', title: 'Daily Floor Mopping & Sanitization', type: 'Regular', duration: 'Daily Routine', status: 'In Progress', note: 'Ensure Floor 2 corridor is cleaned before 10 AM', assignedDate: '2026-07-22' },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[admin/src/pages/StaffWork.jsx:68:14]
+ 67 | 
+ 68 | export const INITIAL_PACKED_FOOD_REQUESTS = [
+    :              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 69 |   { id: 1, studentId: 'u102', studentName: 'Ravi Gupta', room: '102', phone: '+91 9876543210', date: '2026-07-22', meal: 'Lunch', timing: 'Same Day', note: 'Pack extra pickle', status: 'Pending' },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[admin/src/pages/StaffWork.jsx:75:14]
+ 74 | 
+ 75 | export const INITIAL_FOOD_BROADCASTS = [
+    :              ^^^^^^^^^^^^^^^^^^^^^^^
+ 76 |   { id: 1, date: '2026-07-22', time: '01:15 PM', meal: 'Lunch', cookName: 'Ramesh Yadav', target: 'All Students', message: 'Lunch is hot & ready! Dal Tadka, Jeera Rice & Hot Rotis.' },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+      ,-[admin/src/pages/StaffWork.jsx:1913:14]
+ 1912 | 
+ 1913 | export const ROLE_GRADIENTS = {
+      :              ^^^^^^^^^^^^^^
+ 1914 |   hr:          'linear-gradient(135deg,#6366f1,#4f46e5)',
+      `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+      ,-[admin/src/pages/StaffWork.jsx:1926:14]
+ 1925 | 
+ 1926 | export const ROLE_CATS = [
+      :              ^^^^^^^^^
+ 1927 |   { key: 'management', label: 'Management', ids: ['hr', 'manager', 'sales', 'purchase'] },
+      `----
+
+  x Expected `,` or `}` but found `Identifier`
+     ,-[admin/src/pages/Login.jsx:192:107]
+ 191 |             </span>
+ 192 |             <button type="button" onClick={switchMode} style={{ background: 'none', border: 'none', color cyan, fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>
+     :                                                               |                                           ^^|^
+     :                                                               |                                             `-- `,` or `}` expected
+     :                                                               `-- Opened here
+ 193 |               {isLogin ? 'Sign Up' : 'Sign In'}
+     `----
+
+  ! eslint(no-unused-vars): Parameter 'user' is declared but never used. Unused parameters should start with a '_'.
+     ,-[staff/src/pages/UserProfile.modified.jsx:353:31]
+ 352 | // ─── SUB-VIEW: VISITOR HISTORY ────────────────────────────
+ 353 | function VisitorHistoryView({ user, onBack }) {
+     :                               ^^|^
+     :                                 `-- 'user' is declared here
+ 354 |   const [selectedVisitor, setSelectedVisitor] = useState(null);
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Parameter 'studentName' is declared but never used. Unused parameters should start with a '_'.
+     ,-[staff/src/pages/UserProfile.modified.jsx:444:28]
+ 443 | 
+ 444 | function StudentCookView({ studentName, onBack }) {
+     :                            ^^^^^|^^^^^
+     :                                 `-- 'studentName' is declared here
+ 445 |   const [period, setPeriod] = useState('week');
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'period' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/UserProfile.modified.jsx:445:10]
+ 444 | function StudentCookView({ studentName, onBack }) {
+ 445 |   const [period, setPeriod] = useState('week');
+     :          ^^^|^^
+     :             `-- 'period' is declared here
+ 446 |   const log = STUDENT_COOK_DATA.mealLog;
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setPeriod' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/UserProfile.modified.jsx:445:18]
+ 444 | function StudentCookView({ studentName, onBack }) {
+ 445 |   const [period, setPeriod] = useState('week');
+     :                  ^^^^|^^^^
+     :                      `-- 'setPeriod' is declared here
+ 446 |   const log = STUDENT_COOK_DATA.mealLog;
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'studentName' is declared but never used. Unused parameters should start with a '_'.
+     ,-[staff/src/pages/UserProfile.modified.jsx:554:31]
+ 553 | 
+ 554 | function StudentCleanerView({ studentName, roomNo, onBack }) {
+     :                               ^^^^^|^^^^^
+     :                                    `-- 'studentName' is declared here
+ 555 |   const statusColor = { Approved: '#16a34a', Rejected: '#ef4444', Pending: '#d97706' };
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Function 'UserInventoryView' is declared but never used.
+     ,-[admin/src/pages/ManageRooms.jsx:174:10]
+ 173 | // ─── LEVEL 4: User Inventory Detail ──────────────────────────────
+ 174 | function UserInventoryView({ user, onBack }) {
+     :          ^^^^^^^^|^^^^^^^^
+     :                  `-- 'UserInventoryView' is declared here
+ 175 |   const [items] = useState(USER_ALLOTTED_DATA.map(i => ({ ...i })));
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'vacantRooms' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/ManageRooms.jsx:414:21]
+ 413 |               const residents = USERS_DATA.filter(u => room.residentIds.includes(u.id));
+ 414 |               const vacantRooms = ROOMS_DATA.filter(r => r.id !== room.id && r.status === 'vacated');
+     :                     ^^^^^|^^^^^
+     :                          `-- 'vacantRooms' is declared here
+ 415 |               return (
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'total' is declared but never used. Unused variables should start with a '_'.
+    ,-[admin/src/pages/Transportation.jsx:82:9]
+ 81 | function DriverCard({ driver, onClick }) {
+ 82 |   const total = driver.students.reduce((s, st) => s + st.fee, 0);
+    :         ^^|^^
+    :           `-- 'total' is declared here
+ 83 |   return (
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'idx' is declared but never used. Unused parameters should start with a '_'.
+     ,-[staff/src/pages/Complain.jsx:99:30]
+  98 | 
+  99 |         {filtered.map((comp, idx) => {
+     :                              ^|^
+     :                               `-- 'idx' is declared here
+ 100 |           const sc = STATUS_CONFIG[comp.status];
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'Divider' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/StaffApp.jsx:102:7]
+ 101 | 
+ 102 | const Divider = ()=><div style={{height:1,background:C.border,margin:'6px 0'}}/>;
+     :       ^^^|^^^
+     :          `-- 'Divider' is declared here
+ 103 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'eaten' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/StaffApp.jsx:318:9]
+ 317 | 
+ 318 |   const eaten = students.filter(s=>s.statusB==='eaten').length; // Home view demo data
+     :         ^^|^^
+     :           `-- 'eaten' is declared here
+ 319 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'i' is declared but never used. Unused parameters should start with a '_'.
+     ,-[admin/src/pages/StaffApp.jsx:504:29]
+ 503 |           <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:20}}>
+ 504 |             {MODULES.map((m,i)=>(
+     :                             |
+     :                             `-- 'i' is declared here
+ 505 |               <button key={m.id} onClick={()=>setView(m.id)}
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Identifier 'RadialBarChart' is imported but never used.
+   ,-[admin/src/pages/Reports.jsx:6:20]
+ 5 |   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+ 6 |   AreaChart, Area, RadialBarChart, RadialBar
+   :                    ^^^^^^^|^^^^^^
+   :                           `-- 'RadialBarChart' is imported here
+ 7 | } from 'recharts';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Identifier 'RadialBar' is imported but never used.
+   ,-[admin/src/pages/Reports.jsx:6:36]
+ 5 |   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+ 6 |   AreaChart, Area, RadialBarChart, RadialBar
+   :                                    ^^^^|^^^^
+   :                                        `-- 'RadialBar' is imported here
+ 7 | } from 'recharts';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Variable 'user' is declared but never used. Unused variables should start with a '_'.
+   ,-[staff/src/pages/CustomerDashboard.jsx:7:11]
+ 6 | export default function CustomerDashboard() {
+ 7 |   const { user, logout } = useAuth();
+   :           ^^|^
+   :             `-- 'user' is declared here
+ 8 |   const navigate = useNavigate();
+   `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'user' is declared but never used. Unused variables should start with a '_'.
+    ,-[staff/src/pages/StaffDashboard.jsx:13:11]
+ 12 | export default function StaffDashboard() {
+ 13 |   const { user, logout } = useAuth();
+    :           ^^|^
+    :             `-- 'user' is declared here
+ 14 |   const navigate = useNavigate();
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'cyan' is declared but never used. Unused variables should start with a '_'.
+   ,-[staff/src/pages/PriceMenu.jsx:4:7]
+ 3 | 
+ 4 | const cyan = '#0891b2';
+   :       ^^|^
+   :         `-- 'cyan' is declared here
+ 5 | 
+   `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'MONTHS_SHORT' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/ManageAccount.jsx:114:7]
+ 113 | 
+ 114 | const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+     :       ^^^^^^|^^^^^
+     :             `-- 'MONTHS_SHORT' is declared here
+ 115 | const MONTHS_FULL  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'user' is declared but never used. Unused variables should start with a '_'.
+    ,-[staff/src/pages/CreatePGProfile.jsx:22:11]
+ 21 |   const navigate = useNavigate();
+ 22 |   const { user, completeProfile } = useAuth();
+    :           ^^|^
+    :             `-- 'user' is declared here
+ 23 |   const [isOnLease, setIsOnLease] = useState(false);
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Function 'UserInventoryView' is declared but never used.
+     ,-[staff/src/pages/ManageRooms.jsx:174:10]
+ 173 | // ─── LEVEL 4: User Inventory Detail ──────────────────────────────
+ 174 | function UserInventoryView({ user, onBack }) {
+     :          ^^^^^^^^|^^^^^^^^
+     :                  `-- 'UserInventoryView' is declared here
+ 175 |   const [items] = useState(USER_ALLOTTED_DATA.map(i => ({ ...i })));
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'vacantRooms' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/ManageRooms.jsx:414:21]
+ 413 |               const residents = USERS_DATA.filter(u => room.residentIds.includes(u.id));
+ 414 |               const vacantRooms = ROOMS_DATA.filter(r => r.id !== room.id && r.status === 'vacated');
+     :                     ^^^^^|^^^^^
+     :                          `-- 'vacantRooms' is declared here
+ 415 |               return (
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Identifier 'useEffect' is imported but never used.
+   ,-[staff/src/pages/AdminDashboard.jsx:1:27]
+ 1 | import React, { useState, useEffect } from 'react';
+   :                           ^^^^|^^^^
+   :                               `-- 'useEffect' is imported here
+ 2 | import { useNavigate } from 'react-router-dom';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Variable 'BED_INVENTORY' is declared but never used. Unused variables should start with a '_'.
+    ,-[staff/src/pages/Inventory.jsx:90:7]
+ 89 | 
+ 90 | const BED_INVENTORY = [
+    :       ^^^^^^|^^^^^^
+    :             `-- 'BED_INVENTORY' is declared here
+ 91 |   { room: 'Room No. 15', beds: 2 }, { room: 'Room No. 16', beds: 3 }, { room: 'Room No. 17', beds: 4 },
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-expressions): Expected expression to be used
+     ,-[staff/src/pages/Inventory.jsx:263:49]
+ 262 |           onClick={e => e.stopPropagation()}
+ 263 |           onChange={e => { e.stopPropagation(); onQtyChange && onQtyChange(parseInt(e.target.value) || 0); }}
+     :                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 264 |           style={{ width: 52, padding: '6px 8px', border: `1.5px solid ${cyan}`, borderRadius: 8, fontSize: 15, fontWeight: 700, color: '#0f172a', textAlign: 'center', outline: 'none', fontFamily: 'inherit', background: 'white' }}
+     `----
+  help: Consider using this expression or removing it
+
+  ! eslint(no-unused-vars): Function 'AddUserView' is declared but never used.
+     ,-[staff/src/pages/ManageTenants.jsx:141:10]
+ 140 | // ─── VIEW 2: ADD USER ─────────────────────────────────────
+ 141 | function AddUserView({ onBack }) {
+     :          ^^^^^|^^^^^
+     :               `-- 'AddUserView' is declared here
+ 142 |   const [userType, setUserType] = useState('upcoming'); // upcoming | current
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'today' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/ManageTenants.jsx:177:9]
+ 176 |   const todayObj = new Date();
+ 177 |   const today = todayObj.toISOString().split('T')[0];
+     :         ^^|^^
+     :           `-- 'today' is declared here
+ 178 |   const dayAfterTomorrowObj = new Date(todayObj);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Function 'AddUserView' is declared but never used.
+     ,-[admin/src/pages/ManageTenants.jsx:141:10]
+ 140 | // ─── VIEW 2: ADD USER ─────────────────────────────────────
+ 141 | function AddUserView({ onBack }) {
+     :          ^^^^^|^^^^^
+     :               `-- 'AddUserView' is declared here
+ 142 |   const [userType, setUserType] = useState('upcoming'); // upcoming | current
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'today' is declared but never used. Unused variables should start with a '_'.
+     ,-[admin/src/pages/ManageTenants.jsx:177:9]
+ 176 |   const todayObj = new Date();
+ 177 |   const today = todayObj.toISOString().split('T')[0];
+     :         ^^|^^
+     :           `-- 'today' is declared here
+ 178 |   const dayAfterTomorrowObj = new Date(todayObj);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'user' is declared but never used. Unused parameters should start with a '_'.
+     ,-[staff/src/pages/UserProfile.jsx:360:31]
+ 359 | // ─── SUB-VIEW: VISITOR HISTORY ────────────────────────────
+ 360 | function VisitorHistoryView({ user, onBack }) {
+     :                               ^^|^
+     :                                 `-- 'user' is declared here
+ 361 |   const [selectedVisitor, setSelectedVisitor] = useState(null);
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Parameter 'studentName' is declared but never used. Unused parameters should start with a '_'.
+     ,-[staff/src/pages/UserProfile.jsx:456:28]
+ 455 | 
+ 456 | function StudentCookView({ studentName, onBack }) {
+     :                            ^^^^^|^^^^^
+     :                                 `-- 'studentName' is declared here
+ 457 |   const [period, setPeriod] = useState('week');
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'period' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/UserProfile.jsx:457:10]
+ 456 | function StudentCookView({ studentName, onBack }) {
+ 457 |   const [period, setPeriod] = useState('week');
+     :          ^^^|^^
+     :             `-- 'period' is declared here
+ 458 |   const log = STUDENT_COOK_DATA.mealLog;
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setPeriod' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/UserProfile.jsx:457:18]
+ 456 | function StudentCookView({ studentName, onBack }) {
+ 457 |   const [period, setPeriod] = useState('week');
+     :                  ^^^^|^^^^
+     :                      `-- 'setPeriod' is declared here
+ 458 |   const log = STUDENT_COOK_DATA.mealLog;
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'studentName' is declared but never used. Unused parameters should start with a '_'.
+     ,-[staff/src/pages/UserProfile.jsx:566:31]
+ 565 | 
+ 566 | function StudentCleanerView({ studentName, roomNo, onBack }) {
+     :                               ^^^^^|^^^^^
+     :                                    `-- 'studentName' is declared here
+ 567 |   const statusColor = { Approved: '#16a34a', Rejected: '#ef4444', Pending: '#d97706' };
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'finalSecurity' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/UserProfile.jsx:669:9]
+ 668 |   const totalDamages = damages.reduce((s,d) => s + d.cost, 0);
+ 669 |   const finalSecurity = profile.securityAmt - totalDamages;
+     :         ^^^^^^|^^^^^^
+     :               `-- 'finalSecurity' is declared here
+ 670 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setPayAmount' is declared but never used. Unused variables should start with a '_'.
+      ,-[staff/src/pages/UserProfile.jsx:1125:21]
+ 1124 |   const profile = USER_PROFILES[user?.id] || DEFAULT_PROFILE;
+ 1125 |   const [payAmount, setPayAmount] = useState(profile.pending > 0 ? (profile.rent - profile.pending) : profile.rent);
+      :                     ^^^^^^|^^^^^
+      :                           `-- 'setPayAmount' is declared here
+ 1126 |   const remainingDues = Math.max(0, profile.rent - payAmount);
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'COOK_DATA' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/StaffWork.jsx:103:7]
+ 102 | 
+ 103 | const COOK_DATA = {
+     :       ^^^^|^^^^
+     :           `-- 'COOK_DATA' is declared here
+ 104 |   c1: {
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'COOK_DAY_STATS' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/StaffWork.jsx:124:7]
+ 123 | 
+ 124 | const COOK_DAY_STATS = {
+     :       ^^^^^^^|^^^^^^
+     :              `-- 'COOK_DAY_STATS' is declared here
+ 125 |   c1: [
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'CLEANER_DATA' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/StaffWork.jsx:140:7]
+ 139 | 
+ 140 | const CLEANER_DATA = {
+     :       ^^^^^^|^^^^^
+     :             `-- 'CLEANER_DATA' is declared here
+ 141 |   cl1: { assignedRooms: [
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'CLEANER_STATS' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/StaffWork.jsx:154:7]
+ 153 | 
+ 154 | const CLEANER_STATS = {
+     :       ^^^^^^|^^^^^^
+     :             `-- 'CLEANER_STATS' is declared here
+ 155 |   daily: { total: 8, breakdown: { full: 4, dusting: 2, bathroom: 2 } },
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setTargetStaff' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/StaffWork.jsx:445:23]
+ 444 | export function AssignWorkModal({ staffName, role, onClose, onSubmit }) {
+ 445 |   const [targetStaff, setTargetStaff] = useState(staffName || 'Ramesh Yadav');
+     :                       ^^^^^^^|^^^^^^
+     :                              `-- 'setTargetStaff' is declared here
+ 446 |   const [workType, setWorkType] = useState('Regular'); // 'Regular' | 'Special'
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'staffName' is declared but never used. Unused parameters should start with a '_'.
+     ,-[staff/src/pages/StaffWork.jsx:634:39]
+ 633 | 
+ 634 | export function AssignedWorkSection({ staffName, role, assignedTasks }) {
+     :                                       ^^^^|^^^^
+     :                                           `-- 'staffName' is declared here
+ 635 |   const tasks = assignedTasks || [];
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Parameter 'role' is declared but never used. Unused parameters should start with a '_'.
+     ,-[staff/src/pages/StaffWork.jsx:634:50]
+ 633 | 
+ 634 | export function AssignedWorkSection({ staffName, role, assignedTasks }) {
+     :                                                  ^^|^
+     :                                                    `-- 'role' is declared here
+ 635 |   const tasks = assignedTasks || [];
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Variable 'showAssignWorkModal' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/StaffWork.jsx:958:10]
+ 957 |   const [showPackedModal, setShowPackedModal] = useState(false);
+ 958 |   const [showAssignWorkModal, setShowAssignWorkModal] = useState(false);
+     :          ^^^^^^^^^|^^^^^^^^^
+     :                   `-- 'showAssignWorkModal' is declared here
+ 959 |   const [showProfileModal, setShowProfileModal] = useState(false);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'handleReqSubmit' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/StaffWork.jsx:977:9]
+ 976 | 
+ 977 |   const handleReqSubmit = (newReq) => {
+     :         ^^^^^^^|^^^^^^^
+     :                `-- 'handleReqSubmit' is declared here
+ 978 |     INITIAL_STAFF_PURCHASE_REQUISITIONS.unshift(newReq);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'handleAssignWorkSubmit' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/StaffWork.jsx:983:9]
+ 982 | 
+ 983 |   const handleAssignWorkSubmit = (newTask) => {
+     :         ^^^^^^^^^^^|^^^^^^^^^^
+     :                    `-- 'handleAssignWorkSubmit' is declared here
+ 984 |     INITIAL_ASSIGNED_STAFF_WORK.unshift(newTask);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'handleUpdateStatus' is declared but never used. Unused variables should start with a '_'.
+      ,-[staff/src/pages/StaffWork.jsx:1362:9]
+ 1361 | 
+ 1362 |   const handleUpdateStatus = (id, newStatus) => {
+      :         ^^^^^^^^^|^^^^^^^^
+      :                  `-- 'handleUpdateStatus' is declared here
+ 1363 |     setAssignedWork(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t));
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'handleReqSubmit' is declared but never used. Unused variables should start with a '_'.
+      ,-[staff/src/pages/StaffWork.jsx:1366:9]
+ 1365 | 
+ 1366 |   const handleReqSubmit = (newReq) => {
+      :         ^^^^^^^|^^^^^^^
+      :                `-- 'handleReqSubmit' is declared here
+ 1367 |     INITIAL_STAFF_PURCHASE_REQUISITIONS.unshift(newReq);
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setNotReqRooms' is declared but never used. Unused variables should start with a '_'.
+      ,-[staff/src/pages/StaffWork.jsx:1380:23]
+ 1379 |   ]);
+ 1380 |   const [notReqRooms, setNotReqRooms] = useState([
+      :                       ^^^^^^^|^^^^^^
+      :                              `-- 'setNotReqRooms' is declared here
+ 1381 |     { room: '301' }, { room: '302' }
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Function 'StaffMemberList' is declared but never used.
+      ,-[staff/src/pages/StaffWork.jsx:1879:10]
+ 1878 | // ─── STAFF MEMBER LIST ────────────────────────────────────────────────────────
+ 1879 | function StaffMemberList({ role, onBack, onSelect }) {
+      :          ^^^^^^^|^^^^^^^
+      :                 `-- 'StaffMemberList' is declared here
+ 1880 |   const members = STAFF_MEMBERS[role.id] || [];
+      `----
+  help: Consider removing this declaration.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[staff/src/pages/StaffWork.jsx:28:14]
+ 27 | // ─── DATA ─────────────────────────────────────────────────────────────────────
+ 28 | export const ROLES = [
+    :              ^^^^^
+ 29 |   { id: 'hr',          label: 'HR',              icon: 'manage_accounts',    category: 'A'       },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[staff/src/pages/StaffWork.jsx:41:14]
+ 40 | 
+ 41 | export const STAFF_MEMBERS = {
+    :              ^^^^^^^^^^^^^
+ 42 |   hr:          [{ id: 'h1',  name: 'Priya Mishra',     joined: 'Jan 2024', phone: '9876543210' }],
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[staff/src/pages/StaffWork.jsx:54:14]
+ 53 | 
+ 54 | export const INITIAL_STAFF_PURCHASE_REQUISITIONS = [
+    :              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 55 |   { id: 1, date: '2026-07-22', staffName: 'Ramesh Yadav', staffRole: 'Cook', item: 'Basmati Rice (25kg)', qty: '2 bags', vendor: 'Sharma Traders', status: 'Pending' },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[staff/src/pages/StaffWork.jsx:61:14]
+ 60 | 
+ 61 | export const INITIAL_ASSIGNED_STAFF_WORK = [
+    :              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 62 |   { id: 1, staffId: 'cl1', staffName: 'Mohan Das', role: 'cleaner', title: 'Daily Floor Mopping & Sanitization', type: 'Regular', duration: 'Daily Routine', status: 'In Progress', note: 'Ensure Floor 2 corridor is cleaned before 10 AM', assignedDate: '2026-07-22' },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[staff/src/pages/StaffWork.jsx:68:14]
+ 67 | 
+ 68 | export const INITIAL_PACKED_FOOD_REQUESTS = [
+    :              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 69 |   { id: 1, studentId: 'u102', studentName: 'Ravi Gupta', room: '102', phone: '+91 9876543210', date: '2026-07-22', meal: 'Lunch', timing: 'Same Day', note: 'Pack extra pickle', status: 'Pending' },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[staff/src/pages/StaffWork.jsx:75:14]
+ 74 | 
+ 75 | export const INITIAL_FOOD_BROADCASTS = [
+    :              ^^^^^^^^^^^^^^^^^^^^^^^
+ 76 |   { id: 1, date: '2026-07-22', time: '01:15 PM', meal: 'Lunch', cookName: 'Ramesh Yadav', target: 'All Students', message: 'Lunch is hot & ready! Dal Tadka, Jeera Rice & Hot Rotis.' },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+      ,-[staff/src/pages/StaffWork.jsx:1913:14]
+ 1912 | 
+ 1913 | export const ROLE_GRADIENTS = {
+      :              ^^^^^^^^^^^^^^
+ 1914 |   hr:          'linear-gradient(135deg,#6366f1,#4f46e5)',
+      `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+      ,-[staff/src/pages/StaffWork.jsx:1926:14]
+ 1925 | 
+ 1926 | export const ROLE_CATS = [
+      :              ^^^^^^^^^
+ 1927 |   { key: 'management', label: 'Management', ids: ['hr', 'manager', 'sales', 'purchase'] },
+      `----
+
+  ! eslint(no-unused-vars): Variable 'Divider' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/StaffApp.jsx:102:7]
+ 101 | 
+ 102 | const Divider = ()=><div style={{height:1,background:C.border,margin:'6px 0'}}/>;
+     :       ^^^|^^^
+     :          `-- 'Divider' is declared here
+ 103 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'eaten' is declared but never used. Unused variables should start with a '_'.
+     ,-[staff/src/pages/StaffApp.jsx:318:9]
+ 317 | 
+ 318 |   const eaten = students.filter(s=>s.statusB==='eaten').length; // Home view demo data
+     :         ^^|^^
+     :           `-- 'eaten' is declared here
+ 319 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'i' is declared but never used. Unused parameters should start with a '_'.
+     ,-[staff/src/pages/StaffApp.jsx:504:29]
+ 503 |           <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:20}}>
+ 504 |             {MODULES.map((m,i)=>(
+     :                             |
+     :                             `-- 'i' is declared here
+ 505 |               <button key={m.id} onClick={()=>setView(m.id)}
+     `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Identifier 'limit' is imported but never used.
+   ,-[src/pages/StaffApp.jsx:4:77]
+ 3 | import { db } from '../firebase';
+ 4 | import { collection, addDoc, doc, setDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
+   :                                                                             ^^|^^
+   :                                                                               `-- 'limit' is imported here
+ 5 | 
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Class 'ErrorBoundary' is declared but never used.
+   ,-[src/pages/StaffApp.jsx:6:7]
+ 5 | 
+ 6 | class ErrorBoundary extends React.Component {
+   :       ^^^^^^|^^^^^^
+   :             `-- 'ErrorBoundary' is declared here
+ 7 |   constructor(props) {
+   `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'STUDENTS' is declared but never used. Unused variables should start with a '_'.
+    ,-[src/pages/StaffApp.jsx:58:7]
+ 57 | 
+ 58 | const STUDENTS = Array.from({length:30},(_,i) => {
+    :       ^^^^|^^^
+    :           `-- 'STUDENTS' is declared here
+ 59 |   const statuses = ['notEaten', 'eaten', 'requested', 'pack', 'extra'];
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'STORE_ITEMS' is declared but never used. Unused variables should start with a '_'.
+    ,-[src/pages/StaffApp.jsx:77:7]
+ 76 | 
+ 77 | const STORE_ITEMS = [
+    :       ^^^^^|^^^^^
+    :            `-- 'STORE_ITEMS' is declared here
+ 78 |   {id:1,name:'Basmati Rice 25kg',cat:'Kitchen',stock:'4 bags',status:'In Stock',min:'2 bags'},
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'INIT_CONTACTS' is declared but never used. Unused variables should start with a '_'.
+    ,-[src/pages/StaffApp.jsx:86:7]
+ 85 | 
+ 86 | const INIT_CONTACTS = [
+    :       ^^^^^^|^^^^^^
+    :             `-- 'INIT_CONTACTS' is declared here
+ 87 |   {id:'c1', name:'Admin Office', role:'Admin', avatar:'🏢', phone:'+91 99999 00000', isPinned:true, reminder:null, lastMsg:'Update daily logs by 6 PM today.', time:'09:00 AM'},
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'INIT_MESSAGES' is declared but never used. Unused variables should start with a '_'.
+    ,-[src/pages/StaffApp.jsx:92:7]
+ 91 | 
+ 92 | const INIT_MESSAGES = {
+    :       ^^^^^^|^^^^^^
+    :             `-- 'INIT_MESSAGES' is declared here
+ 93 |   'c1': [
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'visitors' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:105:7]
+ 104 | 
+ 105 | const visitors = [
+     :       ^^^^|^^^
+     :           `-- 'visitors' is declared here
+ 106 |   {id:1,name:'Rajesh Malhotra',phone:'+91 98111 22233',purpose:'Parent Visit – Rm 104',inTime:'10:15 AM',outTime:null,status:'Inside'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'parcels' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:110:7]
+ 109 | ];
+ 110 | const parcels = [
+     :       ^^^|^^^
+     :          `-- 'parcels' is declared here
+ 111 |   {id:1,student:'Arjun Mehta',room:'101',carrier:'Amazon',tracking:'AMZ-88910',date:'Today 10:30 AM',status:'Pending'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'tickets' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:115:7]
+ 114 | ];
+ 115 | const tickets = [
+     :       ^^^|^^^
+     :          `-- 'tickets' is declared here
+ 116 |   {id:1,room:'108',issue:'Water leakage — bathroom sink tap',priority:'High',status:'Open',student:'Sneha Kapoor',date:'Today 09:30 AM'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'cleaning' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:120:7]
+ 119 | ];
+ 120 | const cleaning = [
+     :       ^^^^|^^^
+     :           `-- 'cleaning' is declared here
+ 121 |   {id:1, room:'101', student:'Arjun Mehta', phone:'+91 9895921139', slot:'09:00 AM – 11:00 AM', slotStatus:'completed', type:'Full Room Clean', done:true, note:'Please mop balcony too', date:'2026-07-24'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'demands' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:128:7]
+ 127 | ];
+ 128 | const demands = [
+     :       ^^^|^^^
+     :          `-- 'demands' is declared here
+ 129 |   {id:1,item:'Basmati Rice 25kg',qty:'2 Bags',reqBy:'Ramesh (Cook)',vendor:'Local Market',date:'22 Jul',status:'Pending'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'candidates' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:134:7]
+ 133 | 
+ 134 | const candidates = [
+     :       ^^^^^|^^^^
+     :            `-- 'candidates' is declared here
+ 135 |   {id:1, name:'Suresh Kumar', position:'Helper / Maintenance', experience:'3 Yrs', phone:'+91 9876543210', status:'Interview Scheduled', date:'Today 2:00 PM', note:'Experienced in plumbing & painting'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'enquiries' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:140:7]
+ 139 | 
+ 140 | const enquiries = [
+     :       ^^^^|^^^^
+     :           `-- 'enquiries' is declared here
+ 141 |   {id:1, name:'Rohit Sharma', phone:'+91 9876543210', requirement:'Single Room AC', budget:'₹10,000', status:'New 🔴', source:'WhatsApp', text:'Looking for a single room with AC. Budget around ₹10,000.'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'tasks' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:147:7]
+ 146 | 
+ 147 | const tasks = [
+     :       ^^|^^
+     :         `-- 'tasks' is declared here
+ 148 |   {id:1, title:'Clean common area corridor – Ground Floor', assignedBy:'Admin', priority:'High', status:'Pending', room:'Common', time:'09:00 AM'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'plumbingJobs' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:154:7]
+ 153 | 
+ 154 | const plumbingJobs = [
+     :       ^^^^^^|^^^^^
+     :             `-- 'plumbingJobs' is declared here
+ 155 |   {id:1, room:'108', issue:'Bathroom sink tap leaking continuously', student:'Sneha Kapoor', priority:'High', status:'Open', date:'Today 09:30 AM', note:'Water pooling on floor'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'electricalJobs' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:161:7]
+ 160 | 
+ 161 | const electricalJobs = [
+     :       ^^^^^^^|^^^^^^
+     :              `-- 'electricalJobs' is declared here
+ 162 |   {id:1, room:'305', issue:'Geyser switch sparking / MCB tripping', student:'Ravi Kumar', priority:'High', status:'Open', date:'Today 08:00 AM', note:'Do not use till fixed'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'carpenterJobs' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:168:7]
+ 167 | 
+ 168 | const carpenterJobs = [
+     :       ^^^^^^|^^^^^^
+     :             `-- 'carpenterJobs' is declared here
+ 169 |   {id:1, room:'104', issue:'Wardrobe door hinge broken', student:'Divya Joshi', priority:'Normal', status:'Open', date:'Today 10:00 AM', note:'Needs 2 hinges'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'rooms' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:175:7]
+ 174 | 
+ 175 | const rooms = [
+     :       ^^|^^
+     :         `-- 'rooms' is declared here
+ 176 |   {id:1, number:'101', type:'Single AC', status:'Occupied', student:'Arjun Mehta', rent:'₹12,000', due:'2026-08-01'},
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'INIT_VENDORS' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:184:7]
+ 183 | 
+ 184 | const INIT_VENDORS = [
+     :       ^^^^^^|^^^^^
+     :             `-- 'INIT_VENDORS' is declared here
+ 185 |   { id: 1, name: 'Sunil Kumar', shop: 'The Local Market', category: 'Groceries', upi: 'sunilkumar@upi', balance: 90, totalSpent: 100 },
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'INIT_VENDOR_LEDGER' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:367:7]
+ 366 | 
+ 367 | const INIT_VENDOR_LEDGER = [
+     :       ^^^^^^^^^|^^^^^^^^
+     :                `-- 'INIT_VENDOR_LEDGER' is declared here
+ 368 |   { id: 1, vendorId: 1, date: '24 July 2026', type: 'Purchase', amount: 100, desc: 'Purchase: Besan (10 kg)', status: 'Pending', pm: 'UPI -> sunilkumar@upi' }
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'Divider' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:380:7]
+ 379 | 
+ 380 | const Divider = ()=><div style={{height:1,background:C.border,margin:'6px 0'}}/>;
+     :       ^^^|^^^
+     :          `-- 'Divider' is declared here
+ 381 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/pages/StaffApp.jsx:423:14]
+ 422 |       return saved !== null ? JSON.parse(saved) : defaultValue;
+ 423 |     } catch (e) {
+     :              |
+     :              `-- 'e' is declared here
+ 424 |       return defaultValue;
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/pages/StaffApp.jsx:431:14]
+ 430 |       localStorage.setItem(key, JSON.stringify(state));
+ 431 |     } catch (e) {}
+     :              |
+     :              `-- 'e' is declared here
+ 432 |   }, [key, state]);
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Variable 'toast' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:563:10]
+ 562 |     const {user,logout} = useAuth();
+ 563 |   const [toast, setToast] = useState(null);
+     :          ^^|^^
+     :            `-- 'toast' is declared here
+ 564 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'salaryExpanded' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:590:10]
+ 589 |   const [view,     setView]     = useState('home');
+ 590 |   const [salaryExpanded, setSalaryExpanded] = useState({});
+     :          ^^^^^^^|^^^^^^
+     :                 `-- 'salaryExpanded' is declared here
+ 591 |   const [aiEstimates, setAiEstimates] = useState(null);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setSalaryExpanded' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:590:26]
+ 589 |   const [view,     setView]     = useState('home');
+ 590 |   const [salaryExpanded, setSalaryExpanded] = useState({});
+     :                          ^^^^^^^^|^^^^^^^^
+     :                                  `-- 'setSalaryExpanded' is declared here
+ 591 |   const [aiEstimates, setAiEstimates] = useState(null);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'isEstimating' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:592:10]
+ 591 |   const [aiEstimates, setAiEstimates] = useState(null);
+ 592 |   const [isEstimating, setIsEstimating] = useState(false);
+     :          ^^^^^^|^^^^^
+     :                `-- 'isEstimating' is declared here
+ 593 |   
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setPaySlips' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:610:20]
+ 609 |   const [punchLog, setPunchLog] = useState([]);
+ 610 |   const [paySlips, setPaySlips] = useState([]);
+     :                    ^^^^^|^^^^^
+     :                         `-- 'setPaySlips' is declared here
+ 611 |   const [workingDays, setWorkingDays] = useState(0);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'parcelItemName' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:682:10]
+ 681 |   const [showParcelModal, setShowParcelModal] = useState(false);
+ 682 |   const [parcelItemName, setParcelItemName] = useState('');
+     :          ^^^^^^^|^^^^^^
+     :                 `-- 'parcelItemName' is declared here
+ 683 |   const [parcelStudent, setParcelStudent] = useState('');
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setParcelItemName' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:682:26]
+ 681 |   const [showParcelModal, setShowParcelModal] = useState(false);
+ 682 |   const [parcelItemName, setParcelItemName] = useState('');
+     :                          ^^^^^^^^|^^^^^^^^
+     :                                  `-- 'setParcelItemName' is declared here
+ 683 |   const [parcelStudent, setParcelStudent] = useState('');
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'parcelStudent' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:683:10]
+ 682 |   const [parcelItemName, setParcelItemName] = useState('');
+ 683 |   const [parcelStudent, setParcelStudent] = useState('');
+     :          ^^^^^^|^^^^^^
+     :                `-- 'parcelStudent' is declared here
+ 684 |   const [parcelRoom, setParcelRoom] = useState('');
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setParcelStudent' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:683:25]
+ 682 |   const [parcelItemName, setParcelItemName] = useState('');
+ 683 |   const [parcelStudent, setParcelStudent] = useState('');
+     :                         ^^^^^^^^|^^^^^^^
+     :                                 `-- 'setParcelStudent' is declared here
+ 684 |   const [parcelRoom, setParcelRoom] = useState('');
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'parcelRoom' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:684:10]
+ 683 |   const [parcelStudent, setParcelStudent] = useState('');
+ 684 |   const [parcelRoom, setParcelRoom] = useState('');
+     :          ^^^^^|^^^^
+     :               `-- 'parcelRoom' is declared here
+ 685 |   const [parcelCarrier, setParcelCarrier] = useState('Amazon');
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setParcelRoom' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:684:22]
+ 683 |   const [parcelStudent, setParcelStudent] = useState('');
+ 684 |   const [parcelRoom, setParcelRoom] = useState('');
+     :                      ^^^^^^|^^^^^^
+     :                            `-- 'setParcelRoom' is declared here
+ 685 |   const [parcelCarrier, setParcelCarrier] = useState('Amazon');
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'parcelCarrier' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:685:10]
+ 684 |   const [parcelRoom, setParcelRoom] = useState('');
+ 685 |   const [parcelCarrier, setParcelCarrier] = useState('Amazon');
+     :          ^^^^^^|^^^^^^
+     :                `-- 'parcelCarrier' is declared here
+ 686 |   const [parcelDate, setParcelDate] = useState(new Date().toISOString().split('T')[0]);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setParcelCarrier' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:685:25]
+ 684 |   const [parcelRoom, setParcelRoom] = useState('');
+ 685 |   const [parcelCarrier, setParcelCarrier] = useState('Amazon');
+     :                         ^^^^^^^^|^^^^^^^
+     :                                 `-- 'setParcelCarrier' is declared here
+ 686 |   const [parcelDate, setParcelDate] = useState(new Date().toISOString().split('T')[0]);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'parcelDate' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:686:10]
+ 685 |   const [parcelCarrier, setParcelCarrier] = useState('Amazon');
+ 686 |   const [parcelDate, setParcelDate] = useState(new Date().toISOString().split('T')[0]);
+     :          ^^^^^|^^^^
+     :               `-- 'parcelDate' is declared here
+ 687 |   const [parcels, setParcels] = usePersistentState('febebo_parcels', []);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setParcelDate' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:686:22]
+ 685 |   const [parcelCarrier, setParcelCarrier] = useState('Amazon');
+ 686 |   const [parcelDate, setParcelDate] = useState(new Date().toISOString().split('T')[0]);
+     :                      ^^^^^^|^^^^^^
+     :                            `-- 'setParcelDate' is declared here
+ 687 |   const [parcels, setParcels] = usePersistentState('febebo_parcels', []);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'moNotes' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:702:10]
+ 701 |   ]);
+ 702 |   const [moNotes, setMoNotes] = useState('');
+     :          ^^^|^^^
+     :             `-- 'moNotes' is declared here
+ 703 |   
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setMoNotes' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:702:19]
+ 701 |   ]);
+ 702 |   const [moNotes, setMoNotes] = useState('');
+     :                   ^^^^^|^^^^
+     :                        `-- 'setMoNotes' is declared here
+ 703 |   
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setCleanerTimeFilter' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:719:29]
+ 718 |   const [cleaning, setCleaning] = usePersistentState('febebo_cleaning', []);
+ 719 |   const [cleanerTimeFilter, setCleanerTimeFilter] = useState('Daily'); // Daily | Weekly | Monthly
+     :                             ^^^^^^^^^^|^^^^^^^^^
+     :                                       `-- 'setCleanerTimeFilter' is declared here
+ 720 |   const [cleanerDate, setCleanerDate] = useState(new Date().toISOString().split('T')[0]);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'myDemands' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:869:10]
+ 868 |   const [dItem,setDItem]=useState(''); const [dQty,setDQty]=useState(''); const [dNote,setDNote]=useState('');
+ 869 |   const [myDemands,setMyDemands]=useState([{id:1,item:'Basmati Rice 25kg',qty:'2 Bags',date:'22 Jul',status:'Approved'}]);
+     :          ^^^^|^^^^
+     :              `-- 'myDemands' is declared here
+ 870 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'todayStr' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:872:9]
+ 871 |   // Send Item Request system
+ 872 |   const todayStr = new Date().toISOString().split('T')[0];
+     :         ^^^^|^^^
+     :             `-- 'todayStr' is declared here
+ 873 |   const [showItemRequestModal, setShowItemRequestModal] = useState(false);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'showAiAssistant' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:925:10]
+ 924 | 
+ 925 |   const [showAiAssistant, setShowAiAssistant] = useState(false);
+     :          ^^^^^^^|^^^^^^^
+     :                 `-- 'showAiAssistant' is declared here
+ 926 |   const [aiMeetings, setAiMeetings] = usePersistentState('febebo_ai_meetings', []);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setShowAiAssistant' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:925:27]
+ 924 | 
+ 925 |   const [showAiAssistant, setShowAiAssistant] = useState(false);
+     :                           ^^^^^^^^^|^^^^^^^^
+     :                                    `-- 'setShowAiAssistant' is declared here
+ 926 |   const [aiMeetings, setAiMeetings] = usePersistentState('febebo_ai_meetings', []);
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'aiMeetings' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:926:10]
+ 925 |   const [showAiAssistant, setShowAiAssistant] = useState(false);
+ 926 |   const [aiMeetings, setAiMeetings] = usePersistentState('febebo_ai_meetings', []);
+     :          ^^^^^|^^^^
+     :               `-- 'aiMeetings' is declared here
+ 927 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setAiMeetings' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:926:22]
+ 925 |   const [showAiAssistant, setShowAiAssistant] = useState(false);
+ 926 |   const [aiMeetings, setAiMeetings] = usePersistentState('febebo_ai_meetings', []);
+     :                      ^^^^^^|^^^^^^
+     :                            `-- 'setAiMeetings' is declared here
+ 927 | 
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/pages/StaffApp.jsx:935:13]
+ 934 |       showToast('Visitor entry approved', 'success');
+ 935 |     } catch(e) { showToast('Error approving', 'error'); }
+     :             |
+     :             `-- 'e' is declared here
+ 936 |   };
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/pages/StaffApp.jsx:941:13]
+ 940 |       showToast('Visitor entry denied', 'error');
+ 941 |     } catch(e) { showToast('Error denying', 'error'); }
+     :             |
+     :             `-- 'e' is declared here
+ 942 |   };
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/pages/StaffApp.jsx:947:13]
+ 946 |       showToast('Visitor exit approved', 'success');
+ 947 |     } catch(e) { showToast('Error exiting', 'error'); }
+     :             |
+     :             `-- 'e' is declared here
+ 948 |   };
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Variable 'showMeterModal' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:951:10]
+ 950 |   // 3. Meter Reading
+ 951 |   const [showMeterModal, setShowMeterModal] = useState(false);
+     :          ^^^^^^^|^^^^^^
+     :                 `-- 'showMeterModal' is declared here
+ 952 |   const [meterRoom, setMeterRoom] = useState('101');
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setShowMeterModal' is declared but never used. Unused variables should start with a '_'.
+     ,-[src/pages/StaffApp.jsx:951:26]
+ 950 |   // 3. Meter Reading
+ 951 |   const [showMeterModal, setShowMeterModal] = useState(false);
+     :                          ^^^^^^^^|^^^^^^^^
+     :                                  `-- 'setShowMeterModal' is declared here
+ 952 |   const [meterRoom, setMeterRoom] = useState('101');
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setSelectedPaySlip' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1010:27]
+ 1009 | 
+ 1010 |   const [selectedPaySlip, setSelectedPaySlip] = useState(null);
+      :                           ^^^^^^^^^|^^^^^^^^
+      :                                    `-- 'setSelectedPaySlip' is declared here
+ 1011 |   const [showPaySlipModal, setShowPaySlipModal] = useState(false);
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setAssignedAssets' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1020:26]
+ 1019 |   ]);
+ 1020 |   const [assignedAssets, setAssignedAssets] = useState([
+      :                          ^^^^^^^^|^^^^^^^^
+      :                                  `-- 'setAssignedAssets' is declared here
+ 1021 |     {id:1, name:'Commercial Gas Cylinders', qty:'2 Units', cond:'Good', serial:'LPG-8891'},
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'showReminder' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1057:10]
+ 1056 |   // Chat Reminder Modal
+ 1057 |   const [showReminder, setShowReminder] = useState(false);
+      :          ^^^^^^|^^^^^
+      :                `-- 'showReminder' is declared here
+ 1058 |   const [remDate, setRemDate] = useState(new Date().toISOString().split('T')[0]);
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setRemDate' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1058:19]
+ 1057 |   const [showReminder, setShowReminder] = useState(false);
+ 1058 |   const [remDate, setRemDate] = useState(new Date().toISOString().split('T')[0]);
+      :                   ^^^^^|^^^^
+      :                        `-- 'setRemDate' is declared here
+ 1059 |   const [remTime, setRemTime] = useState('17:00');
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setRemTime' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1059:19]
+ 1058 |   const [remDate, setRemDate] = useState(new Date().toISOString().split('T')[0]);
+ 1059 |   const [remTime, setRemTime] = useState('17:00');
+      :                   ^^^^^|^^^^
+      :                        `-- 'setRemTime' is declared here
+ 1060 |   const [remReason, setRemReason] = useState('');
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'rptHist' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1064:10]
+ 1063 |   const [rptText,setRptText]  = useState('');
+ 1064 |   const [rptHist,setRptHist]  = useState([{id:1,date:'22 Jul 2026',summary:'Completed mess clean-up & kitchen prep for dinner.',status:'Reviewed ✓'}]);
+      :          ^^^|^^^
+      :             `-- 'rptHist' is declared here
+ 1065 | 
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+      ,-[src/pages/StaffApp.jsx:1213:19]
+ 1212 |             hrs = `${h} h ${m} m`;
+ 1213 |           } catch(e) {}
+      :                   |
+      :                   `-- 'e' is declared here
+ 1214 |         }
+      `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Variable 'today' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1322:9]
+ 1321 |   const greet= hr<12?'Good Morning':hr<17?'Good Afternoon':'Good Evening';
+ 1322 |   const today= new Date().toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
+      :         ^^|^^
+      :           `-- 'today' is declared here
+ 1323 | 
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'saveReminder' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1550:9]
+ 1549 | 
+ 1550 |   const saveReminder = e => {
+      :         ^^^^^^|^^^^^
+      :               `-- 'saveReminder' is declared here
+ 1551 |     e.preventDefault();
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'submitReport' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1564:9]
+ 1563 | 
+ 1564 |   const submitReport = e=>{
+      :         ^^^^^^|^^^^^
+      :               `-- 'submitReport' is declared here
+ 1565 |     e.preventDefault();
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'eaten' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1613:9]
+ 1612 | 
+ 1613 |   const eaten = students.filter(s=>s.statusB==='eaten').length; // Home view demo data
+      :         ^^|^^
+      :           `-- 'eaten' is declared here
+ 1614 | 
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'MODULES' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1616:9]
+ 1615 |   // ─── Module tiles on Home ──────────────────────────────────────────────────
+ 1616 |   const MODULES = [
+      :         ^^^|^^^
+      :            `-- 'MODULES' is declared here
+ 1617 |     {id:'work',      label:'My Work',        sub:staffRole,          icon:'home_work',              grad:'#eef2ff'},
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'stats' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:1645:9]
+ 1644 |   };
+ 1645 |   const stats = roleStats[staffRole] || roleStats['HR'];
+      :         ^^|^^
+      :           `-- 'stats' is declared here
+ 1646 | 
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'upcomingSlots' is declared but never used. Unused variables should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:2433:19]
+ 2432 |             const activeSlots = cleaning.filter(c => c.slotStatus === 'active');
+ 2433 |             const upcomingSlots = cleaning.filter(c => c.slotStatus === 'upcoming');
+      :                   ^^^^^^|^^^^^^
+      :                         `-- 'upcomingSlots' is declared here
+ 2434 |             const completedSlots = cleaning.filter(c => c.done);
+      `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Parameter 'idx' is declared but never used. Unused parameters should start with a '_'.
+      ,-[src/pages/StaffApp.jsx:3701:35]
+ 3700 |             <div style={{display:'flex', gap:6, marginBottom:16, overflowX:'auto', paddingBottom:4, marginTop:12}}>
+ 3701 |               {attMonths.map((sm, idx) => (
+      :                                   ^|^
+      :                                    `-- 'idx' is declared here
+ 3702 |                 <button key={sm.m} onClick={() => setSelectedAttMonth(sm)}
+      `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-dupe-keys): Duplicate key 'Bus Driver'
+    ,-[src/pages/StaffApp.jsx:38:3]
+ 37 | const ROLE_META = {
+ 38 |   'Bus Driver':       { emoji:'🚌',   accent:'#38bdf8', accentBg:'#e0f2fe', dept:'Shuttle & Transport',     grad:'#38bdf8' },
+    :   ^^^^^^|^^^^^
+    :         `-- Key is first defined here
+ 39 |   'Bus Driver':       { emoji:'🚌',   accent:'#38bdf8', accentBg:'#e0f2fe', dept:'Shuttle & Transport',     grad:'#38bdf8' },
+    :   ^^^^^^|^^^^^
+    :         `-- and duplicated here
+ 40 |   'Cook':             { emoji:'👨‍🍳', accent:'#a78bfa', accentBg:'#ede9fe', dept:'Kitchen & Mess',      grad:'#a78bfa' },
+    `----
+  help: Consider removing the duplicated key
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'setCleaning', and 'setTickets'
+      ,-[src/pages/StaffApp.jsx:1317:6]
+ 1137 | 
+ 1138 |       setCleaning(parsedTasks);
+      :       ^^^^^^^^^^^
+ 1139 |     });
+ 1140 | 
+ 1141 |     // 2. Complaints / Maintenance Tickets (Plumber, Electrician, Carpenter)
+ 1142 |     const qComplaints = query(collection(db, 'complaints'), where('adminId', '==', adminId));
+ 1143 |     const unsubComplaints = onSnapshot(qComplaints, (snap) => {
+ 1144 |       const allComp = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+ 1145 |       setPlumbingJobs(allComp.filter(c => c.category === 'Plumbing' || c.subCategory === 'Plumbing'));
+ 1146 |       setElectricalJobs(allComp.filter(c => c.category === 'Electrical' || c.subCategory === 'Electrical'));
+ 1147 |       setCarpenterJobs(allComp.filter(c => c.category === 'Carpenter' || c.subCategory === 'Carpenter'));
+ 1148 |       setTickets(allComp);
+      :       ^^^^^^^^^^
+ 1149 |     });
+ 1150 | 
+ 1151 |     // 3. Item Requests (Purchase Manager)
+ 1152 |     const qItems = query(collection(db, 'item_requests'), where('adminId', '==', adminId));
+ 1153 |     const unsubItems = onSnapshot(qItems, (snap) => {
+ 1154 |       setDemands(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+ 1155 |     });
+ 1156 | 
+ 1157 |     // 3.5 Attendance for this staff member
+ 1158 |     const qAttendance = query(
+ 1159 |       collection(db, 'staff_attendance'), 
+ 1160 |       where('staffId', '==', user.id || user.uid || '')
+ 1161 |     );
+ 1162 |     const unsubAttendance = onSnapshot(qAttendance, (snap) => {
+ 1163 |       let logs = snap.docs.map(d => ({ dbId: d.id, ...d.data() }));
+ 1164 |       const currentMonth = new Date().toISOString().split('T')[0].substring(0, 7);
+ 1165 |       const wDays = new Set();
+ 1166 |       logs.forEach(log => {
+ 1167 |         if (log.date && log.date.startsWith(currentMonth)) {
+ 1168 |           wDays.add(log.date);
+ 1169 |         }
+ 1170 |       });
+ 1171 |       setWorkingDays(wDays.size);
+ 1172 | 
+ 1173 |       // Sort client-side to avoid needing a composite index
+ 1174 |       logs.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+ 1175 |       logs = logs.slice(0, 14);
+ 1176 | 
+ 1177 |       const todayStr = new Date().toISOString().split('T')[0];
+ 1178 |       
+ 1179 |       // Determine clocked state based on today's doc
+ 1180 |       const todayLog = logs.find(log => log.date === todayStr);
+ 1181 |       if (todayLog && !todayLog.clockOut) {
+ 1182 |         setClocked(true);
+ 1183 |         setClockIn(todayLog.clockIn);
+ 1184 |       } else {
+ 1185 |         setClocked(false);
+ 1186 |         setClockIn('');
+ 1187 |       }
+ 1188 | 
+ 1189 |       // Map to punchLog format
+ 1190 |       const formattedLogs = logs.map((log) => {
+ 1191 |         let displayDate = log.date;
+ 1192 |         if (log.date === todayStr) displayDate = 'Today, ' + new Date(log.date).toLocaleDateString('en-GB');
+ 1193 |         else displayDate = new Date(log.date).toLocaleDateString('en-GB');
+ 1194 |         
+ 1195 |         let hrs = null;
+ 1196 |         if (log.clockIn && log.clockOut) {
+ 1197 |           const parseTime = (timeStr) => {
+ 1198 |             const [time, modifier] = timeStr.split(' ');
+ 1199 |             let [hours, minutes] = time.split(':');
+ 1200 |             if (hours === '12') { hours = '00'; }
+ 1201 |             if (modifier === 'PM') { hours = parseInt(hours, 10) + 12; }
+ 1202 |             return new Date(`1970/01/01 ${hours}:${minutes}`);
+ 1203 |           };
+ 1204 |           
+ 1205 |           try {
+ 1206 |             const t1 = parseTime(log.clockIn);
+ 1207 |             const t2 = parseTime(log.clockOut);
+ 1208 |             let diffMs = t2 - t1;
+ 1209 |             if (diffMs < 0) diffMs += 24 * 60 * 60 * 1000; // Passed midnight
+ 1210 |             const h = Math.floor(diffMs / 3600000);
+ 1211 |             const m = Math.floor((diffMs % 3600000) / 60000);
+ 1212 |             hrs = `${h} h ${m} m`;
+ 1213 |           } catch(e) {}
+ 1214 |         }
+ 1215 |         
+ 1216 |         return {
+ 1217 |           id: log.dbId,
+ 1218 |           date: displayDate,
+ 1219 |           inT: log.clockIn || '--',
+ 1220 |           outT: log.clockOut || null,
+ 1221 |           hrs: hrs
+ 1222 |         };
+ 1223 |       });
+ 1224 |       setPunchLog(formattedLogs);
+ 1225 |     });
+ 1226 | 
+ 1227 | 
+ 1228 |     // 4. Cooks & Kitchen Headcount (Meal Status)
+ 1229 |     const todayStr = new Date().toISOString().split('T')[0];
+ 1230 |     const qTenants = query(collection(db, 'users'), where('ownerUid', '==', adminId), where('role', '==', 'tenant'));
+ 1231 |     const qMeal = query(collection(db, 'meal_status'), where('adminId', '==', adminId), where('date', '==', todayStr));
+ 1232 |     
+ 1233 |     let activeTenants = [];
+ 1234 |     let todayMeals = [];
+ 1235 | 
+ 1236 |     const computeStudents = () => {
+ 1237 |       const studentsList = activeTenants.map(t => {
+ 1238 |         const mealLog = todayMeals.find(m => m.tenantId === t.id);
+ 1239 |         return {
+ 1240 |           id: t.id,
+ 1241 |           name: t.name || 'Tenant',
+ 1242 |           room: t.room || 'N/A',
+ 1243 |           phone: t.phone || 'N/A',
+ 1244 |           statusB: mealLog?.breakfast === 'not_eating' ? 'notEaten' : mealLog?.breakfast === 'eaten' ? 'eaten' : 'requested',
+ 1245 |           statusL: mealLog?.lunch === 'not_eating' ? 'notEaten' : mealLog?.lunch === 'eaten' ? 'eaten' : 'requested',
+ 1246 |           statusS: mealLog?.snacks === 'not_eating' ? 'notEaten' : mealLog?.snacks === 'eaten' ? 'eaten' : 'requested',
+ 1247 |           statusD: mealLog?.dinner === 'not_eating' ? 'notEaten' : mealLog?.dinner === 'eaten' ? 'eaten' : 'requested'
+ 1248 |         };
+ 1249 |       });
+ 1250 |       setStudents(studentsList);
+ 1251 |     };
+ 1252 | 
+ 1253 |     const unsubTenants = onSnapshot(qTenants, (snap) => {
+ 1254 |       activeTenants = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+ 1255 |       computeStudents();
+ 1256 |     });
+ 1257 | 
+ 1258 |     const unsubMeal = onSnapshot(qMeal, (snap) => {
+ 1259 |       todayMeals = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+ 1260 |       computeStudents();
+ 1261 |     });
+ 1262 | 
+ 1263 |     const unsubPG = onSnapshot(doc(db, 'pg_owners', adminId), (docSnap) => {
+ 1264 |       if (docSnap.exists()) {
+ 1265 |         const data = docSnap.data();
+ 1266 |         if (data.propertyDetails && data.propertyDetails.totalSeats) {
+ 1267 |           setTotalCapacity(data.propertyDetails.totalSeats);
+ 1268 |         }
+ 1269 |         if (data.foodMenu) {
+ 1270 |           setWeeklyFoodMenu(data.foodMenu);
+ 1271 |         }
+ 1272 |       }
+ 1273 |     });
+ 1274 | 
+ 1275 | 
+ 1276 |     // 5. Staff-Admin Chat Sync
+ 1277 |     setContacts([{
+ 1278 |       id: adminId,
+ 1279 |       name: 'Manager / Admin',
+ 1280 |       avatar: '👑',
+ 1281 |       time: '',
+ 1282 |       lastMsg: 'Tap to chat with Admin',
+ 1283 |       isPinned: true
+ 1284 |     }]);
+ 1285 | 
+ 1286 |     const chatId = [adminId, user?.id].sort().join('_');
+ 1287 |     const qChat = query(collection(db, 'chats', chatId, 'messages'), orderBy('timestamp', 'asc'));
+ 1288 |     const unsubChat = onSnapshot(qChat, (snap) => {
+ 1289 |       const msgs = snap.docs.map(doc => {
+ 1290 |         const d = doc.data({ serverTimestampBehavior: 'estimate' });
+ 1291 |         const ts = d.timestamp ? (d.timestamp.toMillis ? d.timestamp.toMillis() : (typeof d.timestamp === 'string' ? new Date(d.timestamp).getTime() : Date.now())) : Date.now();
+ 1292 |         return {
+ 1293 |           id: doc.id,
+ 1294 |           text: d.text,
+ 1295 |           rawTs: ts,
+ 1296 |           time: d.time || new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+ 1297 |           me: d.senderId === user.id
+ 1298 |         };
+ 1299 |       });
+ 1300 |       msgs.sort((a, b) => a.rawTs - b.rawTs);
+ 1301 |       setChatHist({ [adminId]: msgs });
+ 1302 |       if (msgs.length > 0) {
+ 1303 |         setContacts(prev => prev.map(c => c.id === adminId ? { ...c, lastMsg: msgs[msgs.length - 1].text, time: msgs[msgs.length - 1].time } : c));
+ 1304 |       }
+ 1305 |     });
+ 1306 |     return () => {
+ 1307 |       unsubPG();
+ 1308 |       unsubTenants();
+ 1309 |       unsubMeal();
+ 1310 |       unsubChat();
+ 1311 |       unsubCleaning();
+ 1312 |       unsubComplaints();
+ 1313 |       unsubItems();
+ 1314 |       unsubAttendance();
+ 1315 |       unsubSalaries();
+ 1316 |     };
+ 1317 |   }, [user?.ownerUid, user?.id, user?.uid]);
+      :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 1318 | 
+      `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-dupe-keys): Duplicate key 'Bus Driver'
+      ,-[src/pages/StaffApp.jsx:1629:3]
+ 1628 |   const roleStats = {
+ 1629 |   'Bus Driver':       [{l:'Passengers',v:6,icon:'groups'},{l:'Trips Today',v:2,icon:'directions_bus'},{l:'On Time',v:'100%',icon:'schedule'},{l:'Fuel Spent',v:'₹1,500',icon:'local_gas_station'}],
+      :   ^^^^^^|^^^^^
+      :         `-- Key is first defined here
+ 1630 |   'Bus Driver':       [{l:'Passengers',v:6,icon:'groups'},{l:'Trips Today',v:2,icon:'directions_bus'},{l:'On Time',v:'100%',icon:'schedule'},{l:'Fuel Spent',v:'₹1,500',icon:'local_gas_station'}],
+      :   ^^^^^^|^^^^^
+      :         `-- and duplicated here
+ 1631 |     'HR':               [{l:'Applicants',v:candidates.filter(c=>c.status!=='Hired ✅').length,icon:'group_add'},{l:'Enquiries',v:enquiries.length,icon:'contact_phone'},{l:'Staff Hired',v:candidates.filter(c=>c.status==='Hired ✅').length,icon:'badge'},{l:'Open Jobs',v:3,icon:'work_outline'}],
+      `----
+  help: Consider removing the duplicated key
+
+Found 186 warnings and 34 errors.
+Finished in 100ms on 98 files with 91 rules using 8 threads.

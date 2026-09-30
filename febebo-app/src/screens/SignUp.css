@@ -1,0 +1,298 @@
+/* ─── Sign Up Page ─── */
+.signup-container-new {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  background: #f0fdf4;
+  font-family: 'Inter', sans-serif;
+  overflow-y: auto; /* Allow scroll so keyboard doesn't lock users out */
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* Decorative blobs - kept INSIDE the screen */
+.signup-container-new::before {
+  content: '';
+  position: absolute;
+  top: -30px;
+  left: -30px;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: rgba(22, 101, 52, 0.07);
+  pointer-events: none;
+  z-index: 0;
+}
+.signup-container-new::after {
+  content: '';
+  position: absolute;
+  top: 30px;
+  right: 0px; /* flush to edge, NOT negative */
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: rgba(22, 101, 52, 0.05);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ─── Top logo area ─── */
+.signup-top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 20px 24px;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.signup-logo-main {
+  height: 140px;
+  width: auto;
+  object-fit: contain;
+}
+
+/* ─── Green bottom sheet ─── */
+.signup-bottom {
+  background: linear-gradient(160deg, #064e3b 0%, #166534 100%);
+  border-top-left-radius: 36px;
+  border-top-right-radius: 36px;
+  padding: 32px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.15);
+  flex: 1;
+  overflow-y: auto; /* Allow inner scroll when keyboard is open */
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+  width: 100%;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(40px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ─── Header ─── */
+.signup-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.brand-title {
+  font-size: 26px;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0 0 4px;
+  letter-spacing: -0.5px;
+}
+
+.brand-subtitle {
+  font-size: 14px;
+  color: #bbf7d0;
+  margin: 0;
+  font-weight: 500;
+}
+
+/* ─── Error message ─── */
+.error-message {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: fadeIn 0.3s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Form ─── */
+.signup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-group {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.full-width {
+  width: 100%;
+}
+
+/* ─── Input wrapper ─── */
+.input-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.input-icon {
+  position: absolute;
+  left: 14px;
+  color: rgba(255,255,255,0.5);
+  pointer-events: none;
+  transition: color 0.2s;
+  flex-shrink: 0;
+}
+
+.input-wrapper:focus-within .input-icon {
+  color: #bbf7d0;
+}
+
+.brand-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  padding: 14px 14px 14px 42px;
+  border-radius: 12px;
+  font-size: 14px;
+  color: #ffffff;
+  outline: none;
+  box-sizing: border-box;
+  transition: all 0.2s;
+  min-width: 0; /* prevents flex overflow */
+}
+
+.brand-input::placeholder {
+  color: rgba(255,255,255,0.45);
+  font-weight: 500;
+}
+
+.brand-input:focus {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.full-width-input {
+  width: 100%;
+}
+
+/* ─── Eye icon ─── */
+.eye-icon {
+  position: absolute;
+  right: 14px;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 4px;
+  border-radius: 8px;
+  transition: color 0.2s;
+  flex-shrink: 0;
+}
+.eye-icon:hover { color: #ffffff; }
+
+/* ─── Create account button ─── */
+.btn-create-account {
+  width: 100%;
+  padding: 15px;
+  background: #ffffff;
+  border: none;
+  border-radius: 14px;
+  color: #064e3b;
+  font-size: 15px;
+  font-weight: 700;
+  margin-top: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  box-sizing: border-box;
+}
+.btn-create-account:active { transform: scale(0.98); }
+.btn-create-account:disabled {
+  background: rgba(255,255,255,0.4);
+  color: rgba(6, 78, 59, 0.5);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ─── OR divider ─── */
+.or-divider-container {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 18px 0;
+}
+.divider-line {
+  flex: 1;
+  height: 1px;
+  background: rgba(255,255,255,0.2);
+}
+.or-divider {
+  color: rgba(255,255,255,0.5);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+/* ─── Google button ─── */
+.btn-google-auth-new {
+  width: 100%;
+  padding: 14px;
+  background: rgba(255,255,255,0.08);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1.5px solid rgba(255,255,255,0.2);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+.btn-google-auth-new:active { background: rgba(255,255,255,0.15); }
+.btn-google-auth-new:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.google-icon { width: 20px; height: 20px; flex-shrink: 0; }
+
+/* ─── Toggle ─── */
+.login-toggle {
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255,255,255,0.6);
+  margin: 0;
+}
+.login-toggle span {
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: 4px;
+}
+.login-toggle span:active { opacity: 0.7; }

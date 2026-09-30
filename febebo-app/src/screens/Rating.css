@@ -1,0 +1,97 @@
+/* Rating — Dark Green Theme */
+.rating-container {
+  padding: 24px;
+  background: #f8fdf9;
+  min-height: 100vh;
+  height: 100dvh;
+min-height: 100vh;
+  height: 100dvh;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 24px;
+}
+
+.form-label {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: #166534;
+}
+
+.stars-container {
+  display: flex;
+  gap: 10px;
+}
+
+.rating-star {
+  color: #d1fae5;
+  cursor: pointer;
+  transition: color 0.2s, transform 0.15s;
+  fill: #d1fae5;
+}
+.rating-star:hover { transform: scale(1.15); }
+
+.rating-star.filled {
+  color: #16a34a;
+  fill: #16a34a;
+  filter: drop-shadow(0 2px 4px rgba(22, 101, 52, 0.3));
+}
+
+.rating-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #166534;
+  background: #dcfce7;
+  padding: 4px 12px;
+  border-radius: 20px;
+  margin-top: 10px;
+  display: inline-block;
+}
+
+.form-select, .form-textarea {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1.5px solid #d1fae5;
+  border-radius: 14px;
+  font-size: 14px;
+  background-color: #fff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.form-select:focus, .form-textarea:focus {
+  border-color: #166534;
+  box-shadow: 0 0 0 3px rgba(22, 101, 52, 0.1);
+}
+
+.radio-group { display: flex; gap: 24px; }
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #334155;
+}
+
+.btn-submit-review {
+  width: 100%;
+  padding: 16px;
+  background: linear-gradient(135deg, #064e3b, #166534);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  border: none;
+  border-radius: 16px;
+  margin-top: 32px;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(22, 101, 52, 0.3);
+  transition: all 0.2s;
+}
+.btn-submit-review:hover { transform: translateY(-2px); box-shadow: 0 12px 24px rgba(22, 101, 52, 0.4); }
+.btn-submit-review:active { transform: scale(0.98); }

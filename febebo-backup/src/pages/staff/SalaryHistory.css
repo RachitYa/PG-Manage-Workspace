@@ -1,0 +1,41 @@
+.salary-stats {
+  display: flex;
+  gap: 16px;
+}
+
+.salary-card {
+  flex: 1;
+  padding: 16px;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  background-color: #fff;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+  gap: 16px;
+}
+
+.history-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.history-details {
+  flex: 1;
+}
+
+.history-amount {
+  text-align: right;
+}

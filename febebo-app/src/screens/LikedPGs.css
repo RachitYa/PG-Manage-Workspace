@@ -1,0 +1,14 @@
+/* LikedPGs.css */
+.liked-pg-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.empty-pg-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}

@@ -1,0 +1,38 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependency directories
+node_modules/
+
+# Build outputs
+dist/
+build/
+.vite/
+.firebase/
+
+# Mobile Builds
+android/app/build/
+android/.gradle/
+android/local.properties
+android/captures/
+ios/DerivedData/
+ios/build/
+*.apk
+*.aab
+*.ipa
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.production.local
+
+# Editor directories and files
+.vscode/
+.idea/
+.DS_Store
+*.swp

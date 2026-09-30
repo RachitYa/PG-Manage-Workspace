@@ -1,0 +1,11 @@
+{
+  "appId": "com.febebo.student",
+  "appName": "Febebo Student",
+  "webDir": "dist",
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": false,
+      "providers": ["google.com"]
+    }
+  }
+}

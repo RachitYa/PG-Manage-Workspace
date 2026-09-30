@@ -1,0 +1,206 @@
+:root {
+  --primary: #166534;        /* Dark Forest Green */
+  --primary-hover: #15803d;  /* Medium Green */
+  --primary-accent: #16a34a; /* Brighter Green for highlights */
+  --primary-light: #dcfce7;  /* Mint Green – backgrounds, badges */
+  --primary-glow: #bbf7d0;   /* Light Green – focus rings, borders */
+
+  --success: #16a34a;
+  --success-light: #dcfce7;
+  --danger: #dc3545;
+  --danger-light: #fce8e6;
+  --warning: #d97706;
+  --warning-light: #fef3c7;
+
+  --bg-color: #f8fdf9;       /* Off-White with green tint */
+  --card-bg: #ffffff;
+  --text-dark: #0f172a;
+  --text-muted: #475569;
+  --border-color: #e2e8f0;
+
+  --shadow-sm: 0 2px 4px rgba(22, 101, 52, 0.06);
+  --shadow-md: 0 4px 12px rgba(22, 101, 52, 0.10);
+  --shadow-lg: 0 10px 24px rgba(22, 101, 52, 0.12);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  --font-family: 'Hanken Grotesk', system-ui, sans-serif;
+  --font-display: 'Bricolage Grotesque', system-ui, sans-serif;
+  --font-price: 'Outfit', system-ui, sans-serif;
+
+  font-family: var(--font-family);
+
+  /* ── Fluid Font Sizes: auto-scale from 360px to 480px screens ── */
+  --fs-xs:   clamp(10px, 2.6vw, 12px);
+  --fs-sm:   clamp(11px, 3.0vw, 13px);
+  --fs-base: clamp(13px, 3.5vw, 15px);
+  --fs-md:   clamp(14px, 3.8vw, 16px);
+  --fs-lg:   clamp(16px, 4.3vw, 20px);
+  --fs-xl:   clamp(18px, 5.0vw, 24px);
+  --fs-2xl:  clamp(22px, 6.0vw, 30px);
+
+  /* ── Fluid Spacing ── */
+  --sp-xs:   clamp(4px,  1.0vw,  6px);
+  --sp-sm:   clamp(8px,  2.0vw, 10px);
+  --sp-md:   clamp(12px, 3.0vw, 16px);
+  --sp-lg:   clamp(16px, 4.0vw, 20px);
+  --sp-xl:   clamp(20px, 5.0vw, 28px);
+
+  /* ── Safe Area (notch / Dynamic Island / Home Bar) ── */
+  --safe-top:    env(safe-area-inset-top,    0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left,   0px);
+  --safe-right:  env(safe-area-inset-right,  0px);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+
+  background-color: var(--bg-color);
+  color: var(--text-dark);
+  font-size: var(--fs-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+#root {
+  height: 100vh;
+  height: 100dvh;
+
+  display: flex;
+  justify-content: center;
+  }
+
+/* ── Mobile-first App Container ── */
+.app-container {
+  height: 100vh;
+  height: 100dvh;
+
+  width: 100%;
+  max-width: min(480px, 100vw);
+  background-color: var(--card-bg);
+  box-shadow: var(--shadow-lg);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow: hidden;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+/* ── Very small phones (≤ 360px) ── */
+@media (max-width: 360px) {
+  :root {
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 12px;
+  }
+  .app-container {
+  height: 100vh;
+  height: 100dvh;
+ font-size: var(--fs-sm); }
+}
+
+/* ── Large phones (≥ 430px) ── */
+@media (min-width: 430px) {
+  .app-container {
+  height: 100vh;
+  height: 100dvh;
+
+    max-width: min(480px, 100vw);
+    box-shadow: none;
+  }
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--primary-hover);
+}
+
+/* Utilities */
+.text-primary { color: var(--primary); }
+.text-muted { color: var(--text-muted); }
+.text-success { color: var(--success); }
+.text-danger { color: var(--danger); }
+.text-warning { color: var(--warning); }
+
+.bg-primary { background-color: var(--primary); color: white; }
+.bg-success-light { background-color: var(--success-light); color: var(--success); }
+.bg-danger-light { background-color: var(--danger-light); color: var(--danger); }
+.bg-warning-light { background-color: var(--warning-light); color: var(--warning); }
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 13px;
+}
+
+.btn-primary {
+  background-color: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+  transform: translateY(-1px);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Badges */
+.badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}

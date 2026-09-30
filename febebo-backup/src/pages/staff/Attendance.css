@@ -1,0 +1,127 @@
+.padding-16 {
+  padding: 16px;
+}
+
+.mb-16 {
+  margin-bottom: 16px;
+}
+
+.coming-time {
+  font-weight: 600;
+  font-size: 15px;
+  padding: 12px;
+  border: 1px solid var(--danger-light);
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  display: inline-block;
+  width: 100%;
+}
+
+.date-display {
+  display: flex;
+  margin-bottom: 16px;
+}
+
+.date-label, .date-value {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  font-weight: 500;
+}
+
+.date-label {
+  border-right: none;
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
+  background-color: var(--bg-color);
+}
+
+.date-value {
+  border-top-right-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+  color: var(--primary);
+}
+
+.stats-row {
+  display: flex;
+  gap: 16px;
+}
+
+.stat-box {
+  flex: 1;
+  padding: 16px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dark);
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.calendar-card {
+  padding: 20px 16px;
+}
+
+.calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.cal-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-dark);
+}
+
+.calendar-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  text-align: center;
+}
+
+.cal-day-name {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.cal-day {
+  font-size: 14px;
+  font-weight: 500;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.cal-day-present {
+  background-color: var(--success);
+  color: white;
+}

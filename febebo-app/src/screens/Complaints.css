@@ -1,0 +1,139 @@
+.complaints-container {
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.complaint-form-card {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 24px 20px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+  border: 1px solid #f1f5f9;
+}
+
+.card-header-basic {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.card-header-basic h4 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.form-subtitle {
+  margin: 0 0 20px 0;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.complaint-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.category-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-chip {
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 1.5px solid #e2e8f0;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.category-chip.active {
+  background: #ecfeff;
+  border-color: #0891b2;
+  color: #0891b2;
+}
+
+.complaints-history-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.empty-history {
+  padding: 40px 20px;
+  text-align: center;
+  background: #f8fafc;
+  border-radius: 16px;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+  border: 1px solid #f1f5f9;
+}
+
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.history-category {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.history-title {
+  margin: 0 0 8px 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.history-desc {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.history-footer {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: 500;
+}

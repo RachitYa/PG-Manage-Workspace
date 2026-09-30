@@ -1,0 +1,54 @@
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  /* Centre within the 480px app frame on wide screens */
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: min(480px, 100vw);
+  background-color: #fff;
+  display: flex;
+  justify-content: space-around;
+  padding: 0 0 calc(12px + env(safe-area-inset-bottom, 0px)) 0;
+  border-top: 1px solid #e2e8f0;
+  z-index: 500;
+  box-shadow: 0 -4px 16px rgba(22, 101, 52, 0.08);
+}
+
+.nav-item {
+  display: flex;
+  flex: 1; /* Expands hit area horizontally */
+  padding: 14px 0; /* Expands hit area vertically */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: color 0.2s, transform 0.15s;
+  gap: 4px;
+  position: relative;
+  -webkit-tap-highlight-color: transparent; /* Cleaner mobile tap */
+  background-color: transparent; /* Forces WebKit to register the hit area */
+}
+
+
+
+.nav-item span {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.nav-item.active {
+  color: #166534;
+  transform: translateY(-1px);
+}
+
+.nav-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #166534;
+}

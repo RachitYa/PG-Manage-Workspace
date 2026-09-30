@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">febebo</string>
+    <string name="title_activity_main">febebo</string>
+    <string name="package_name">com.febebo.student</string>
+    <string name="custom_url_scheme">com.febebo.student</string>
+</resources>

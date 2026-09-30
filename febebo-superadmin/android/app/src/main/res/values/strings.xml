@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Febebo Superadmin</string>
+    <string name="title_activity_main">Febebo Superadmin</string>
+    <string name="package_name">com.febebo.superadmin</string>
+    <string name="custom_url_scheme">com.febebo.superadmin</string>
+</resources>

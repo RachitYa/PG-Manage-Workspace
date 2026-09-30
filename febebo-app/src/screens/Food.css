@@ -1,0 +1,443 @@
+/* Food — Dark Green Theme */
+.bg-white { background-color: #ffffff; }
+
+.food-grid-container {
+  padding: 16px;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: #f8fdf9;
+}
+
+.food-row {
+  display: flex;
+  margin-bottom: 12px;
+}
+
+.header-row { margin-bottom: 8px; }
+
+.food-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 120px;
+  padding: 8px;
+}
+
+.empty-cell { min-width: 40px; }
+
+/* Day headers — dark green */
+.day-header {
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, #064e3b, #166534);
+  border-radius: 10px;
+  margin: 0 4px;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+
+/* Today's column highlight */
+.day-header.today {
+  background: linear-gradient(135deg, #15803d, #16a34a);
+  box-shadow: 0 4px 10px rgba(22, 101, 52, 0.35);
+  transform: scale(1.05);
+}
+
+/* Meal type colored headers */
+.meal-header {
+  min-width: 40px;
+  font-weight: 700;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  color: #166534;
+  font-size: 12px;
+}
+
+.food-item-cell { margin: 0 4px; }
+
+.food-card {
+  width: 100%;
+  height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: normal;
+  border: 1.5px solid #d1fae5;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  background-color: #fff;
+  color: #334155;
+  box-shadow: 0 2px 4px rgba(22, 101, 52, 0.06);
+  transition: background 0.2s;
+}
+
+/* Today's food cards */
+.today-col .food-card {
+  background: #f0fdf4;
+  border-color: #166534;
+  font-weight: 700;
+  color: #166534;
+}
+
+.text-sm {
+  font-size: 11px;
+}
+
+/* Today's food summary card at top */
+.today-food-card {
+  margin: 16px;
+  background: linear-gradient(135deg, #064e3b, #166534);
+  border-radius: 20px;
+  padding: 20px;
+  color: white;
+  box-shadow: 0 8px 24px rgba(22, 101, 52, 0.35);
+}
+
+.today-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  opacity: 0.8;
+  margin: 0 0 12px;
+  font-weight: 700;
+}
+
+.today-meals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.today-meal-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.today-meal-name {
+  font-size: 13px;
+  opacity: 0.85;
+  font-weight: 600;
+}
+
+.today-meal-value {
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+  max-width: 60%;
+}
+
+/* Food Services Section */
+.food-services-section {
+  padding: 0 16px 24px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 16px 0;
+}
+
+.food-action-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.food-action-card {
+  background: white;
+  border-radius: 16px;
+  padding: 16px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border: 1px solid #f1f5f9;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.food-action-card:active {
+  transform: scale(0.96);
+}
+
+.action-icon-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  text-align: center;
+}
+
+/* Tab Switcher */
+.food-tab-switcher {
+  display: flex;
+  margin: 16px;
+  background: #f1f5f9;
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.food-tab {
+  flex: 1;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.food-tab.active {
+  background: white;
+  color: #166534;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.food-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Today View */
+.today-view-container {
+  padding: 0 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.today-meal-block {
+  background: #f8fafc;
+  border-radius: 20px;
+  padding: 20px;
+  border: 1px solid #f1f5f9;
+}
+
+.today-meal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.today-meal-header h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.today-meal-subcard {
+  background: white;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+  margin-bottom: 12px;
+  border: 1.5px solid transparent;
+  transition: all 0.2s;
+}
+
+.today-meal-subcard:last-child {
+  margin-bottom: 0;
+}
+
+.today-meal-subcard.has-status {
+  border-color: #cbd5e1;
+}
+
+.subcard-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.subcard-meal-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.subcard-food-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.subcard-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.meal-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pack-btn {
+  background: transparent;
+  border: 1.5px solid #4338ca;
+  color: #4338ca;
+}
+
+.pack-btn.active {
+  background: #e0e7ff;
+  border-color: #4338ca;
+}
+
+.cancel-btn {
+  background: transparent;
+  border: 1.5px solid #ef4444;
+  color: #ef4444;
+}
+
+.cancel-btn.active {
+  background: #fee2e2;
+  border-color: #ef4444;
+}
+
+/* Meal Chips for Modal */
+.meal-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.meal-chip {
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.meal-chip:hover {
+  border-color: #cbd5e1;
+}
+
+.meal-chip.active {
+  background: #fdf2f8;
+  border-color: #be185d;
+  color: #be185d;
+  font-weight: 700;
+}
+
+/* Modern Image Food Card */
+.today-meal-subcard-modern {
+  background: white;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(22, 101, 52, 0.08);
+  border: 1px solid #e2e8f0;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s;
+}
+
+.today-meal-subcard-modern.has-status {
+  border: 2px solid #16a34a;
+}
+
+.modern-card-image {
+  height: 140px;
+  background-size: cover;
+  background-position: center;
+  position: relative;
+}
+
+.modern-card-image::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(to bottom, rgba(0,0,0,0) 50%, rgba(0,0,0,0.6) 100%);
+}
+
+.modern-card-meal-tag {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #166534;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.modern-card-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: white;
+  z-index: 2;
+}
+
+.modern-card-food-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.3;
+}
+
+.today-meal-subcard-modern .subcard-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.today-meal-subcard-modern .meal-btn {
+  flex: 1;
+  padding: 12px 0;
+  border-radius: 12px;
+  font-size: 13px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.hide-scrollbar::-webkit-scrollbar { display: none; }

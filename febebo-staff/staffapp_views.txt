@@ -1,0 +1,616 @@
+      {/* ══════════════════════════════════════════════════════════════════════
+          ATTENDANCE
+         ══════════════════════════════════════════════════════════════════════ */}
+      {view === 'inout' && (() => {
+        // Attendance Data
+        const attMonths = [
+          {
+            m: 'July 2026', present: 20, absent: 2, leave: 1,
+            daysInMonth: 31,
+            data: {
+              1:'present',2:'present',3:'present',4:'present',5:'absent',6:'present',7:'present',
+              8:'present',9:'present',10:'present',11:'present',12:'present',13:'leave',14:'present',
+              15:'present',16:'present',17:'present',18:'present',19:'present',20:'absent',21:'present',
+              22:'present',23:'present'
+            }
+          },
+          {
+            m: 'June 2026', present: 24, absent: 4, leave: 2,
+            daysInMonth: 30,
+            data: {
+              1:'present',2:'present',3:'absent',4:'present',5:'present',6:'present',7:'present',
+              8:'leave',9:'leave',10:'absent',11:'present',12:'present',13:'present',14:'present',
+              15:'present',16:'present',17:'present',18:'absent',19:'present',20:'present',21:'present',
+              22:'present',23:'present',24:'present',25:'present',26:'present',27:'absent',28:'present',
+              29:'present',30:'present'
+            }
+          }
+        ];
+        
+        // Use an inline state hook equivalent for month selection if we can't use top-level hooks easily. 
+        // We'll just define selectedMonth manually and re-render. Since we can't do that perfectly here without adding a real state,
+        // we will just use the first month statically, or we can use the same pattern as salary: just show the latest month.
+        // Wait, for simplicity let's just show July 2026 calendar.
+        const cur = selectedAttMonth || attMonths[0];
+
+        return (
+        <div style={{padding:'14px 14px 32px',display:'flex',flexDirection:'column',gap:14}}>
+          {/* Shift Timer */}
+          <div style={{background: C.primary, borderRadius:18, border: '1px solid #e2e8f0', padding:'20px 18px', color:'#000', boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
+            <p style={{margin:0, fontSize:11, fontWeight:800, textTransform:'uppercase', color:'#000', letterSpacing:.5}}>Today's Shift Timer</p>
+            <ShiftTimer clockIn={clockIn} clocked={clocked} />
+            <p style={{margin:'0 0 14px', fontSize:12, fontWeight:700, color:'#333'}}>{clocked?`Punched IN at ${clockIn}`:'Not currently punched in'}</p>
+            <button onClick={punch} style={{padding:'10px 20px', background:'#fff', border: '1px solid #e2e8f0', borderRadius: 10, color:'#000', fontSize:13, fontWeight:800, cursor:'pointer', fontFamily:'inherit', boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
+              {clocked?'⏹ Punch Out Now':'▶ Punch In'}
+            </button>
+          </div>
+
+          {/* Stats Row */}
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10}}>
+            {[
+              {l:'Present', v:cur.present, bg:'#dcfce7', c:'#15803d'},
+              {l:'Absent', v:cur.absent, bg:'#fee2e2', c:'#b91c1c'},
+              {l:'Leave', v:cur.leave, bg:'#fefce8', c:'#ca8a04'}
+            ].map(s=>(
+              <div key={s.l} style={{background:s.bg, borderRadius:14, border: '1px solid #e2e8f0', padding:'14px 10px', textAlign:'center', boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
+                <p style={{fontSize:26, fontWeight:900, color:s.c, margin:0}}>{s.v}</p>
+                <p style={{fontSize:11, fontWeight:800, color:s.c, margin:'4px 0 0', textTransform:'uppercase'}}>{s.l}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Calendar View */}
+          <div style={{background:'#fff', borderRadius:18, border:'1.5px solid #f1f5f9', padding:18, boxShadow:'0 4px 16px rgba(0,0,0,0.03)'}}>
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8}}>
+              <div style={{display:'flex', alignItems:'center', gap:8}}>
+                <div style={{width:32, height:32, borderRadius:10, background:'#f8fafc', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                  <span className="material-symbols-outlined" style={{fontSize:18, color:'#1e293b'}}>calendar_month</span>
+                </div>
+                <div>
+                  <p style={{margin:0, fontSize:14, fontWeight:900, color:'#1a1500'}}>Attendance Calendar</p>
+                  <p style={{margin:'1px 0 0', fontSize:11, color:'#64748b', fontWeight:600}}>{cur.m}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Month selector */}
+            <div style={{display:'flex', gap:6, marginBottom:16, overflowX:'auto', paddingBottom:4, marginTop:12}}>
+              {attMonths.map((sm, idx) => (
+                <button key={sm.m} onClick={() => setSelectedAttMonth(sm)}
+                  style={{
+                    padding:'7px 14px', borderRadius:20, border:'none', whiteSpace:'nowrap',
+                    background: cur.m === sm.m ? '#1a1500' : '#f8fafc',
+                    color: cur.m === sm.m ? '#fde047' : '#64748b',
+                    fontSize:12, fontWeight:800, cursor:'pointer', fontFamily:'inherit'
+                  }}>
+                  {sm.m.split(' ')[0]}
+                </button>
+              ))}
+            </div>
+
+            {/* Day headers */}
+            <div style={{display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:3, marginBottom:6}}>
+              {['S','M','T','W','T','F','S'].map((d,i)=>(
+                <div key={i} style={{textAlign:'center', fontSize:10, fontWeight:800, color:'#94a3b8', padding:'4px 0'}}>{d}</div>
+              ))}
+            </div>
+            
+            {/* Day cells */}
+            <div style={{display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:3}}>
+              {Array.from({length: cur.daysInMonth}, (_, i) => i+1).map(day => {
+                let status = cur.data[day]; // 'present', 'absent', 'leave' or undefined
+                
+                // Dynamic Leave Request Integration
+                // Check if this day matches an approved leave request
+                // We construct the date string, assuming cur.m like 'July 2026' (month index 6)
+                const monthStr = cur.m.split(' ')[0];
+                const yearStr = cur.m.split(' ')[1];
+                const monthIdx = ['January','February','March','April','May','June','July','August','September','October','November','December'].indexOf(monthStr);
+                const checkDateStr = `${yearStr}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                
+                if (leaveRequests.some(lr => lr.date === checkDateStr && lr.status === 'Approved')) {
+                  status = 'leave';
+                }
+                let bg = '#f8fafc';
+                let border = '1px solid #f1f5f9';
+                let color = '#94a3b8';
+                if (status === 'present') { bg = '#dcfce7'; border = '1.5px solid #86efac'; color = '#15803d'; }
+                if (status === 'absent') { bg = '#fee2e2'; border = '1.5px solid #fca5a5'; color = '#b91c1c'; }
+                if (status === 'leave') { bg = '#fefce8'; border = '1.5px solid #fde047'; color = '#ca8a04'; }
+
+                return (
+                  <div key={day}
+                    onClick={() => status && alert(`${cur.m.split(' ')[0]} ${day}: ${status.toUpperCase()}`)}
+                    style={{
+                      aspect:'1/1', minHeight:36, borderRadius:8, display:'flex', flexDirection:'column',
+                      alignItems:'center', justifyContent:'center', cursor: status ? 'pointer' : 'default',
+                      background: bg, border: border, position:'relative'
+                    }}>
+                    <span style={{fontSize:11, fontWeight: status ? 900 : 600, color: color}}>{day}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Legend */}
+            <div style={{display:'flex', gap:12, marginTop:16, justifyContent:'center', flexWrap:'wrap'}}>
+              <div style={{display:'flex', alignItems:'center', gap:4}}>
+                <div style={{width:10, height:10, borderRadius:3, background:'#dcfce7', border:'1px solid #86efac'}}/>
+                <span style={{fontSize:10, color:'#64748b', fontWeight:700}}>Present</span>
+              </div>
+              <div style={{display:'flex', alignItems:'center', gap:4}}>
+                <div style={{width:10, height:10, borderRadius:3, background:'#fee2e2', border:'1px solid #fca5a5'}}/>
+                <span style={{fontSize:10, color:'#64748b', fontWeight:700}}>Absent</span>
+              </div>
+              <div style={{display:'flex', alignItems:'center', gap:4}}>
+                <div style={{width:10, height:10, borderRadius:3, background:'#fefce8', border:'1px solid #fde047'}}/>
+                <span style={{fontSize:10, color:'#64748b', fontWeight:700}}>Leave</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Leave Requests Module */}
+          <div style={{marginTop:12}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
+              <p style={{margin:0, fontSize:15, fontWeight:900, color:'#1a1500'}}>My Leave Requests</p>
+              <button onClick={() => setShowLeaveModal(true)} style={{padding:'6px 12px', background:'#ca8a04', color:'#fff', border:'none', borderRadius:8, fontSize:12, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:4}}>
+                <span className="material-symbols-outlined" style={{fontSize:16}}>add</span> Apply
+              </button>
+            </div>
+            <div style={{display:'flex', flexDirection:'column', gap:8}}>
+              {leaveRequests.length === 0 ? (
+                <p style={{textAlign:'center', fontSize:13, color:'#94a3b8', margin:'20px 0'}}>No leave requests found.</p>
+              ) : (
+                leaveRequests.map(lr => (
+                  <div key={lr.id} style={{background:'#fff', borderRadius:12, padding:'14px', border:'1px solid #f1f5f9', display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 2px 8px rgba(0,0,0,0.02)'}}>
+                    <div>
+                      <p style={{margin:0, fontSize:14, fontWeight:800, color:'#1a1500'}}>
+                        {lr.from ? `${new Date(lr.from).toLocaleDateString('en-GB', {day:'numeric', month:'short'})} - ${new Date(lr.to).toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'})}` : new Date(lr.date).toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'})}
+                      </p>
+                      <p style={{margin:'2px 0 0', fontSize:12, color:'#64748b', fontWeight:600}}>{lr.reason}</p>
+                    </div>
+                    <div>
+                      <span style={{
+                        padding:'4px 10px', borderRadius:20, fontSize:11, fontWeight:800,
+                        background: lr.status === 'Approved' ? '#dcfce7' : lr.status === 'Pending' ? '#fefce8' : '#fee2e2',
+                        color: lr.status === 'Approved' ? '#15803d' : lr.status === 'Pending' ? '#ca8a04' : '#b91c1c',
+                        border: `1px solid ${lr.status === 'Approved' ? '#86efac' : lr.status === 'Pending' ? '#fde047' : '#fca5a5'}`
+                      }}>
+                        {lr.status}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          
+          {/* Apply Leave Modal */}
+          {showLeaveModal && (
+            <div style={{position:'fixed', inset:0, background:'rgba(15,23,42,0.5)', zIndex:100, display:'flex', flexDirection:'column', justifyContent:'flex-end', animation:'sheetUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)'}}>
+              <div style={{background:'#fff', padding:'24px 20px 32px', borderTopLeftRadius:24, borderTopRightRadius:24, display:'flex', flexDirection:'column', gap:16}}>
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                  <p style={{margin:0, fontSize:18, fontWeight:900, color:'#1a1500'}}>Apply for Leave</p>
+                  <button onClick={() => setShowLeaveModal(false)} style={{background:'#f8fafc', border:'none', borderRadius:10, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>
+                    <span className="material-symbols-outlined" style={{fontSize:18, color:'#64748b'}}>close</span>
+                  </button>
+                </div>
+                
+                <div style={{display:'flex', flexDirection:'column', gap:12}}>
+                  <div style={{display:'flex', flexDirection:'column', gap:6}}>
+                    <label style={{fontSize:12, fontWeight:800, color:'#64748b'}}>From Date</label>
+                    <input type="date" value={leaveFromDate} onChange={e => setLeaveFromDate(e.target.value)} style={{padding:'12px', borderRadius:10, border:'1.5px solid #e2e8f0', fontFamily:'inherit', fontSize:14, fontWeight:600}} />
+                  </div>
+                  <div style={{display:'flex', flexDirection:'column', gap:6}}>
+                    <label style={{fontSize:12, fontWeight:800, color:'#64748b'}}>To Date</label>
+                    <input type="date" value={leaveToDate} onChange={e => setLeaveToDate(e.target.value)} style={{padding:'12px', borderRadius:10, border:'1.5px solid #e2e8f0', fontFamily:'inherit', fontSize:14, fontWeight:600}} />
+                  </div>
+                  <div style={{display:'flex', flexDirection:'column', gap:6}}>
+                    <label style={{fontSize:12, fontWeight:800, color:'#64748b'}}>Reason for Leave</label>
+                    <select value={leaveReason} onChange={e => setLeaveReason(e.target.value)} style={{padding:'12px', borderRadius:10, border:'1.5px solid #e2e8f0', fontFamily:'inherit', fontSize:14, fontWeight:600}}>
+                      <option value="Sick Leave">Sick Leave</option>
+                      <option value="Family Emergency">Family Emergency</option>
+                      <option value="Casual Leave">Casual Leave</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={async () => {
+                    if(!leaveFromDate || !leaveToDate || !leaveReason) return showToast('Please fill all fields', 'warning');
+                    if(new Date(leaveToDate) < new Date(leaveFromDate)) return showToast('To Date cannot be before From Date', 'warning');
+                    
+                    try {
+                      await addDoc(collection(db, 'leave_requests'), {
+                        adminId: user.ownerUid,
+                        staffId: user.id,
+                        staffName: user.name,
+                        role: user.staffRole || 'Staff',
+                        from: leaveFromDate,
+                        to: leaveToDate,
+                        reason: leaveReason,
+                        status: 'Pending',
+                        createdAt: new Date().toISOString()
+                      });
+                      showToast('Leave request submitted', 'success');
+                      setShowLeaveModal(false);
+                      setLeaveFromDate('');
+                      setLeaveToDate('');
+                      setLeaveReason('Sick Leave');
+                    } catch (e) {
+                      console.error(e);
+                      showToast('Error applying for leave', 'danger');
+                    }
+                  }}
+                  style={{marginTop:10, padding:'14px', background:'#ca8a04', color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:800, cursor:'pointer', fontFamily:'inherit'}}
+                >
+                  Submit Request
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Punch Log */}
+          <div style={{background:'#fff', borderRadius:18, border: '1px solid #e2e8f0', padding:16, boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
+            <p style={{margin:'0 0 12px', fontSize:15, fontWeight:800, color:'#000'}}>📋 Punch Log</p>
+            {punchLog.map(p=>(
+              <div key={p.id} style={{background:'#fafafa', border: '1px solid #e2e8f0', borderRadius: 12, padding:12, marginBottom:10, display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
+                <div>
+                  <p style={{margin:0, fontSize:14, fontWeight:800, color:'#000'}}>{p.date}</p>
+                  <p style={{margin:'3px 0 0', fontSize:12, color:C.muted, fontWeight:600}}>In: <b style={{color:'#000'}}>{p.inT}</b> · Out: <b style={{color:'#000'}}>{p.outT||'—'}</b></p>
+                </div>
+                {p.hrs ? (
+                  <span style={{fontSize:11, fontWeight:800, color:'#78680a', background:'#fefce8', padding:'4px 10px', borderRadius:8, border: '1px solid #e8df9a'}}>
+                    {p.hrs}
+                  </span>
+                ) : (
+                  <span style={{fontSize:11, fontWeight:800, color:'#000', background:'#bbf7d0', padding:'4px 10px', borderRadius:8, border: '1px solid #e8df9a'}}>
+                    Active ●
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          SALARY
+         ══════════════════════════════════════════════════════════════════════ */}
+      
+      {/* ══════════════════════════════════════════════════════════════════════
+          SALARY BREAKDOWN HISTORY (GPAY STYLE)
+         ══════════════════════════════════════════════════════════════════════ */}
+      {view === 'salaryBreakdown' && (() => {
+        const salaryTransactions = [
+          { id: 'txn1', date: '2026-07-25', month: 'July', year: '2026', type: 'Bonus', subtype: 'Performance Bonus', amount: 1000, flow: 'paid' },
+          { id: 'txn2', date: '2026-07-20', month: 'July', year: '2026', type: 'Deduction', subtype: 'Advance Deduction', amount: 1000, flow: 'deducted' },
+          { id: 'txn3', date: '2026-07-15', month: 'July', year: '2026', type: 'Overtime', subtype: 'Overtime (15 hrs)', amount: 2500, flow: 'paid' },
+          { id: 'txn4', date: '2026-07-01', month: 'July', year: '2026', type: 'Salary', subtype: 'Base Monthly', amount: 16000, flow: 'paid' },
+          { id: 'txn5', date: '2026-06-25', month: 'June', year: '2026', type: 'Bonus', subtype: 'Festival Bonus', amount: 500, flow: 'paid' },
+          { id: 'txn6', date: '2026-06-15', month: 'June', year: '2026', type: 'Overtime', subtype: 'Overtime (5 hrs)', amount: 500, flow: 'paid' },
+          { id: 'txn7', date: '2026-06-05', month: 'June', year: '2026', type: 'Deduction', subtype: 'Late Arrival Penalty', amount: 200, flow: 'deducted' },
+          { id: 'txn8', date: '2026-06-01', month: 'June', year: '2026', type: 'Salary', subtype: 'Base Monthly', amount: 16000, flow: 'paid' },
+        ];
+
+        const filteredTransactions = salaryTransactions.filter(txn => {
+          if (txnMonthFilter !== 'All Months' && txn.month !== txnMonthFilter) return false;
+          if (txnYearFilter !== 'All Years' && txn.year !== txnYearFilter) return false;
+          if (txnTypeFilter !== 'All Types' && txn.type !== txnTypeFilter) return false;
+          if (txnFlowFilter !== 'All' && txn.flow !== txnFlowFilter.toLowerCase()) return false;
+          return true;
+        });
+
+        return (
+          <div style={{padding:'0 0 32px', display:'flex', flexDirection:'column', height:'100%'}}>
+            {/* Header */}
+            <div style={{background:C.primary, padding:'20px 14px 14px', position:'sticky', top:0, zIndex:10, display:'flex', alignItems:'center', gap:10}}>
+              <button onClick={() => setView('salary')} style={{background:'transparent', border:'none', padding:0, margin:0, cursor:'pointer', display:'flex', alignItems:'center'}}>
+                <span className="material-symbols-outlined" style={{fontSize:24, color:'#000'}}>arrow_back</span>
+              </button>
+              <h2 style={{margin:0, fontSize:18, fontWeight:900, color:'#000'}}>Transaction History</h2>
+            </div>
+            
+            {/* Filters */}
+            <div style={{padding:'14px', display:'flex', gap:8, overflowX:'auto', borderBottom:'1px solid #f1f5f9', background:'#fff', whiteSpace:'nowrap'}}>
+              {['All', 'Paid', 'Deducted'].map(f => (
+                <button key={f} onClick={() => setTxnFlowFilter(f)} style={{padding:'6px 14px', borderRadius:20, border:'1px solid #e2e8f0', background: txnFlowFilter===f?'#1a1500':'#fff', color:txnFlowFilter===f?'#fde047':'#1e293b', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit'}}>
+                  {f}
+                </button>
+              ))}
+              <div style={{width:1, background:'#e2e8f0', margin:'0 4px'}} />
+              <select value={txnTypeFilter} onChange={e => setTxnTypeFilter(e.target.value)} style={{padding:'6px 12px', borderRadius:20, border:'1px solid #e2e8f0', background:'#fff', color:'#1e293b', fontSize:12, fontWeight:700, outline:'none', cursor:'pointer', fontFamily:'inherit'}}>
+                <option>All Types</option>
+                <option>Salary</option>
+                <option>Bonus</option>
+                <option>Overtime</option>
+                <option>Deduction</option>
+              </select>
+              <select value={txnMonthFilter} onChange={e => setTxnMonthFilter(e.target.value)} style={{padding:'6px 12px', borderRadius:20, border:'1px solid #e2e8f0', background:'#fff', color:'#1e293b', fontSize:12, fontWeight:700, outline:'none', cursor:'pointer', fontFamily:'inherit'}}>
+                <option>All Months</option>
+                <option>July</option>
+                <option>June</option>
+              </select>
+              <select value={txnYearFilter} onChange={e => setTxnYearFilter(e.target.value)} style={{padding:'6px 12px', borderRadius:20, border:'1px solid #e2e8f0', background:'#fff', color:'#1e293b', fontSize:12, fontWeight:700, outline:'none', cursor:'pointer', fontFamily:'inherit'}}>
+                <option>All Years</option>
+                <option>2026</option>
+                <option>2025</option>
+              </select>
+            </div>
+
+            {/* Transaction List */}
+            <div style={{padding:'14px', display:'flex', flexDirection:'column', gap:12}}>
+              {filteredTransactions.length === 0 && (
+                <div style={{textAlign:'center', padding:'30px 0'}}>
+                  <p style={{margin:0, fontSize:14, color:'#64748b', fontWeight:700}}>No transactions found.</p>
+                </div>
+              )}
+              {filteredTransactions.map(txn => (
+                <div key={txn.id} style={{display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background:'#fff', borderRadius:16, border:'1px solid #f1f5f9', boxShadow:'0 2px 8px rgba(0,0,0,0.02)'}}>
+                  <div style={{width:42, height:42, borderRadius:21, background: txn.flow === 'paid' ? '#dcfce7' : '#fee2e2', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                    <span className="material-symbols-outlined" style={{fontSize:20, color: txn.flow === 'paid' ? '#15803d' : '#b91c1c'}}>
+                      {txn.flow === 'paid' ? 'south_west' : 'north_east'}
+                    </span>
+                  </div>
+                  <div style={{flex:1}}>
+                    <p style={{margin:0, fontSize:15, fontWeight:800, color:'#1a1500'}}>{txn.subtype}</p>
+                    <p style={{margin:'2px 0 0', fontSize:12, fontWeight:600, color:'#64748b'}}>{txn.date} · {txn.type}</p>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <p style={{margin:0, fontSize:16, fontWeight:900, color: txn.flow === 'paid' ? '#15803d' : '#1a1500'}}>
+                      {txn.flow === 'paid' ? '+' : '-'}₹{txn.amount.toLocaleString()}
+                    </p>
+                    <p style={{margin:'2px 0 0', fontSize:11, fontWeight:700, color:'#94a3b8'}}>{txn.flow === 'paid' ? 'Credited' : 'Debited'}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            <div style={{padding:'20px', textAlign:'center'}}>
+              <p style={{margin:0, fontSize:12, color:'#94a3b8', fontWeight:600}}>End of transactions</p>
+            </div>
+          </div>
+        );
+      })()}
+
+      {view === 'salary' && (() => {
+        const d = new Date();
+        const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        const baseSal = user.salary || 0;
+        const dailyWage = baseSal / daysInMonth;
+        const netEst = Math.round(workingDays * dailyWage);
+        const joinDate = new Date(user.createdAt || Date.now()).getDate();
+        const nextMonth = new Date(d.getFullYear(), d.getMonth() + 1, joinDate);
+
+        return (
+        <div style={{padding:'14px 14px 32px',display:'flex',flexDirection:'column',gap:14}}>
+          {/* Main Card - Premium Redesign */}
+          <div style={{background: 'linear-gradient(135deg, #111827 0%, #1f2937 100%)', borderRadius:20, padding:'24px 20px', color:'#fff', boxShadow: '0 12px 24px rgba(15,23,42,0.15)', position: 'relative', overflow: 'hidden', marginBottom: 14}}>
+            <div style={{position:'absolute', top: -40, right: -40, width: 120, height: 120, background: 'rgba(255,255,255,0.03)', borderRadius: '50%'}}></div>
+            <p style={{margin:0, fontSize:12, color:'#9ca3af', fontWeight:700, textTransform:'uppercase', letterSpacing: 1}}>Net Estimated · {d.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</p>
+            <h2 style={{margin:'8px 0 4px', fontSize:42, fontWeight:900, letterSpacing:-1.5, color: '#fef08a'}}>₹{netEst.toLocaleString()}</h2>
+            <div style={{display:'flex', alignItems:'center', gap: 6, marginTop: 12, padding: '6px 12px', background: 'rgba(255,255,255,0.1)', borderRadius: 20, width: 'fit-content'}}>
+              <span className="material-symbols-outlined" style={{fontSize:14, color: '#4ade80'}}>check_circle</span>
+              <p style={{margin:0, fontSize:12, fontWeight:700, color:'#f3f4f6'}}>Pay Date: {joinDate} {nextMonth.toLocaleString('en-US', { month: 'short', year: 'numeric' })}</p>
+            </div>
+          </div>
+          {/* Breakdown Card */}
+          <div style={{background:'#fff', borderRadius:18, border: '1px solid #e2e8f0', padding:16, boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
+              <p style={{margin:0, fontSize:15, fontWeight:800, color:'#000'}}>💰 Salary Breakdown</p>
+            </div>
+            {[
+              { id: 'base', label: 'Base monthly', value: `₹${baseSal.toLocaleString()}`, color: '#000' },
+              { id: 'daily', label: 'Daily Wage', value: `₹${Math.round(dailyWage).toLocaleString()} / day`, color: '#64748b' },
+              { id: 'worked', label: 'Days Worked', value: `${workingDays} Days`, color: '#15803d' },
+            ].map(row=>(
+              <div key={row.id} style={{borderBottom: '1px solid #e2e8f0'}}>
+                <div style={{display:'flex', justifyContent:'space-between', padding:'12px 0', alignItems: 'center'}}>
+                  <span style={{fontSize:13, fontWeight:600, color:'#333'}}>{row.label}</span>
+                  <span style={{fontSize:14, fontWeight:900, color:row.color}}>{row.value}</span>
+                </div>
+              </div>
+            ))}
+            <div style={{display:'flex', justifyContent:'space-between', padding:'16px 0 4px', alignItems:'center'}}>
+              <span style={{fontSize:16, fontWeight:900, color:'#000'}}>Net Payable</span>
+              <span style={{fontSize:22, fontWeight:900, color:'#78680a', background:'#fefce8', padding:'2px 8px', borderRadius:8, border: '1px solid #e8df9a'}}>₹{netEst.toLocaleString()}</span>
+            </div>
+          </div>
+
+          {/* History Card */}
+          <div style={{background:'#fff', borderRadius:18, border: '1px solid #e2e8f0', padding:16, boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
+            <p style={{margin:'0 0 4px', fontSize:15, fontWeight:800, color:'#000'}}>📄 Pay Slip History</p>
+            <p style={{margin:'0 0 14px', fontSize:12, fontWeight:600, color:'#64748b'}}>Receipts uploaded by Admin</p>
+
+            {paySlips.length === 0 && <p style={{fontSize:13, color:'#64748b'}}>No pay slips found.</p>}
+            {paySlips.map(s=>(
+              <div key={s.id} onClick={() => s.receiptUrl ? window.open(s.receiptUrl, '_blank') : null} style={{background:'#fafafa', border: '1px solid #e2e8f0', borderRadius: 12, padding:14, marginBottom:10, cursor: s.receiptUrl ? 'pointer' : 'default'}}>
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+                  <p style={{margin:0, fontSize:14, fontWeight:800, color:'#000'}}>{s.month}</p>
+                  <p style={{margin:0, fontSize:15, fontWeight:900, color:'#15803d'}}>₹{(s.amount||0).toLocaleString()}</p>
+                </div>
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                  <p style={{margin:0, fontSize:12, color:'#94a3b8', fontWeight:600}}>Ref: {s.id}</p>
+                  {s.receiptUrl && (
+                    <div style={{display:'flex', alignItems:'center', gap:4, color:'#0891b2'}}>
+                      <span className="material-symbols-outlined" style={{fontSize:16}}>receipt_long</span>
+                      <span style={{fontSize:12, fontWeight:700}}>View Receipt</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          INVENTORY & PETTY CASH FUNDS
+         ══════════════════════════════════════════════════════════════════════ */}
+      {view === 'inventory' && (() => {
+        const totalCredits = pettyCashLogs.filter(l=>l.type==='credit').reduce((a,b)=>a+b.amount,0);
+        const totalExpenses = pettyCashLogs.filter(l=>l.type==='expense').reduce((a,b)=>a+b.amount,0);
+        const currentBalance = totalCredits - totalExpenses;
+
+        return (
+          <div style={{padding:'14px 14px 32px', display:'flex', flexDirection:'column', gap:14}}>
+            {/* Balance Card */}
+            <div style={{background: C.primary, borderRadius:18, border: '1px solid #e2e8f0', padding:'20px 18px', color:'#000', boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
+              <p style={{margin:0, fontSize:11, color:'#000', fontWeight:800, textTransform:'uppercase', letterSpacing:.5}}>Available Petty Cash / Advance Fund</p>
+              <h2 style={{margin:'6px 0 2px', fontSize:36, fontWeight:900, letterSpacing:-1}}>₹{currentBalance.toLocaleString()}</h2>
+              <p style={{margin:'4px 0 14px', fontSize:12, fontWeight:700, color:'#333'}}>Separate from personal salary · Received from Admin & Students</p>
+              
+              <div style={{display:'flex', gap:10}}>
+                <button 
+                  onClick={()=>setShowExpenseModal(true)} 
+                  style={{flex:1, padding:'10px 12px', background:'#fff', color:'#000', border: '1px solid #e2e8f0', borderRadius:10, fontSize:12, fontWeight:800, cursor:'pointer', fontFamily:'inherit', boxShadow: '0 2px 8px rgba(15,23,42,0.04)', display:'flex', alignItems:'center', justifyContent:'center', gap:4}}
+                >
+                  🛒 Log Expense
+                </button>
+                <button 
+                  onClick={()=>setShowAddFundModal(true)} 
+                  style={{flex:1, padding:'10px 12px', background:'#bbf7d0', color:'#000', border: '1px solid #e2e8f0', borderRadius:10, fontSize:12, fontWeight:800, cursor:'pointer', fontFamily:'inherit', boxShadow: '0 2px 8px rgba(15,23,42,0.04)', display:'flex', alignItems:'center', justifyContent:'center', gap:4}}
+                >
+                  💵 Receive Funds
+                </button>
+              </div>
+            </div>
+
+            {/* Assigned Assets & Items */}
+            <div style={{background:'#fff', borderRadius:18, border: '1px solid #e2e8f0', padding:16, boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
+              <p style={{margin:'0 0 4px', fontSize:15, fontWeight:800, color:'#000'}}>🔑 Assigned Assets & Handheld Items</p>
+              <p style={{margin:'0 0 12px', fontSize:12, color:C.muted, fontWeight:600}}>Equipment & keys assigned to you</p>
+              
+              <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                {assignedAssets.map(ast => (
+                  <div key={ast.id} style={{background:'#fafafa', border: '1px solid #e2e8f0', borderRadius:10, padding:12, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                    <div>
+                      <p style={{margin:0, fontSize:13, fontWeight:800, color:'#000'}}>{ast.name}</p>
+                      <p style={{margin:'2px 0 0', fontSize:11, color:C.muted, fontWeight:600}}>{ast.qty} · Serial: {ast.serial}</p>
+                    </div>
+                    <Chip label={ast.cond} color="#78680a" bg="#fefce8"/>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Fund Transactions Log */}
+            <div style={{background:'#fff', borderRadius:18, border: '1px solid #e2e8f0', padding:16, boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
+              <p style={{margin:'0 0 12px', fontSize:15, fontWeight:800, color:'#000'}}>📜 Cash Transactions Log</p>
+              
+              <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                {pettyCashLogs.map(log => (
+                  <div key={log.id} style={{background:'#fafafa', border: '1px solid #e2e8f0', borderRadius:10, padding:12, display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+                    <div>
+                      <span style={{fontSize:13, fontWeight:800, color:'#000'}}>{log.title}</span>
+                      <p style={{margin:'2px 0 0', fontSize:11, color:C.muted, fontWeight:700}}>
+                        {log.type==='expense' ? `To: ${log.party || 'Vendor'}` : `From: ${log.party || 'Payer'}`} · {log.mode} · {log.date}
+                      </p>
+                      {log.senderUpi && log.receiverUpi && (
+                        <div style={{marginTop:4, padding:'4px 8px', background:'#fef08a', borderRadius:6, border: '1px solid #e8df9a', fontSize:10, fontWeight:700, color:'#000'}}>
+                          💸 UPI: {log.senderUpi} ➔ {log.receiverUpi}
+                        </div>
+                      )}
+                    </div>
+                    <span style={{fontSize:15, fontWeight:900, color: log.type==='credit' ? '#15803d' : '#b91c1c'}}>
+                      {log.type==='credit' ? `+₹${log.amount}` : `−₹${log.amount}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          ITEM LIST
+         ══════════════════════════════════════════════════════════════════════ */}
+      {view === 'items' && <InventoryView myInventory={myInventory} updateQty={updateQty} removeItem={removeItem} setView={setView} showToast={showToast} />}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          CHAT — WHATSAPP STYLE WITH REMINDERS
+         ══════════════════════════════════════════════════════════════════════ */}
+      {view === 'chat' && (
+        <div style={{display:'flex',flexDirection:'column',height:'calc(100vh - 58px)'}}>
+          
+          {!activeContact ? (
+            // Contacts List View
+            <div style={{flex:1, overflowY:'auto', background:'#fff'}}>
+              {sortedContacts.map(c => (
+                <div key={c.id} onClick={() => setActiveContact(c)} style={{display:'flex',alignItems:'center',padding:'14px 16px',borderBottom: '1px solid #e2e8f0',cursor:'pointer',transition:'background .15s',gap:14}} onMouseEnter={e=>e.currentTarget.style.background=C.bg} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <div style={{position:'relative'}}>
+                    <div style={{width:48,height:48,borderRadius:'50%',background:meta.accentBg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24}}>
+                      {c.avatar}
+                    </div>
+                    {c.isPinned && <div style={{position:'absolute',bottom:0,right:-2,background:'#eab308',color:'#000',width:18,height:18,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',border:'2px solid white'}}><span className="material-symbols-outlined" style={{fontSize:10}}>push_pin</span></div>}
+                  </div>
+                  <div style={{flex:1, overflow:'hidden'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:4}}>
+                      <span style={{fontSize:15,fontWeight:800,color:C.text}}>{c.name}</span>
+                      <span style={{fontSize:11,color:C.muted,fontWeight:600}}>{c.time}</span>
+                    </div>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <span style={{fontSize:13,color:C.sub,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.lastMsg}</span>
+                      {c.reminder && <span className="material-symbols-outlined" style={{fontSize:16,color:'#d97706'}}>notifications_active</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            // Individual Chat View
+            <div style={{flex:1, display:'flex', flexDirection:'column', background:'#f8fafc', height:'100%'}}>
+              {/* Reminder Bar */}
+              {activeContact.reminder && (
+                <div style={{background:'#fef3c7',padding:'8px 16px',borderBottom:'1px solid #fde68a',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}} onClick={openReminder}>
+                    <span className="material-symbols-outlined" style={{fontSize:16,color:'#b45309'}}>notifications_active</span>
+                    <span style={{fontSize:12,fontWeight:700,color:'#92400e'}}>Reminder: {activeContact.reminder}</span>
+                  </div>
+                  <div style={{display:'flex',gap:8}}>
+                    <button onClick={openReminder} style={{background:'#fffbeb',border:'1px solid #fde68a',color:'#b45309',borderRadius:6,padding:'2px 8px',fontSize:11,fontWeight:800,cursor:'pointer'}}>Edit</button>
+                    <button onClick={clearReminder} style={{background:'none',border: '1px solid #e2e8f0',color:'#d97706',fontSize:12,fontWeight:800,cursor:'pointer'}}>Clear</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Messages Area */}
+              <div style={{flex:1,overflowY:'auto',padding:'16px 14px',display:'flex',flexDirection:'column',gap:12}}>
+                {(!chatHist[activeContact.id] || chatHist[activeContact.id].length === 0) && (
+                  <div style={{textAlign:'center',padding:'40px 20px',color:C.muted}}>
+                    <span className="material-symbols-outlined" style={{fontSize:48,display:'block',marginBottom:12,opacity:.4}}>chat_bubble</span>
+                    <p style={{margin:0,fontSize:14}}>No messages yet. Send a message to start!</p>
+                  </div>
+                )}
+                {(chatHist[activeContact.id] || []).map(m => (
+                  <div key={m.id} style={{display:'flex',flexDirection:'column',alignItems:m.me?'flex-end':'flex-start',gap:4}}>
+                    <div style={{maxWidth:'78%',background:m.me?meta.grad:'#fff',color:m.me?'white':C.text,borderRadius:m.me?'18px 18px 4px 18px':'18px 18px 18px 4px',padding:'11px 14px',boxShadow:m.me?`0 4px 12px ${meta.accent}33`:'0 2px 8px rgba(0,0,0,.06)'}}>
+                      <p style={{margin:0,fontSize:14,lineHeight:1.5}}>{m.text}</p>
+                    </div>
+                    <span style={{fontSize:10,color:C.muted}}>{m.time}</span>
+                  </div>
+                ))}
+                <div ref={chatEndRef}/>
+              </div>
+
+              {/* Input Bar */}
+              <form onSubmit={sendMsg} style={{display:'flex',gap:8,padding:'12px 14px',background:'#fff',borderTop: '1px solid #e2e8f0',flexShrink:0}}>
+                <input value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder="Type a message…"
+                  style={{flex:1,padding:'12px 16px',border: '1px solid #e2e8f0',borderRadius: 16,fontSize:14,outline:'none',fontFamily:'inherit',background:C.bg,color:C.text}}/>
+                <button type="submit" style={{width:46,height:46,background:meta.grad,border: '1px solid #e2e8f0',borderRadius:'50%',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow: '0 4px 16px rgba(15,23,42,0.05)',flexShrink:0}}>
+                  <span className="material-symbols-outlined" style={{fontSize:20,color:'#000'}}>send</span>
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          WORK REPORTS
+         ══════════════════════════════════════════════════════════════════════ */}
+

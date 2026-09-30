@@ -1,0 +1,462 @@
+/* ─── My Profile Page ─── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+
+.profile-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+width: 100%;
+  background: #f0fdf4;
+  font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ─── Scroll wrapper ─── */
+.profile-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  /* BottomNav is ~66px + safe-area-bottom (~34px on iPhone) = ~100px. Add 16px breathing room */
+  padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+}
+.profile-scroll::-webkit-scrollbar { display: none; }
+
+/* ─── Hero Header ─── */
+.profile-hero {
+  background: linear-gradient(145deg, #042f1e 0%, #064e3b 40%, #166534 80%, #15803d 100%);
+  padding: calc(52px + env(safe-area-inset-top, 0px)) 20px 80px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Glowing orbs behind hero */
+.profile-hero::before {
+  content: '';
+  position: absolute;
+  top: -60px; right: -60px;
+  width: 220px; height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+.profile-hero::after {
+  content: '';
+  position: absolute;
+  bottom: 10px; left: -40px;
+  width: 160px; height: 160px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(187,247,208,0.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ─── Top bar inside hero ─── */
+.profile-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  position: relative;
+  z-index: 2;
+}
+.profile-topbar-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: white;
+  letter-spacing: -0.3px;
+}
+.profile-edit-btn {
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 20px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  font-family: inherit;
+  transition: all 0.2s;
+}
+.profile-edit-btn:active { background: rgba(255,255,255,0.2); }
+
+/* ─── Avatar section ─── */
+.profile-avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+}
+.profile-avatar-ring {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  padding: 3px;
+  background: linear-gradient(135deg, #bbf7d0, #4ade80, #16a34a);
+  margin-bottom: 14px;
+  position: relative;
+}
+.profile-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid #064e3b;
+}
+.profile-verified-badge {
+  position: absolute;
+  bottom: 2px; right: 2px;
+  width: 24px; height: 24px;
+  background: #22c55e;
+  border-radius: 50%;
+  border: 2px solid #064e3b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.profile-name {
+  font-size: 22px;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0 0 4px;
+  letter-spacing: -0.4px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.profile-email {
+  font-size: 13px;
+  color: rgba(255,255,255,0.65);
+  margin: 0 0 16px;
+  font-weight: 500;
+}
+
+/* Status pill */
+.profile-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  padding: 7px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #bbf7d0;
+  backdrop-filter: blur(8px);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  animation: pulse-dot 2s infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ─── Stats row (room/bed/status) ─── */
+.profile-stats-row {
+  display: flex;
+  gap: 12px;
+  padding: 0 16px;
+  margin-top: -44px;
+  position: relative;
+  z-index: 10;
+  margin-bottom: 20px;
+}
+.profile-stat-card {
+  flex: 1;
+  background: white;
+  border-radius: 18px;
+  padding: 16px 12px;
+  text-align: center;
+  box-shadow: 0 8px 24px rgba(22, 101, 52, 0.10);
+  border: 1px solid rgba(22, 101, 52, 0.06);
+}
+.profile-stat-icon {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  background: #f0fdf4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 8px;
+  color: #166534;
+}
+.profile-stat-val {
+  font-size: 17px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1;
+  margin-bottom: 3px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.profile-stat-label {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* ─── Sections container ─── */
+.profile-sections {
+  padding: 0 16px;
+}
+
+/* ─── Section card ─── */
+.profile-section-card {
+  background: white;
+  border-radius: 20px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(22, 101, 52, 0.06);
+  border: 1px solid rgba(22, 101, 52, 0.06);
+  transition: all 0.2s;
+}
+
+.profile-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.profile-section-header:active { background: #f8fdf9; }
+
+.profile-section-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.profile-section-icon-wrap {
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #166534;
+  flex-shrink: 0;
+}
+.profile-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.profile-section-subtitle {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+  margin-top: 1px;
+}
+.profile-caret {
+  color: #94a3b8;
+  transition: transform 0.25s ease;
+}
+.profile-caret.open {
+  transform: rotate(90deg);
+  color: #166534;
+}
+
+/* ─── Section body ─── */
+.profile-section-body {
+  border-top: 1px solid #f1f5f9;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: expandDown 0.2s ease;
+}
+@keyframes expandDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Detail row ─── */
+.pf-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.pf-detail-label {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.pf-detail-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  text-align: right;
+  max-width: 60%;
+  word-break: break-word;
+}
+.pf-detail-value.highlight {
+  color: #166534;
+  background: #dcfce7;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.pf-detail-value.warning {
+  color: #d97706;
+  background: #fef3c7;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.pf-detail-divider {
+  height: 1px;
+  background: #f1f5f9;
+  margin: 2px 0;
+}
+
+/* ─── Document images ─── */
+.pf-doc-images {
+  display: flex;
+  gap: 10px;
+}
+.pf-doc-img {
+  flex: 1;
+  height: 100px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1.5px solid #e2e8f0;
+}
+.pf-doc-label {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 600;
+  text-align: center;
+  margin-top: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* ─── Payment History Section ─── */
+.profile-payments-section {
+  padding: 0 16px;
+  margin-bottom: 12px;
+}
+.profile-payments-heading {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 12px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+.payment-card {
+  background: white;
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 10px rgba(22, 101, 52, 0.05);
+  border: 1px solid rgba(22, 101, 52, 0.05);
+}
+.payment-icon-circle {
+  width: 42px; height: 42px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.payment-icon-circle.credit {
+  background: #dcfce7;
+  color: #16a34a;
+}
+.payment-icon-circle.debit {
+  background: #fee2e2;
+  color: #ef4444;
+}
+.payment-info { flex: 1; overflow: hidden; }
+.payment-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.payment-date {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+  margin: 0;
+}
+.payment-amount-col { text-align: right; }
+.payment-amount-val {
+  font-size: 15px;
+  font-weight: 800;
+  margin: 0 0 2px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.payment-amount-val.credit { color: #16a34a; }
+.payment-amount-val.debit  { color: #ef4444; }
+.payment-type-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.payment-type-badge.credit { background: #dcfce7; color: #16a34a; }
+.payment-type-badge.debit  { background: #fee2e2; color: #ef4444; }
+
+.payment-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 500;
+  background: white;
+  border-radius: 16px;
+  border: 1px dashed #e2e8f0;
+}
+
+/* ─── Logout button ─── */
+.profile-logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px auto 40px;
+  width: calc(100% - 32px);
+  padding: 16px;
+  background: white;
+  border: 1.5px solid #fee2e2;
+  border-radius: 16px;
+  color: #ef4444;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  box-shadow: 0 2px 10px rgba(239, 68, 68, 0.06);
+}
+.profile-logout-btn:active {
+  background: #fef2f2;
+  transform: scale(0.98);
+}
+
+.animate-spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

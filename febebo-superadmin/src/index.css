@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #3b82f6; 
+  --font-sans: 'Outfit', system-ui, sans-serif;
+}
+
+@utility glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
+}
+
+@utility glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.04);
+}
+
+@utility animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+@utility animate-slide-up {
+  animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  background-color: #f8fafc;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Base mesh background layer */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -1;
+  background-color: #f8fafc;
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(217, 100%, 94%, 0.6) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, hsla(284, 100%, 94%, 0.6) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, hsla(212, 100%, 92%, 0.6) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, hsla(247, 100%, 94%, 0.6) 0px, transparent 50%);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

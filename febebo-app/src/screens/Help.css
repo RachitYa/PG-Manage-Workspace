@@ -1,0 +1,123 @@
+/* Help — Dark Green Theme matching the Screenshot */
+
+.help-page-wrapper {
+  position: relative;
+  min-height: 100vh;
+  height: 100dvh;
+min-height: 100vh;
+  height: 100dvh;
+background-color: #fcfdfc;
+  overflow: hidden;
+}
+
+/* Wavy Background Elements */
+.help-wave-top, .help-wave-bottom {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 300px;
+  background-repeat: no-repeat;
+  background-size: cover;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+.help-wave-top {
+  top: 0;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23e8f6ed" fill-opacity="1" d="M0,96L48,112C96,128,192,160,288,144C384,128,480,64,576,64C672,64,768,128,864,165.3C960,203,1056,213,1152,202.7C1248,192,1344,160,1392,144L1440,128L1440,0L1392,0C1344,0,1248,0,1152,0C1056,0,960,0,864,0C768,0,672,0,576,0C480,0,384,0,288,0C192,0,96,0,48,0L0,0Z"></path></svg>');
+}
+
+.help-wave-bottom {
+  bottom: 0;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23e8f6ed" fill-opacity="1" d="M0,256L60,229.3C120,203,240,149,360,149.3C480,149,600,203,720,213.3C840,224,960,192,1080,170.7C1200,149,1320,139,1380,133.3L1440,128L1440,320L1380,320C1320,320,1200,320,1080,320C960,320,840,320,720,320C600,320,480,320,360,320C240,320,120,320,60,320L0,320Z"></path></svg>');
+}
+
+.help-container {
+  position: relative;
+  z-index: 10;
+  padding: 32px 24px;
+}
+
+/* Generated Illustration */
+.help-illustration {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 10px;
+  margin-bottom: 30px;
+}
+
+.illus-generated {
+  width: 200px;
+  height: auto;
+}
+
+/* Greeting */
+.help-greeting {
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #064e3b; /* Using theme green instead of blue */
+  line-height: 1.4;
+  margin-bottom: 32px;
+}
+
+/* Accordions (Clean Shadow Cards) */
+.help-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.help-item {
+  background-color: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.help-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  cursor: pointer;
+  background-color: #ffffff;
+}
+
+.help-item-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #334155;
+}
+
+.help-icon {
+  color: #064e3b; /* Theme green for icon */
+}
+
+.help-chevron {
+  color: #000000;
+  stroke-width: 2.5;
+}
+
+.help-item-body {
+  padding: 0 20px 20px 20px;
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.help-item-body p {
+  margin: 4px 0;
+}
+
+.help-subtext {
+  color: #94a3b8;
+  font-size: 12px;
+  margin-top: 2px !important;
+}

@@ -1,0 +1,39 @@
+{
+  "name": "febebo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@capacitor-firebase/authentication": "^8.3.0",
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/camera": "^8.2.2",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/geolocation": "^8.2.0",
+    "@capacitor/push-notifications": "^8.1.2",
+    "@ionic/pwa-elements": "^3.4.0",
+    "firebase": "^12.16.0",
+    "lucide-react": "^1.22.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.0",
+    "recharts": "^3.10.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.4.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-legacy": "^8.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "oxlint": "^1.69.0",
+    "terser": "^5.49.2",
+    "vite": "^8.1.0"
+  }
+}
