@@ -9,7 +9,6 @@ import { Scanner } from '@yudiel/react-qr-scanner';
 import { db } from '../firebase';
 import { useLoading } from '../context/LoadingContext';
 import './Food.css';
-import { COMMON_PG_DISHES, getDishPresetImage } from '../data/commonFoodDishes';
 import { COMMON_PG_DISHES, getDishPresetImage, DEFAULT_FOOD_PLACEHOLDER } from '../data/commonFoodDishes';
 import {
   formatDateStr,
@@ -29,7 +28,6 @@ const Food = () => {
   const { startLoading, stopLoading } = useLoading();
   const [foodData, setFoodData] = useState({});
   const [foodMenuImages, setFoodMenuImages] = useState({});
-  const [foodItemImages, setFoodItemImages] = useState({});
   const [foodItemImages, setFoodItemImages] = useState({});
   const [todayRequests, setTodayRequests] = useState({}); // { Breakfast: 'pack', Lunch: 'cancel', ... }
 
