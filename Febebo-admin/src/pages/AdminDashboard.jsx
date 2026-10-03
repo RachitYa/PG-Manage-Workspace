@@ -59,7 +59,7 @@ export default function AdminDashboard() {
 
         // 🔥 Massive Parallel Data Fetching! Execute all network requests simultaneously.
         const [
-          qNotif, qUsers, qReqs,
+          qNotif, qUsers, qRooms, qReqs,
           qAdmin, qOwner, qProfile,
           qReceipts, qStaff, qAttendance, qVisitorsInside,
           qVisitorsPending, qLeavePending, qComplaints,
@@ -67,6 +67,7 @@ export default function AdminDashboard() {
         ] = await Promise.all([
           safeGetDocs(query(collection(db, 'notifications'), where('adminId', '==', user.uid), where('resolved', '==', false)), 'notifications'),
           safeGetDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid)), 'tenants'),
+          safeGetDocs(query(collection(db, 'rooms'), where('adminId', '==', user.uid)), 'rooms'),
           safeGetDocs(query(collection(db, 'staff_requisitions'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('status', '==', 'Pending Rate')), 'staff_requisitions'),
           safeGetDoc(doc(db, 'admins', user.uid), 'admins'),
           safeGetDoc(activePgId === 'primary' ? doc(db, 'pg_owners', user.uid) : doc(db, 'pg_owners', activePgId), 'pg_owners'),
@@ -89,9 +90,13 @@ export default function AdminDashboard() {
         setComplainCount(complaintsPendingCount);
         setChatCount(0); // Chat unread counts require schema updates to be fully exact
 
-        // Process Tenants & Enquiries
+        // Process Tenants, Rooms & Enquiries
         const tenants = qUsers.docs
           .map(d => ({ id: d.id, tenantId: d.id, ...d.data() }))
+          .filter(d => matchesPg(d.pgId));
+        
+        const rooms = qRooms.docs
+          .map(d => ({ id: d.id, ...d.data() }))
           .filter(d => matchesPg(d.pgId));
         
         // (Enquiry count is now handled by a real-time listener below)
@@ -112,14 +117,18 @@ export default function AdminDashboard() {
                           user.displayName || (user.email ? user.email.split('@')[0] : 'Admin');
         setAdminName(foundName);
 
-        // Real stats
-        const OCCUPIED_STATUSES = ['Approved', 'Current User', 'Notice', 'On Notice Period'];
-        const approvedCount = tenants.filter(d => OCCUPIED_STATUSES.includes(d.status)).length;
+        // Real room & seat stats (accurately synchronized with ManageRooms)
+        const OCCUPIED_STATUSES = ['Approved', 'Current User', 'Notice', 'On Notice Period', 'Upcoming User'];
+        const activeTenants = tenants.filter(d => OCCUPIED_STATUSES.includes(d.status));
         
-        let totalSeats = 0;
-        if (qOwner.exists() && qOwner.data().propertyDetails?.totalSeats) {
-          totalSeats = Number(qOwner.data().propertyDetails.totalSeats) || 0;
-        }
+        // Count tenants who have an allotted room
+        const occupiedCount = rooms.length > 0
+          ? rooms.reduce((acc, r) => acc + activeTenants.filter(t => t.roomNo === r.roomNo || t.room === r.roomNo).length, 0)
+          : activeTenants.length;
+        
+        const definedCapacity = rooms.reduce((acc, r) => acc + (Number(r.beds) || 0), 0);
+        const pdTotalSeats = Number(ownerData.propertyDetails?.totalSeats || profileData.propertyDetails?.totalSeats || 0);
+        const totalSeats = Math.max(pdTotalSeats, definedCapacity);
 
         // --- Calculate Pending Dues ---
         const receipts = qReceipts.docs.map(d => ({ ...d.data(), id: d.id }));
@@ -173,7 +182,7 @@ export default function AdminDashboard() {
         }
 
         setStats([
-          { label: 'Seats Occupied', value: `${approvedCount}/${totalSeats}`, sub: 'Total Seats', icon: 'meeting_room', color: '#0891b2', bg: '#ecfeff' },
+          { label: 'Seats Occupied', value: `${occupiedCount}/${totalSeats}`, sub: 'Total Seats', icon: 'meeting_room', color: '#0891b2', bg: '#ecfeff' },
           { label: 'Pending Dues', value: dueValueStr, sub: `${pendingDuesCount} tenants`, icon: 'payments', color: '#e11d48', bg: '#fff1f2' },
           { label: 'Staff Present', value: `${qAttendance.size}/${qStaff.size}`, sub: 'Today', icon: 'badge', color: '#059669', bg: '#ecfdf5' },
           { label: 'Visitors in PG', value: String(qVisitorsInside.size), sub: 'Inside Now', icon: 'recent_actors', color: '#d97706', bg: '#fffbeb' },

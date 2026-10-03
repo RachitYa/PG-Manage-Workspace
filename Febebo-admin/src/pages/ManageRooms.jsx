@@ -258,8 +258,14 @@ export default function ManageRooms() {
     if (!user?.uid) return;
     setLoading(true);
     try {
+      const matchesPg = (itemPgId) => {
+        if (!activePgId || activePgId === 'primary') return !itemPgId || itemPgId === 'primary' || itemPgId === user.uid;
+        return itemPgId === activePgId;
+      };
+
       // Get PG Stats
-      const pgDoc = await getDoc(doc(db, 'pg_owners', user.uid));
+      const targetPgOwnerId = (!activePgId || activePgId === 'primary') ? user.uid : activePgId;
+      const pgDoc = await getDoc(doc(db, 'pg_owners', targetPgOwnerId));
       if (pgDoc.exists()) {
         const pd = pgDoc.data().propertyDetails || {};
         setPgStats({
@@ -270,8 +276,10 @@ export default function ManageRooms() {
       }
 
       // Get Rooms
-      const rSnap = await getDocs(query(collection(db, 'rooms'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)));
-      let fetchedRooms = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const rSnap = await getDocs(query(collection(db, 'rooms'), where('adminId', '==', user.uid)));
+      let fetchedRooms = rSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(d => matchesPg(d.pgId));
       
       // Sort rooms by roomNo (numeric + alphabetic)
       fetchedRooms.sort((a, b) => {
@@ -283,8 +291,11 @@ export default function ManageRooms() {
       setRooms(fetchedRooms);
 
       // Get Tenants (Active)
-      const tSnap = await getDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)));
-      const fetchedTenants = tSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.status === 'Approved' || t.status === 'Current User' || t.status === 'Notice' || t.status === 'On Notice Period' || t.status === 'Upcoming User');
+      const tSnap = await getDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid)));
+      const fetchedTenants = tSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(d => matchesPg(d.pgId))
+        .filter(t => t.status === 'Approved' || t.status === 'Current User' || t.status === 'Notice' || t.status === 'On Notice Period' || t.status === 'Upcoming User');
       setTenants(fetchedTenants);
 
     } catch (err) {
@@ -619,19 +630,18 @@ export default function ManageRooms() {
 
   if (selectedRoom) return <RoomDetailView room={selectedRoom} tenants={tenants} onBack={() => setSelectedRoom(null)} />;
 
-  // Dynamic calculations based on live data
-  const occupiedSeatsTotal = tenants.length;
-  // If the admin has defined rooms, we can calculate true vacant seats across defined rooms
-  // If not, we just show global stats from the profile.
-  const definedCapacity = rooms.reduce((acc, r) => acc + (r.beds || 0), 0);
-  const displayTotalSeats = Math.max(pgStats.totalSeats, definedCapacity);
-  const vacantSeatsTotal = displayTotalSeats - occupiedSeatsTotal;
-
   // Enhance rooms with live tenant counts
   const liveRooms = rooms.map(r => {
     const occ = tenants.filter(t => t.roomNo === r.roomNo || t.room === r.roomNo).length;
-    return { ...r, occupied_count: occ, vacant_count: (r.beds || 0) - occ };
+    return { ...r, occupied_count: occ, vacant_count: Math.max(0, (r.beds || 0) - occ) };
   });
+
+  // Dynamic calculations based on live data
+  const occupiedSeatsTotal = liveRooms.reduce((acc, r) => acc + r.occupied_count, 0);
+  // If the admin has defined rooms, calculate capacity across defined rooms
+  const definedCapacity = rooms.reduce((acc, r) => acc + (r.beds || 0), 0);
+  const displayTotalSeats = Math.max(pgStats.totalSeats, definedCapacity);
+  const vacantSeatsTotal = Math.max(0, displayTotalSeats - occupiedSeatsTotal);
 
   const filtered = liveRooms.filter(r => {
     const q = search.toLowerCase();
