@@ -38,19 +38,25 @@ export default function RequestBox() {
       try {
         const results = [];
         
+        const targetPgId = activePgId === 'primary' ? user.uid : activePgId;
+        const matchesPg = (docPgId) => {
+          if (!docPgId) return true;
+          if (docPgId === activePgId || docPgId === targetPgId) return true;
+          if (activePgId === 'primary' && docPgId === user.uid) return true;
+          return false;
+        };
+
         // 1. Fetch from 'notifications' collection (Standard)
-        const qNotif = query(collection(db, 'notifications'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
+        const qNotif = query(collection(db, 'notifications'), where('adminId', '==', user.uid));
         const snapNotif = await getDocs(qNotif);
         const batch = writeBatch(db);
         let hasUpdates = false;
         
         snapNotif.forEach(d => {
           const data = d.data();
-          
-          // We don't auto-resolve anymore, so they show up in the pending list for the admin to dismiss
-          
-          
-          results.push({ id: d.id, ...data, source: 'notification' });
+          if (matchesPg(data.pgId)) {
+            results.push({ id: d.id, ...data, source: 'notification' });
+          }
         });
         
         if (hasUpdates) {
@@ -58,24 +64,27 @@ export default function RequestBox() {
         }
 
         // 2. Fetch Pending Users
-        const qUsers = query(collection(db, 'tenants'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
+        const qUsers = query(collection(db, 'tenants'), where('adminId', '==', user.uid));
         const snapUsers = await getDocs(qUsers);
         snapUsers.forEach(d => {
           const data = d.data();
-          if (data.status === 'Pending' || data.status === 'Upcoming User' || !data.status) {
-            results.push({
-              id: 'user_' + d.id,
-              tenant: data.name,
-              room: data.room || 'N/A',
-              phone: data.phone,
-              type: 'New User Approval',
-              desc: `New student ${data.name} has signed up and needs approval.`,
-              date: new Date().toLocaleDateString(),
-              resolved: false,
-              category: 'user',
-              source: 'tenant',
-              originalId: d.id
-            });
+          if (matchesPg(data.pgId)) {
+            if (data.status === 'Pending' || data.status === 'Upcoming User' || !data.status) {
+              results.push({
+                id: 'user_' + d.id,
+                tenant: data.name,
+                room: data.room || data.roomNo || 'N/A',
+                phone: data.phone,
+                type: 'New User Approval',
+                desc: `New student ${data.name} has signed up and needs approval.`,
+                date: new Date().toLocaleDateString(),
+                resolved: false,
+                category: 'user',
+                source: 'tenant',
+                originalId: d.id,
+                tenantId: d.id
+              });
+            }
           }
         });
 
@@ -290,15 +299,39 @@ export default function RequestBox() {
     if (!reviewModalData || !reviewModalData.tenantId) return;
     setApproveLoading(true);
     try {
-      await updateDoc(doc(db, 'users', reviewModalData.tenantId), {
+      const tId = reviewModalData.tenantId;
+      await updateDoc(doc(db, 'users', tId), {
         isApproved: true,
-        status: 'Approved',
-        pgStatus: 'Approved',
+        status: 'Current User',
+        pgStatus: 'Current User',
+        'subscribedPG.status': 'Approved',
         'subscribedPG.kycStatus': 'approved'
       });
+      try {
+        await updateDoc(doc(db, 'tenants', tId), {
+          isApproved: true,
+          status: 'Current User',
+          pgStatus: 'Current User',
+          kycStatus: 'approved'
+        });
+      } catch (err) {
+        console.warn('Tenant doc update optional:', err);
+      }
       await updateDoc(doc(db, 'notifications', reviewModalData.id), {
         resolved: true
       });
+      try {
+        await addDoc(collection(db, 'users', tId, 'notifications'), {
+          title: '🎉 Details Approved!',
+          desc: 'Your details have been approved by the admin. Your dashboard is now fully unlocked!',
+          type: 'success',
+          action: 'VIEW_DASHBOARD',
+          unread: true,
+          createdAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn('User notification optional:', err);
+      }
       setRequests(prev => prev.map(r => r.id === reviewModalData.id ? { ...r, resolved: true } : r));
       setReviewModalData(null);
     } catch (e) {
@@ -516,6 +549,8 @@ export default function RequestBox() {
         isOpen={!!reviewModalData}
         onClose={() => setReviewModalData(null)}
         userId={reviewModalData?.tenantId}
+        onApprove={handleApproveDetails}
+        approveLoading={approveLoading}
       />
 
       

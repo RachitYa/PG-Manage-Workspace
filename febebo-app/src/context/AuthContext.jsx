@@ -104,14 +104,28 @@ export const AuthProvider = ({ children }) => {
 
   const signupWithEmail = async (email, password, firstName, lastName, phone) => {
     try {
+      // 1. Create the Firebase Auth user first (this authenticates the user session)
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+
+      // 2. Now that the user is authenticated, check phone uniqueness if provided
       if (phone) {
-        const q = query(collection(db, 'users'), where('phone', '==', phone));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          throw new Error('This phone number is already registered to another user.');
+        try {
+          const q = query(collection(db, 'users'), where('phone', '==', phone));
+          const snap = await getDocs(q);
+          const duplicates = snap.docs.filter(d => d.id !== userCredential.user.uid);
+          if (duplicates.length > 0) {
+            await userCredential.user.delete().catch(() => {});
+            throw new Error('This phone number is already registered to another user.');
+          }
+        } catch (phoneErr) {
+          if (phoneErr.message.includes('already registered')) {
+            throw phoneErr;
+          }
+          // If firestore rules prevent querying entire users collection, proceed gracefully
+          console.warn("Could not verify phone uniqueness:", phoneErr);
         }
       }
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+
       await updateProfile(userCredential.user, {
         displayName: `${firstName} ${lastName}`.trim()
       });

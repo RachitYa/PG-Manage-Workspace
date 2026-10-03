@@ -5,6 +5,7 @@ import { Utensils, Star, Users, X, Coffee, Sun, Moon, CheckCircle2, Ban, Shoppin
 import { useAuth } from '../context/AuthContext';
 import { getFirestore, doc, onSnapshot, collection, addDoc, updateDoc, setDoc } from 'firebase/firestore';
 import QRCode from 'react-qr-code';
+import { Scanner } from '@yudiel/react-qr-scanner';
 import { db } from '../firebase';
 import { useLoading } from '../context/LoadingContext';
 import './Food.css';
@@ -28,6 +29,12 @@ const Food = () => {
   const [showQRModal, setShowQRModal] = useState(false);
   const [activeMealQR, setActiveMealQR] = useState('');
   const [eatenStatus, setEatenStatus] = useState({});
+
+  // Reverse QR Scanner state
+  const [showScannerModal, setShowScannerModal] = useState(false);
+  const [targetScanMeal, setTargetScanMeal] = useState('');
+  const [scanResult, setScanResult] = useState(null); // { type: 'success' | 'error' | 'already', title: '', desc: '' }
+  const [isProcessingScan, setIsProcessingScan] = useState(false);
   
   // Rate state
   const [rating, setRating] = useState(0);
@@ -265,6 +272,110 @@ const Food = () => {
     }
   };
 
+  const handleStudentScan = async (result) => {
+    if (isProcessingScan || !result || !result.length) return;
+    const text = result[0]?.rawValue || '';
+    if (!text) return;
+
+    if (!text.startsWith('FEBEBO_MEAL')) {
+      setScanResult({
+        type: 'error',
+        title: 'Invalid QR Code ❌',
+        desc: 'This is not an official Febebo Cook QR pass. Please scan the QR code displayed at the mess counter.'
+      });
+      return;
+    }
+
+    setIsProcessingScan(true);
+    const parts = text.split('|');
+    // Format: FEBEBO_MEAL | ownerUid | meal | date
+    const qrOwnerUid = parts[1];
+    const qrMeal = (parts[2] || '').toLowerCase();
+    const qrDate = parts[3];
+
+    const studentPgId = user?.subscribedPG?.pgId || user?.subscribedPG?.adminId;
+
+    if (qrOwnerUid && studentPgId && qrOwnerUid !== studentPgId && qrOwnerUid !== user?.subscribedPG?.adminId) {
+      setScanResult({
+        type: 'error',
+        title: 'Mismatched PG 🏢',
+        desc: 'This QR code belongs to a different PG. Please scan the QR code for your registered PG.'
+      });
+      setIsProcessingScan(false);
+      return;
+    }
+
+    const today = getTodayStr();
+    if (qrDate && qrDate !== today) {
+      setScanResult({
+        type: 'error',
+        title: 'Expired QR Code ⏳',
+        desc: `This QR code is for ${qrDate}, but today is ${today}. Please ask the cook to generate today's QR code.`
+      });
+      setIsProcessingScan(false);
+      return;
+    }
+
+    if (eatenStatus[qrMeal]) {
+      const mCap = qrMeal.charAt(0).toUpperCase() + qrMeal.slice(1);
+      setScanResult({
+        type: 'already',
+        title: 'Already Marked! 🍽️',
+        desc: `You have already recorded your ${mCap} for today.`
+      });
+      setIsProcessingScan(false);
+      return;
+    }
+
+    try {
+      const activeAdminId = studentPgId || qrOwnerUid;
+      const headcountDocRef = doc(db, 'mess_headcount', `${activeAdminId}_${today}`);
+      await setDoc(headcountDocRef, { [`${user.uid}_${qrMeal}_eaten`]: true }, { merge: true });
+
+      // Also update food_requests
+      try {
+        const reqRef = doc(db, 'pg_owners', activeAdminId, 'food_requests', user.uid);
+        await setDoc(reqRef, {
+          todayStatus: { [qrMeal]: 'eaten' },
+          [`${qrMeal}EatenAt`]: new Date().toISOString()
+        }, { merge: true });
+      } catch (err) {
+        console.warn('Could not update food_requests:', err);
+      }
+
+      // Add student notification
+      try {
+        await addDoc(collection(db, 'users', user.uid, 'notifications'), {
+          title: 'Meal Verified! 🍽️',
+          desc: `Your ${qrMeal} was successfully recorded. Enjoy your food!`,
+          type: 'Food',
+          action: 'VIEW_FOOD',
+          unread: true,
+          createdAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn('Could not send notification:', err);
+      }
+
+      const mCap = qrMeal.charAt(0).toUpperCase() + qrMeal.slice(1);
+      setScanResult({
+        type: 'success',
+        title: 'Meal Verified! ✅',
+        desc: `Your ${mCap} has been recorded in the live headcount. Enjoy your meal!`
+      });
+      setShowScannerModal(false);
+    } catch (err) {
+      console.error('Error saving meal scan:', err);
+      setScanResult({
+        type: 'error',
+        title: 'Failed to Record',
+        desc: 'Could not record meal due to a network error. Please try again or ask the cook to mark you manually.'
+      });
+    } finally {
+      setIsProcessingScan(false);
+    }
+  };
+
   const todayString = new Date().toISOString().split('T')[0];
 
   const renderModal = () => {
@@ -413,17 +524,18 @@ const Food = () => {
               
               <div className="subcard-actions" style={{ padding: '12px', borderTop: '1px solid #f1f5f9', background: 'white', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {eatenStatus[meal.toLowerCase()] ? (
-                  <button className="meal-btn" style={{ background: '#10b981', color: 'white', border: 'none', width: '100%', padding: '10px', borderRadius: '12px', fontWeight: '800', cursor: 'default' }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: '18px', verticalAlign: 'middle', marginRight: '6px' }}>check_circle</span>
+                  <button className="meal-btn" style={{ background: '#10b981', color: 'white', border: 'none', width: '100%', padding: '11px', borderRadius: '12px', fontWeight: '800', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>check_circle</span>
                     Eaten ✓
                   </button>
                 ) : (
                   <>
                     <button 
-                      onClick={() => { setActiveMealQR(meal); setShowQRModal(true); }}
-                      className="meal-btn" style={{ background: 'linear-gradient(135deg, #0f172a, #334155)', color: 'white', border: 'none', width: '100%', padding: '10px', borderRadius: '12px', fontWeight: '800', cursor: 'pointer' }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: '18px', verticalAlign: 'middle', marginRight: '6px' }}>qr_code_2</span>
-                      Generate Pass
+                      onClick={() => { setTargetScanMeal(meal.toLowerCase()); setShowScannerModal(true); }}
+                      className="meal-btn" 
+                      style={{ background: 'linear-gradient(135deg, #059669, #10b981)', color: 'white', border: 'none', width: '100%', padding: '11px', borderRadius: '12px', fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, boxShadow: '0 4px 12px rgba(16,185,129,0.2)' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>qr_code_scanner</span>
+                      Scan Cook's QR to Eat
                     </button>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button 
@@ -441,6 +553,13 @@ const Food = () => {
                       >
                         <Ban size={14} />
                         {status === 'cancel' ? 'Canceled' : 'Cancel'}
+                      </button>
+                    </div>
+                    <div style={{ textAlign: 'center', marginTop: 2 }}>
+                      <button 
+                        onClick={() => { setActiveMealQR(meal); setShowQRModal(true); }} 
+                        style={{ background: 'none', border: 'none', fontSize: 11, fontWeight: 700, color: '#94a3b8', cursor: 'pointer', textDecoration: 'underline' }}>
+                        Or show my meal pass
                       </button>
                     </div>
                   </>
@@ -477,6 +596,22 @@ const Food = () => {
         {/* TODAY VIEW */}
         {activeTab === 'today' && (
           <div className="today-view-container">
+            {/* Quick Scan Action Banner */}
+            <div style={{ background: 'linear-gradient(135deg, #0f172a, #1e293b)', borderRadius: 20, padding: '16px 18px', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, boxShadow: '0 8px 20px rgba(15,23,42,0.12)' }}>
+              <div>
+                <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8, color: '#38bdf8' }}>Mess Counter</span>
+                <h4 style={{ margin: '3px 0 2px', fontSize: 16, fontWeight: 900, color: '#ffffff' }}>At the Dining Hall?</h4>
+                <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>Scan Cook's QR to mark your food</p>
+              </div>
+              <button 
+                onClick={() => { setTargetScanMeal(''); setShowScannerModal(true); }}
+                style={{ background: '#10b981', color: 'white', border: 'none', borderRadius: 14, padding: '10px 14px', fontSize: 13, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 4px 12px rgba(16,185,129,0.3)', whiteSpace: 'nowrap' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>qr_code_scanner</span>
+                Scan QR
+              </button>
+            </div>
+
             {activePeriod === 'morning' && renderTodayMealCard('Morning', <Coffee size={20} color="#d97706" />, ['Breakfast'])}
             {activePeriod === 'afternoon' && renderTodayMealCard('Afternoon', <Sun size={20} color="#0284c7" />, ['Lunch'])}
             {activePeriod === 'evening' && renderTodayMealCard('Evening', <Moon size={20} color="#4338ca" />, ['Snacks', 'Dinner'])}
@@ -646,6 +781,75 @@ const Food = () => {
             <div style={{ fontSize: '14px', color: '#64748b', marginTop: '4px', fontWeight: '600' }}>
               Room {user?.profileData?.roomDetails?.roomNumber || user?.subscribedPG?.roomNo || 'Unassigned'}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Student QR Scanner Modal */}
+      {showScannerModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'black', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '20px', paddingTop: 'calc(20px + env(safe-area-inset-top, 0px))', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }}>
+            <div>
+              <h3 style={{ margin: 0, color: 'white', fontSize: '18px', fontWeight: 800 }}>Scan Mess Counter QR</h3>
+              <p style={{ margin: '2px 0 0', color: '#cbd5e1', fontSize: '12px' }}>Point camera at Cook's screen or counter QR</p>
+            </div>
+            <button 
+              onClick={() => { setShowScannerModal(false); setIsProcessingScan(false); }} 
+              style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', cursor: 'pointer' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 22 }}>close</span>
+            </button>
+          </div>
+
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'black', position: 'relative' }}>
+            <div style={{ width: '100%', maxWidth: '420px', overflow: 'hidden' }}>
+              <Scanner
+                onScan={handleStudentScan}
+                onError={(err) => console.warn('QR Scanner warning:', err)}
+              />
+            </div>
+            {isProcessingScan && (
+              <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white', zIndex: 20 }}>
+                <div style={{ width: 44, height: 44, border: '4px solid rgba(255,255,255,0.3)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: 12 }} />
+                <p style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Verifying Meal...</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Scan Result Modal */}
+      {scanResult && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10001, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(5px)', padding: 20 }}>
+          <div style={{ background: 'white', borderRadius: 28, width: '100%', maxWidth: 340, padding: '28px 22px', textAlign: 'center', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%', margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: scanResult.type === 'success' ? '#dcfce7' : scanResult.type === 'already' ? '#fef3c7' : '#fee2e2'
+            }}>
+              <span className="material-symbols-outlined" style={{
+                fontSize: 34,
+                color: scanResult.type === 'success' ? '#16a34a' : scanResult.type === 'already' ? '#d97706' : '#dc2626'
+              }}>
+                {scanResult.type === 'success' ? 'check_circle' : scanResult.type === 'already' ? 'restaurant' : 'error'}
+              </span>
+            </div>
+
+            <h3 style={{ margin: '0 0 8px', fontSize: 19, fontWeight: 900, color: '#0f172a' }}>{scanResult.title}</h3>
+            <p style={{ margin: '0 0 24px', fontSize: 14, color: '#64748b', lineHeight: 1.5, fontWeight: 500 }}>
+              {scanResult.desc}
+            </p>
+
+            <button
+              onClick={() => setScanResult(null)}
+              style={{
+                width: '100%', padding: '14px', borderRadius: 14, border: 'none', fontWeight: 800, fontSize: 15, cursor: 'pointer',
+                background: scanResult.type === 'success' ? '#10b981' : '#0f172a',
+                color: 'white',
+                boxShadow: scanResult.type === 'success' ? '0 4px 12px rgba(16,185,129,0.3)' : 'none'
+              }}
+            >
+              {scanResult.type === 'success' ? 'Awesome, Thanks!' : 'Understood'}
+            </button>
           </div>
         </div>
       )}

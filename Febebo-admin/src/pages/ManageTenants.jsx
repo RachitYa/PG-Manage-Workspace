@@ -241,12 +241,17 @@ function UserListView({ onBack, onAdd, onSelect, initialTab = 'Current User' }) 
     if (!user?.uid) return;
     const fetchUsers = async () => {
       try {
-        const rSnap = await getDocs(query(collection(db, 'rooms'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)));
-        setRooms(rSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const matchesPg = (itemPgId) => {
+          if (!activePgId || activePgId === 'primary') return true;
+          return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+        };
 
-        const q = query(collection(db, 'tenants'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
+        const rSnap = await getDocs(query(collection(db, 'rooms'), where('adminId', '==', user.uid)));
+        setRooms(rSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(r => matchesPg(r.pgId)));
+
+        const q = query(collection(db, 'tenants'), where('adminId', '==', user.uid));
         const snap = await getDocs(q);
-        const fetchedTenants = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const fetchedTenants = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(t => matchesPg(t.pgId));
         
         // Fetch corresponding user profiles to get real profile pictures
         const enrichedTenants = await Promise.all(fetchedTenants.map(async (t) => {

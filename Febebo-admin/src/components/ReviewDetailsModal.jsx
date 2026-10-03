@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
-export default function ReviewDetailsModal({ isOpen, onClose, userId }) {
+export default function ReviewDetailsModal({ isOpen, onClose, userId, onApprove, approveLoading }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
 
@@ -132,13 +132,38 @@ export default function ReviewDetailsModal({ isOpen, onClose, userId }) {
           </div>
         )}
 
-        <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #f1f5f9' }}>
+        <div style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid #f1f5f9', display: 'flex', gap: 12 }}>
           <button 
             onClick={onClose} 
-            style={{ width: '100%', background: '#0f172a', color: 'white', border: 'none', borderRadius: 12, padding: '14px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}
+            style={{ flex: 1, background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 12, padding: '14px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}
           >
             Close
           </button>
+          {onApprove && (
+            <button 
+              onClick={onApprove} 
+              disabled={approveLoading}
+              style={{
+                flex: 2,
+                background: approveLoading ? '#94a3b8' : '#10b981',
+                color: 'white',
+                border: 'none',
+                borderRadius: 12,
+                padding: '14px',
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: approveLoading ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>check_circle</span>
+              {approveLoading ? 'Approving...' : 'Approve & Unlock'}
+            </button>
+          )}
         </div>
       </div>
     </div>

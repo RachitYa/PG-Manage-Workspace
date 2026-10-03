@@ -1,7 +1,13 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { MapPin, Image as ImageIcon, Check, ChevronDown, Navigation, Building2, Hash, IndianRupee, User, Phone, Mail, Calendar, Trash2 } from 'lucide-react';
+import { 
+  MapPin, Image as ImageIcon, Check, ChevronDown, Navigation, Building2, Hash, 
+  IndianRupee, User, Phone, Mail, Calendar, Trash2, X, Plus,
+  Bed, Layers, Shirt, Package, Armchair, LampDesk, AirVent, Refrigerator, 
+  Wifi, WashingMachine, Flame, Zap, Droplets, Cctv, ShieldCheck, Dumbbell, 
+  Car, Bike, Tv, Utensils, Bath, Sun, DoorClosed, Sparkles, Tag
+} from 'lucide-react';
 import { Geolocation } from '@capacitor/geolocation';
 import { doc, setDoc, addDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -65,19 +71,93 @@ function CustomSelect({ options, value, onChange, placeholder }) {
   );
 }
 
+const ICON_MAP = {
+  Bed,
+  Layers,
+  Shirt,
+  Package,
+  Armchair,
+  LampDesk,
+  AirVent,
+  Refrigerator,
+  Wifi,
+  WashingMachine,
+  Flame,
+  Zap,
+  Droplets,
+  Cctv,
+  ShieldCheck,
+  Dumbbell,
+  Car,
+  Bike,
+  Tv,
+  Utensils,
+  Bath,
+  Sun,
+  DoorClosed,
+  Sparkles,
+  Tag
+};
+
 const AMENITIES = [
-  { id: 'bed', label: 'Bed', icon: '🛏️' },
-  { id: 'mattress', label: 'Mattress', icon: '🔲' },
-  { id: 'bedsheet', label: 'Bedsheet', icon: '📜' },
-  { id: 'pillow', label: 'Pillow', icon: '☁️' },
-  { id: 'pillow-cover', label: 'Pillow Cover', icon: '📨' },
-  { id: 'chair', label: 'Chair', icon: '🪑' },
-  { id: 'table', label: 'Study Table', icon: '🪚' },
-  { id: 'ac', label: 'AC', icon: '❄️' },
-  { id: 'fridge', label: 'Fridge', icon: '🧊' },
-  { id: 'wifi', label: 'Wi-Fi', icon: '📶' },
-  { id: 'washing-machine', label: 'Washing Machine', icon: '🧺' },
+  { id: 'bed', label: 'Bed', iconName: 'Bed' },
+  { id: 'mattress', label: 'Mattress', iconName: 'Layers' },
+  { id: 'bedsheet', label: 'Bedsheet', iconName: 'Shirt' },
+  { id: 'pillow', label: 'Pillow', iconName: 'Package' },
+  { id: 'pillow-cover', label: 'Pillow Cover', iconName: 'Tag' },
+  { id: 'chair', label: 'Chair', iconName: 'Armchair' },
+  { id: 'table', label: 'Study Table', iconName: 'LampDesk' },
+  { id: 'ac', label: 'AC', iconName: 'AirVent' },
+  { id: 'fridge', label: 'Fridge', iconName: 'Refrigerator' },
+  { id: 'wifi', label: 'Wi-Fi', iconName: 'Wifi' },
+  { id: 'washing-machine', label: 'Washing Machine', iconName: 'WashingMachine' },
+  { id: 'geyser', label: 'Geyser', iconName: 'Flame' },
+  { id: 'power-backup', label: 'Power Backup', iconName: 'Zap' },
+  { id: 'ro-water', label: 'RO Water', iconName: 'Droplets' },
+  { id: 'cctv', label: 'CCTV Security', iconName: 'Cctv' },
 ];
+
+const CUSTOM_ICON_PRESETS = [
+  { name: 'Dumbbell', label: 'Gym / Fitness' },
+  { name: 'Droplets', label: 'RO Purifier' },
+  { name: 'Flame', label: 'Geyser / Heater' },
+  { name: 'Zap', label: 'Power Backup' },
+  { name: 'Cctv', label: 'CCTV Camera' },
+  { name: 'ShieldCheck', label: 'Security Guard' },
+  { name: 'Tv', label: 'Television' },
+  { name: 'Utensils', label: 'Mess / Meals' },
+  { name: 'Car', label: 'Car Parking' },
+  { name: 'Bike', label: 'Bike Parking' },
+  { name: 'Bath', label: 'Washroom' },
+  { name: 'Sun', label: 'Balcony' },
+  { name: 'DoorClosed', label: 'Wardrobe' },
+  { name: 'Sparkles', label: 'Housekeeping' },
+  { name: 'Tag', label: 'General / Other' },
+];
+
+function detectAmenityIcon(text) {
+  const t = (text || '').toLowerCase();
+  if (t.includes('gym') || t.includes('fit') || t.includes('workout')) return 'Dumbbell';
+  if (t.includes('water') || t.includes('ro') || t.includes('purifier') || t.includes('aqua')) return 'Droplets';
+  if (t.includes('geyser') || t.includes('heat') || t.includes('hot') || t.includes('boiler')) return 'Flame';
+  if (t.includes('power') || t.includes('backup') || t.includes('inverter') || t.includes('gen')) return 'Zap';
+  if (t.includes('cctv') || t.includes('cam')) return 'Cctv';
+  if (t.includes('sec') || t.includes('guard')) return 'ShieldCheck';
+  if (t.includes('tv') || t.includes('tele')) return 'Tv';
+  if (t.includes('food') || t.includes('mess') || t.includes('cook') || t.includes('kitchen') || t.includes('meal')) return 'Utensils';
+  if (t.includes('car')) return 'Car';
+  if (t.includes('bike') || t.includes('cycle') || t.includes('park')) return 'Bike';
+  if (t.includes('bath') || t.includes('toilet') || t.includes('washroom') || t.includes('shower')) return 'Bath';
+  if (t.includes('balcony') || t.includes('terrace')) return 'Sun';
+  if (t.includes('cupboard') || t.includes('almirah') || t.includes('wardrobe') || t.includes('closet')) return 'DoorClosed';
+  if (t.includes('clean') || t.includes('maid') || t.includes('housekeep')) return 'Sparkles';
+  return 'Tag';
+}
+
+function AmenityIcon({ iconName, isSelected, size = 22 }) {
+  const Comp = ICON_MAP[iconName] || Tag;
+  return <Comp size={size} strokeWidth={isSelected ? 2.2 : 1.8} color={isSelected ? '#0891b2' : '#64748b'} />;
+}
 
 export default function CreatePGProfile() {
 
@@ -101,6 +181,9 @@ export default function CreatePGProfile() {
   const [isSaving, setIsSaving] = useState(false);
   const [showPgSuccess, setShowPgSuccess] = useState(false);
   const [customAmenities, setCustomAmenities] = useState([]);
+  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [customInputName, setCustomInputName] = useState('');
+  const [selectedCustomIcon, setSelectedCustomIcon] = useState('Tag');
   const galleryInputRef = useRef(null);
   const cameraInputRef = useRef(null);
   
@@ -137,24 +220,58 @@ export default function CreatePGProfile() {
 
   const handleGetLocation = async () => {
     try {
-      const permission = await Geolocation.checkPermissions();
-      if (permission.location !== 'granted') {
-        const request = await Geolocation.requestPermissions();
-        if (request.location !== 'granted') {
-          return alert('Location permission denied. Please enable it in app settings.');
+      if (window.Capacitor?.isNativePlatform()) {
+        const permission = await Geolocation.checkPermissions();
+        if (permission.location !== 'granted') {
+          const request = await Geolocation.requestPermissions();
+          if (request.location !== 'granted') {
+            return alert('Location permission denied. Please enable it in app settings.');
+          }
         }
+        const position = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 10000
+        });
+        setLat(position.coords.latitude);
+        setLng(position.coords.longitude);
+        setMapLink(`https://maps.google.com/?q=${position.coords.latitude},${position.coords.longitude}`);
+        return;
       }
-      
-      const position = await Geolocation.getCurrentPosition({
-        enableHighAccuracy: true,
-        timeout: 10000
-      });
-      setLat(position.coords.latitude);
-      setLng(position.coords.longitude);
-      setMapLink(`https://maps.google.com/?q=${position.coords.latitude},${position.coords.longitude}`);
+
+      // Web browser fallback
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setLat(pos.coords.latitude);
+            setLng(pos.coords.longitude);
+            setMapLink(`https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`);
+          },
+          (err) => {
+            console.error('Web geolocation error:', err);
+            alert('Unable to get location. Please allow location access in your browser.');
+          },
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      } else {
+        alert('Geolocation is not supported by your browser.');
+      }
     } catch (err) {
-      alert('Unable to get location. Please ensure GPS is turned on.');
-      console.error(err);
+      // Fallback if Capacitor throws unimplemented on web
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setLat(pos.coords.latitude);
+            setLng(pos.coords.longitude);
+            setMapLink(`https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`);
+          },
+          (webErr) => {
+            console.error('Geolocation fallback error:', webErr);
+            alert('Unable to get location. Please ensure location is enabled.');
+          }
+        );
+      } else {
+        alert('Unable to get location. Please ensure GPS/location is enabled.');
+      }
     }
   };
 
@@ -218,13 +335,38 @@ export default function CreatePGProfile() {
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleAddCustomAmenity = () => {
-    const name = window.prompt('Enter custom amenity name:');
-    if (name && name.trim()) {
-      const id = 'custom-' + name.trim().toLowerCase().replace(/\s+/g, '-');
-      setCustomAmenities(prev => [...prev, { id, label: name.trim(), icon: '✨' }]);
+  const handleOpenCustomModal = () => {
+    setCustomInputName('');
+    setSelectedCustomIcon('Tag');
+    setShowCustomModal(true);
+  };
+
+  const handleCustomNameChange = (val) => {
+    setCustomInputName(val);
+    const matched = detectAmenityIcon(val);
+    if (matched) setSelectedCustomIcon(matched);
+  };
+
+  const handleSaveCustomAmenity = () => {
+    const trimmed = customInputName.trim();
+    if (!trimmed) return;
+    const id = 'custom-' + trimmed.toLowerCase().replace(/\s+/g, '-');
+    if (!allAmenities.some(a => a.id === id)) {
+      setCustomAmenities(prev => [...prev, { id, label: trimmed, iconName: selectedCustomIcon }]);
       setSelectedAmenities(prev => [...prev, id]);
+    } else {
+      if (!selectedAmenities.includes(id)) {
+        setSelectedAmenities(prev => [...prev, id]);
+      }
     }
+    setShowCustomModal(false);
+    setCustomInputName('');
+  };
+
+  const handleDeleteCustomAmenity = (e, customId) => {
+    e.stopPropagation();
+    setCustomAmenities(prev => prev.filter(a => a.id !== customId));
+    setSelectedAmenities(prev => prev.filter(id => id !== customId));
   };
 
   const allAmenities = [...AMENITIES, ...customAmenities];
@@ -264,6 +406,18 @@ export default function CreatePGProfile() {
        window.scrollTo({ top: 0, behavior: 'smooth' });
        return;
     }
+
+    const validRents = rents
+      .filter(r => r.rent && Number(r.rent) > 0)
+      .sort((a, b) => a.seater - b.seater);
+
+    if (validRents.length === 0) {
+       setErrorMsg("Please enter a rent price for at least one seater type you offer.");
+       setTimeout(() => setErrorMsg(''), 4000);
+       window.scrollTo({ top: 0, behavior: 'smooth' });
+       return;
+    }
+
     setIsSaving(true);
     try {
       const pgData = {
@@ -291,7 +445,7 @@ export default function CreatePGProfile() {
         propertyDetails: {
           totalRooms: totalRooms,
           totalSeats: totalSeats,
-          rents: rents,
+          rents: validRents,
           registrationNumber: registrationNumber,
           isOnLease: isOnLease,
           leaseAmount: isOnLease ? leaseAmount : 0
@@ -639,28 +793,55 @@ export default function CreatePGProfile() {
             </div>
 
             <div style={{ marginBottom: 20 }}>
-              <label className="label">Rent Pricing <span style={{color: '#ef4444'}}>*</span></label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 }}>
+                <label className="label" style={{ marginBottom: 0 }}>Rent Pricing <span style={{color: '#ef4444'}}>*</span></label>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>Only enter prices for seaters your PG offers</span>
+              </div>
               <div style={{ display: 'grid', gap: '12px' }}>
                 {rents.map((r, idx) => (
-                  <div key={idx} style={{ display: 'flex', gap: '8px' }}>
+                  <div key={r.seater} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <div className="input-icon-wrapper" style={{ position: 'relative', flex: 1, marginBottom: 0 }}>
-                      <span style={{
-                        position: 'absolute',
-                        left: '16px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: '#64748b',
-                        fontSize: '14px',
-                        fontWeight: 600,
-                        zIndex: 2
-                      }}>{r.seater} Seater</span>
+                      <select
+                        value={r.seater}
+                        onChange={e => {
+                          const newSeater = Number(e.target.value);
+                          const newRents = rents.map((item, i) => i === idx ? { ...item, seater: newSeater } : item);
+                          setRents(newRents.sort((a, b) => a.seater - b.seater));
+                        }}
+                        style={{
+                          position: 'absolute',
+                          left: '10px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          color: '#0f172a',
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          zIndex: 2,
+                          background: '#f8fafc',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: '8px',
+                          padding: '6px 8px',
+                          cursor: 'pointer',
+                          outline: 'none'
+                        }}
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
+                          <option 
+                            key={num} 
+                            value={num} 
+                            disabled={rents.some((item, i) => i !== idx && item.seater === num)}
+                          >
+                            {num} Seater
+                          </option>
+                        ))}
+                      </select>
                       <input 
                         type="text" 
                         inputMode="numeric"
                         pattern="[0-9]*"
                         className="aesthetic-input" 
-                        style={{ paddingLeft: '95px', paddingRight: '16px' }}
-                        placeholder="Rent amount" 
+                        style={{ paddingLeft: '115px', paddingRight: '16px' }}
+                        placeholder="Rent amount (₹/month)" 
                         value={r.rent} 
                         onChange={e => {
                           const val = e.target.value.replace(/[^0-9]/g, '');
@@ -668,7 +849,7 @@ export default function CreatePGProfile() {
                           newRents[idx].rent = val;
                           setRents(newRents);
                         }} 
-                        required={idx === 0}
+                        required
                       />
                     </div>
                     {rents.length > 1 && (
@@ -676,14 +857,15 @@ export default function CreatePGProfile() {
                         type="button" 
                         onClick={() => {
                            const newRents = rents.filter((_, i) => i !== idx);
-                           const updatedRents = newRents.map((item, i) => ({ ...item, seater: i + 1 }));
-                           setRents(updatedRents);
+                           setRents(newRents);
                         }}
+                        title={`Remove ${r.seater} Seater`}
                         style={{
                           background: 'transparent',
                           border: '1px solid #fecaca',
                           borderRadius: '12px',
                           width: '52px',
+                          height: '48px',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -709,7 +891,12 @@ export default function CreatePGProfile() {
               </div>
               <button 
                 type="button" 
-                onClick={() => setRents([...rents, { seater: rents.length + 1, rent: '' }])}
+                onClick={() => {
+                  const allSeaters = [1, 2, 3, 4, 5, 6, 7, 8];
+                  const nextSeater = allSeaters.find(s => !rents.some(r => r.seater === s)) || (Math.max(...rents.map(r => r.seater), 0) + 1);
+                  setRents([...rents, { seater: nextSeater, rent: '' }].sort((a, b) => a.seater - b.seater));
+                }}
+                disabled={rents.length >= 8}
                 style={{
                   marginTop: '12px',
                   padding: '8px 16px',
@@ -722,10 +909,11 @@ export default function CreatePGProfile() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
-                  cursor: 'pointer'
+                  cursor: rents.length >= 8 ? 'not-allowed' : 'pointer',
+                  opacity: rents.length >= 8 ? 0.5 : 1
                 }}
               >
-                + Add {rents.length + 1} Seater Rent
+                + Add Another Seater Rent
               </button>
             </div>
 
@@ -886,49 +1074,159 @@ export default function CreatePGProfile() {
 
           {/* AMENITIES CARD */}
           <div className="card-container">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-              <h3 className="section-title" style={{ marginBottom: 0 }}>Amenities</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <h3 className="section-title" style={{ marginBottom: 2 }}>Amenities</h3>
+                <span style={{ fontSize: '12px', color: '#64748b' }}>Select amenities provided in your PG</span>
+              </div>
               <button 
                 type="button" 
-                onClick={handleAddCustomAmenity}
-                style={{ background: '#ecfeff', border: 'none', color: '#0891b2', fontWeight: 700, padding: '8px 16px', borderRadius: 12, fontSize: 13, cursor: 'pointer' }}
+                onClick={handleOpenCustomModal}
+                style={{ 
+                  background: '#ecfeff', 
+                  border: '1px solid #a5f3fc', 
+                  color: '#0891b2', 
+                  fontWeight: 700, 
+                  padding: '8px 14px', 
+                  borderRadius: 12, 
+                  fontSize: 13, 
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = '#cffafe'}
+                onMouseLeave={e => e.currentTarget.style.background = '#ecfeff'}
               >
-                + Custom
+                <Plus size={16} strokeWidth={2.5} /> Custom
               </button>
             </div>
             
             <div style={{ 
               display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', 
+              gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', 
               gap: 12 
             }}>
               {allAmenities.map(amenity => {
                 const isSelected = selectedAmenities.includes(amenity.id);
+                const isCustom = amenity.id.startsWith('custom-');
                 return (
                   <div 
                     key={amenity.id}
                     onClick={() => toggleAmenity(amenity.id)}
                     style={{
-                      border: isSelected ? '2px solid #0891b2' : '2px solid transparent',
+                      border: isSelected ? '1.5px solid #0891b2' : '1.5px solid #e2e8f0',
                       borderRadius: 16,
-                      padding: '16px 8px',
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      padding: '14px 6px 12px',
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
                       cursor: 'pointer',
-                      background: isSelected ? '#ecfeff' : '#f8fafc',
+                      background: isSelected ? '#f0fdfa' : '#ffffff',
                       position: 'relative',
-                      transition: 'all 0.2s',
-                      boxShadow: isSelected ? '0 4px 12px rgba(8,145,178,0.1)' : 'none'
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      boxShadow: isSelected 
+                        ? '0 4px 14px rgba(8,145,178,0.12)' 
+                        : '0 1px 3px rgba(0,0,0,0.02)',
+                      userSelect: 'none'
                     }}
-                    onMouseEnter={e => { if(!isSelected) e.currentTarget.style.background = '#f1f5f9' }}
-                    onMouseLeave={e => { if(!isSelected) e.currentTarget.style.background = '#f8fafc' }}
+                    onMouseEnter={e => { 
+                      if (!isSelected) {
+                        e.currentTarget.style.borderColor = '#cbd5e1';
+                        e.currentTarget.style.background = '#f8fafc';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.06)';
+                      } else {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                      }
+                    }}
+                    onMouseLeave={e => { 
+                      if (!isSelected) {
+                        e.currentTarget.style.borderColor = '#e2e8f0';
+                        e.currentTarget.style.background = '#ffffff';
+                        e.currentTarget.style.transform = 'none';
+                        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.02)';
+                      } else {
+                        e.currentTarget.style.transform = 'none';
+                      }
+                    }}
                   >
+                    {/* Selected Check Badge */}
                     {isSelected && (
-                      <div style={{ position: 'absolute', top: -6, right: -6, background: '#0891b2', color: 'white', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>
-                        <Check size={12} strokeWidth={4} />
+                      <div style={{ 
+                        position: 'absolute', 
+                        top: 6, 
+                        right: 6, 
+                        background: '#0891b2', 
+                        color: 'white', 
+                        borderRadius: '50%', 
+                        width: 18, 
+                        height: 18, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        boxShadow: '0 2px 4px rgba(8,145,178,0.3)' 
+                      }}>
+                        <Check size={11} strokeWidth={3.5} />
                       </div>
                     )}
-                    <span style={{ fontSize: 24, marginBottom: 8, filter: isSelected ? 'drop-shadow(0 2px 4px rgba(8,145,178,0.3))' : 'none' }}>{amenity.icon}</span>
-                    <span style={{ fontSize: 11, textAlign: 'center', fontWeight: isSelected ? 700 : 600, color: isSelected ? '#0891b2' : '#64748b' }}>
+
+                    {/* Custom Amenity Delete Button */}
+                    {isCustom && (
+                      <button
+                        type="button"
+                        onClick={(e) => handleDeleteCustomAmenity(e, amenity.id)}
+                        title="Delete custom amenity"
+                        style={{
+                          position: 'absolute',
+                          top: 6,
+                          left: 6,
+                          width: 18,
+                          height: 18,
+                          borderRadius: '50%',
+                          background: '#fee2e2',
+                          border: 'none',
+                          color: '#ef4444',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          padding: 0,
+                          transition: 'background 0.15s'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#fecaca'}
+                        onMouseLeave={e => e.currentTarget.style.background = '#fee2e2'}
+                      >
+                        <X size={11} strokeWidth={3} />
+                      </button>
+                    )}
+
+                    {/* Icon Container */}
+                    <div style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: 12,
+                      background: isSelected ? '#ccfbf1' : '#f8fafc',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 8,
+                      transition: 'all 0.2s ease'
+                    }}>
+                      <AmenityIcon iconName={amenity.iconName || amenity.icon} isSelected={isSelected} size={22} />
+                    </div>
+
+                    {/* Label */}
+                    <span style={{ 
+                      fontSize: 12, 
+                      textAlign: 'center', 
+                      fontWeight: isSelected ? 700 : 600, 
+                      color: isSelected ? '#0e7490' : '#475569',
+                      lineHeight: 1.25,
+                      padding: '0 2px'
+                    }}>
                       {amenity.label}
                     </span>
                   </div>
@@ -990,6 +1288,207 @@ export default function CreatePGProfile() {
             <button type="button" onClick={() => setShowPhotoPicker(false)} style={{ width: '100%', padding: '16px', background: 'transparent', color: '#64748b', border: 'none', fontWeight: 700, fontSize: 15, cursor: 'pointer', marginTop: 12 }}>
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {showCustomModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.55)',
+          backdropFilter: 'blur(5px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: 16
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: 24,
+            width: '100%',
+            maxWidth: 440,
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+            overflow: 'hidden',
+            animation: 'fadeIn 0.2s ease-out'
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid #f1f5f9',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 12,
+                  background: '#ecfeff', color: '#0891b2',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}>
+                  <Plus size={22} strokeWidth={2.5} />
+                </div>
+                <div>
+                  <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Add Custom Amenity</h4>
+                  <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Custom service or facility for your PG</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCustomModal(false)}
+                style={{ 
+                  background: '#f1f5f9', 
+                  border: 'none', 
+                  borderRadius: '50%',
+                  width: 32,
+                  height: 32,
+                  cursor: 'pointer', 
+                  color: '#64748b', 
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '20px 24px' }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 8 }}>
+                Amenity Name
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Gym, RO Water, Balcony, CCTV..."
+                value={customInputName}
+                onChange={(e) => handleCustomNameChange(e.target.value)}
+                autoFocus
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  borderRadius: 12,
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  marginBottom: 18,
+                  transition: 'border 0.2s'
+                }}
+                onFocus={e => e.target.style.borderColor = '#0891b2'}
+                onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSaveCustomAmenity();
+                  }
+                }}
+              />
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ fontSize: 13, fontWeight: 700, color: '#334155', margin: 0 }}>
+                  Select an Icon
+                </label>
+                <span style={{ fontSize: 11, color: '#0891b2', fontWeight: 600 }}>Auto-detected from name</span>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(5, 1fr)',
+                gap: 8,
+                maxHeight: 180,
+                overflowY: 'auto',
+                padding: '4px 2px'
+              }}>
+                {CUSTOM_ICON_PRESETS.map((item) => {
+                  const IconComp = ICON_MAP[item.name] || Tag;
+                  const isCurrentIcon = selectedCustomIcon === item.name;
+                  return (
+                    <button
+                      key={item.name}
+                      type="button"
+                      onClick={() => setSelectedCustomIcon(item.name)}
+                      title={item.label}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '10px 4px',
+                        borderRadius: 12,
+                        border: isCurrentIcon ? '2px solid #0891b2' : '1px solid #e2e8f0',
+                        background: isCurrentIcon ? '#ecfeff' : '#f8fafc',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      <IconComp size={20} strokeWidth={isCurrentIcon ? 2.5 : 2} color={isCurrentIcon ? '#0891b2' : '#64748b'} />
+                      <span style={{
+                        fontSize: 10,
+                        marginTop: 4,
+                        color: isCurrentIcon ? '#0891b2' : '#64748b',
+                        fontWeight: isCurrentIcon ? 700 : 500,
+                        textAlign: 'center',
+                        maxWidth: '100%',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {item.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '16px 24px',
+              background: '#f8fafc',
+              borderTop: '1px solid #f1f5f9',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 10
+            }}>
+              <button
+                type="button"
+                onClick={() => setShowCustomModal(false)}
+                style={{
+                  padding: '10px 18px',
+                  borderRadius: 10,
+                  border: '1px solid #cbd5e1',
+                  background: 'white',
+                  color: '#475569',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCustomAmenity}
+                disabled={!customInputName.trim()}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: customInputName.trim() ? '#0891b2' : '#94a3b8',
+                  color: 'white',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: customInputName.trim() ? 'pointer' : 'not-allowed',
+                  boxShadow: customInputName.trim() ? '0 4px 12px rgba(8,145,178,0.25)' : 'none'
+                }}
+              >
+                Add Amenity
+              </button>
+            </div>
           </div>
         </div>
       )}

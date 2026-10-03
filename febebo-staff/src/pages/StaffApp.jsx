@@ -5,6 +5,7 @@ import { initializeApp, deleteApp, getApps } from 'firebase/app';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth as getFirebaseAuth } from 'firebase/auth';
 import { collection, addDoc, doc, setDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, getDocs, getDoc } from 'firebase/firestore';
 import { Scanner } from '@yudiel/react-qr-scanner';
+import QRCode from 'react-qr-code';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -28,6 +29,33 @@ class ErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
+
+// ─── Image Compressor Helper ───────────────────────────────────────────────
+const compressImage = (file, maxWidth = 750) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.65));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -697,6 +725,8 @@ export default function StaffApp(){
   const [students,setStudents]  = useState([]);
   const [showScan, setShowScan] = useState(false);
   const [showManual, setShowManual] = useState(false);
+  const [showMealQR, setShowMealQR] = useState(false);
+  const [selectedQRMeal, setSelectedQRMeal] = useState('');
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [manualSearch, setManualSearch] = useState('');
   const [activeMeal, setActiveMeal] = useState('');
@@ -765,6 +795,10 @@ export default function StaffApp(){
   const [editWeeklyMenuDay, setEditWeeklyMenuDay] = useState('');
   const [editWeeklyMenuMeal, setEditWeeklyMenuMeal] = useState('');
   const [editWeeklyMenuVal, setEditWeeklyMenuVal] = useState('');
+  const [foodMenuImages, setFoodMenuImages] = useState({});
+  const [editWeeklyMenuImage, setEditWeeklyMenuImage] = useState(null);
+  const [isProcessingCookPhoto, setIsProcessingCookPhoto] = useState(false);
+  const cookPhotoInputRef = useRef(null);
   const [selectedFoodMenuDate, setSelectedFoodMenuDate] = useState(new Date().toISOString().split('T')[0]);
   const [cookMenuTab, setCookMenuTab] = useState('date'); // date | weekly
   
@@ -1705,6 +1739,11 @@ export default function StaffApp(){
         }
         if (data.foodMenu) {
           setWeeklyFoodMenu(data.foodMenu);
+        }
+        if (data.foodMenuImages) {
+          setFoodMenuImages(data.foodMenuImages);
+        } else if (data.foodImages) {
+          setFoodMenuImages(data.foodImages);
         }
       }
     });
@@ -2929,24 +2968,34 @@ export default function StaffApp(){
                   <div style={{background:'#fff', borderRadius:16, border: '1px solid #e2e8f0', padding:16, boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
                     <h3 style={{margin:'0 0 12px', fontSize:16, fontWeight:900, color:'#000', borderBottom:'1px solid #f1f5f9', paddingBottom:8}}>{dayOfWeek}'s Menu</h3>
                     
-                    {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(meal => (
-                      <div key={meal} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0'}}>
-                        <div style={{flex:1}}>
-                          <span style={{fontSize:11, fontWeight:800, color:C.muted, textTransform:'uppercase'}}>{meal}</span>
-                          <p style={{margin:'2px 0 0', fontSize:14, fontWeight:700, color:'#1e293b'}}>{mealsForDay?.[meal] || 'Not Set'}</p>
+                    {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(meal => {
+                      const mealPhoto = foodMenuImages?.[dayOfWeek]?.[meal];
+                      return (
+                        <div key={meal} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 0', borderBottom:'1px solid #f8fafc', gap:10}}>
+                          {mealPhoto && (
+                            <img src={mealPhoto} alt={meal} style={{width:44, height:44, borderRadius:10, objectFit:'cover', border:'1px solid #e2e8f0', flexShrink:0}} />
+                          )}
+                          <div style={{flex:1, minWidth:0}}>
+                            <div style={{display:'flex', alignItems:'center', gap:6}}>
+                              <span style={{fontSize:11, fontWeight:800, color:C.muted, textTransform:'uppercase'}}>{meal}</span>
+                              {mealPhoto && <span style={{fontSize:10, background:'#dcfce7', color:'#166534', padding:'1px 5px', borderRadius:4, fontWeight:800}}>📷 Photo</span>}
+                            </div>
+                            <p style={{margin:'2px 0 0', fontSize:14, fontWeight:700, color:'#1e293b'}}>{mealsForDay?.[meal] || 'Not Set'}</p>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              setEditWeeklyMenuDay(dayOfWeek);
+                              setEditWeeklyMenuMeal(meal);
+                              setEditWeeklyMenuVal(mealsForDay?.[meal] || '');
+                              setEditWeeklyMenuImage(foodMenuImages?.[dayOfWeek]?.[meal] || null);
+                              setShowWeeklyMenuEdit(true);
+                            }}
+                            style={{background:C.bg, border: '1px solid #e2e8f0', borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:800, color:C.sub, cursor:'pointer', display:'flex', alignItems:'center', gap:4, flexShrink:0}}>
+                            <span className="material-symbols-outlined" style={{fontSize:14}}>photo_camera</span> Edit
+                          </button>
                         </div>
-                        <button 
-                          onClick={() => {
-                            setEditWeeklyMenuDay(dayOfWeek);
-                            setEditWeeklyMenuMeal(meal);
-                            setEditWeeklyMenuVal(mealsForDay?.[meal] || '');
-                            setShowWeeklyMenuEdit(true);
-                          }}
-                          style={{background:C.bg, border: '1px solid #e2e8f0', borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:800, color:C.sub, cursor:'pointer', display:'flex', alignItems:'center', gap:4}}>
-                          <span className="material-symbols-outlined" style={{fontSize:14}}>edit</span> Edit
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -2959,24 +3008,34 @@ export default function StaffApp(){
                       <div key={dDay} style={{background:'#fff', borderRadius:16, border: '1px solid #e2e8f0', padding:16, boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
                         <h3 style={{margin:'0 0 12px', fontSize:16, fontWeight:900, color:'#166534', borderBottom:'1px solid #f1f5f9', paddingBottom:8}}>{dDay}</h3>
                         <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                          {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(meal => (
-                            <div key={meal} style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
-                              <div style={{flex:1}}>
-                                <span style={{fontSize:11, fontWeight:800, color:C.muted, textTransform:'uppercase'}}>{meal}</span>
-                                <p style={{margin:'2px 0 0', fontSize:14, fontWeight:700, color:'#334155'}}>{dMeals?.[meal] || 'Not Set'}</p>
+                          {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(meal => {
+                            const dPhoto = foodMenuImages?.[dDay]?.[meal];
+                            return (
+                              <div key={meal} style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:10}}>
+                                {dPhoto && (
+                                  <img src={dPhoto} alt={meal} style={{width:44, height:44, borderRadius:10, objectFit:'cover', border:'1px solid #e2e8f0', flexShrink:0}} />
+                                )}
+                                <div style={{flex:1, minWidth:0}}>
+                                  <div style={{display:'flex', alignItems:'center', gap:6}}>
+                                    <span style={{fontSize:11, fontWeight:800, color:C.muted, textTransform:'uppercase'}}>{meal}</span>
+                                    {dPhoto && <span style={{fontSize:10, background:'#dcfce7', color:'#166534', padding:'1px 5px', borderRadius:4, fontWeight:800}}>📷 Photo</span>}
+                                  </div>
+                                  <p style={{margin:'2px 0 0', fontSize:14, fontWeight:700, color:'#334155'}}>{dMeals?.[meal] || 'Not Set'}</p>
+                                </div>
+                                <button 
+                                  onClick={() => {
+                                    setEditWeeklyMenuDay(dDay);
+                                    setEditWeeklyMenuMeal(meal);
+                                    setEditWeeklyMenuVal(dMeals?.[meal] || '');
+                                    setEditWeeklyMenuImage(foodMenuImages?.[dDay]?.[meal] || null);
+                                    setShowWeeklyMenuEdit(true);
+                                  }}
+                                  style={{background:'#f0fdf4', border: '1px solid #bbf7d0', borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:800, color:'#16a34a', cursor:'pointer', display:'flex', alignItems:'center', gap:4, flexShrink:0}}>
+                                  <span className="material-symbols-outlined" style={{fontSize:14}}>photo_camera</span> Edit
+                                </button>
                               </div>
-                              <button 
-                                onClick={() => {
-                                  setEditWeeklyMenuDay(dDay);
-                                  setEditWeeklyMenuMeal(meal);
-                                  setEditWeeklyMenuVal(dMeals?.[meal] || '');
-                                  setShowWeeklyMenuEdit(true);
-                                }}
-                                style={{background:'#f0fdf4', border: '1px solid #bbf7d0', borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:800, color:'#16a34a', cursor:'pointer', display:'flex', alignItems:'center', gap:4}}>
-                                <span className="material-symbols-outlined" style={{fontSize:14}}>edit</span> Edit
-                              </button>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -2985,20 +3044,83 @@ export default function StaffApp(){
               )}
             </div>
 
-            {/* Edit Modal */}
+            {/* Edit Modal for Cook with Photo Picker */}
             {showWeeklyMenuEdit && (
               <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', flexDirection:'column', justifyContent:'flex-end'}}>
-                <div style={{background:'#fff', borderRadius:'24px 24px 0 0', padding:24, paddingBottom:'calc(24px + env(safe-area-inset-bottom, 0px))', animation:'slideUp 0.3s ease'}}>
+                <div style={{background:'#fff', borderRadius:'24px 24px 0 0', padding:24, paddingBottom:'calc(24px + env(safe-area-inset-bottom, 0px))', animation:'slideUp 0.3s ease', maxHeight:'88vh', overflowY:'auto'}}>
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
-                    <h3 style={{margin:0, fontSize:18, fontWeight:900, color:'#000'}}>Edit {editWeeklyMenuDay} {editWeeklyMenuMeal}</h3>
+                    <div>
+                      <span style={{fontSize:11, fontWeight:800, color:meta.accent, textTransform:'uppercase'}}>Kitchen Menu &amp; Photo</span>
+                      <h3 style={{margin:'2px 0 0', fontSize:18, fontWeight:900, color:'#000'}}>Edit {editWeeklyMenuDay} {editWeeklyMenuMeal}</h3>
+                    </div>
                     <span className="material-symbols-outlined" onClick={() => setShowWeeklyMenuEdit(false)} style={{cursor:'pointer', color:'#64748b'}}>close</span>
                   </div>
+
+                  {/* Hidden Photo Input */}
+                  <input
+                    type="file"
+                    ref={cookPhotoInputRef}
+                    accept="image/*"
+                    capture="environment"
+                    style={{display:'none'}}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setIsProcessingCookPhoto(true);
+                        try {
+                          const compressed = await compressImage(file, 750);
+                          setEditWeeklyMenuImage(compressed);
+                        } catch (err) {
+                          console.error('Cook photo processing error:', err);
+                        } finally {
+                          setIsProcessingCookPhoto(false);
+                        }
+                      }
+                    }}
+                  />
+
+                  {/* Photo Section */}
+                  <div style={{marginBottom:16}}>
+                    <label style={{display:'block', fontSize:12, fontWeight:800, color:'#1e293b', marginBottom:6}}>Dish Photo:</label>
+                    {editWeeklyMenuImage ? (
+                      <div style={{position:'relative', borderRadius:14, overflow:'hidden', border:'1.5px solid #e2e8f0', marginBottom:8}}>
+                        <img src={editWeeklyMenuImage} alt="Dish preview" style={{width:'100%', height:140, objectFit:'cover', display:'block'}} />
+                        <div style={{position:'absolute', bottom:8, right:8, display:'flex', gap:6}}>
+                          <button
+                            type="button"
+                            onClick={() => cookPhotoInputRef.current?.click()}
+                            style={{background:'rgba(15,23,42,0.85)', color:'#fff', border:'none', borderRadius:8, padding:'6px 10px', fontSize:11, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:4}}>
+                            <span className="material-symbols-outlined" style={{fontSize:14}}>photo_camera</span> Change
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditWeeklyMenuImage(null)}
+                            style={{background:'rgba(239,68,68,0.9)', color:'#fff', border:'none', borderRadius:8, padding:'6px 10px', fontSize:11, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', gap:4}}>
+                            <span className="material-symbols-outlined" style={{fontSize:14}}>delete</span> Remove
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => cookPhotoInputRef.current?.click()}
+                        disabled={isProcessingCookPhoto}
+                        style={{width:'100%', padding:16, borderRadius:14, border:'2px dashed #cbd5e1', background:'#f8fafc', color:'#475569', fontSize:13, fontWeight:800, cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4}}>
+                        <span className="material-symbols-outlined" style={{fontSize:26, color:meta.accent}}>photo_camera</span>
+                        <span>{isProcessingCookPhoto ? 'Compressing photo...' : 'Take or Upload Dish Photo'}</span>
+                        <span style={{fontSize:10, color:'#94a3b8', fontWeight:600}}>Camera or gallery picture</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <label style={{display:'block', fontSize:12, fontWeight:800, color:'#1e293b', marginBottom:6}}>Food Items:</label>
                   <input 
                     autoFocus 
                     type="text" 
                     value={editWeeklyMenuVal} 
                     onChange={e => setEditWeeklyMenuVal(e.target.value)} 
-                    style={{width:'100%', padding:14, borderRadius:12, border:'2px solid #e2e8f0', fontSize:15, fontWeight:700, outline:'none', fontFamily:'inherit', marginBottom:16}} 
+                    placeholder="e.g. Rajma Chawal, Roti, Salad"
+                    style={{width:'100%', padding:14, borderRadius:12, border:'2px solid #e2e8f0', fontSize:15, fontWeight:700, outline:'none', fontFamily:'inherit', marginBottom:16, boxSizing:'border-box'}} 
                   />
                   <button 
                     onClick={async () => {
@@ -3009,16 +3131,27 @@ export default function StaffApp(){
                              [editWeeklyMenuMeal]: editWeeklyMenuVal
                           }
                        };
+                       const newImages = {
+                          ...foodMenuImages,
+                          [editWeeklyMenuDay]: {
+                             ...(foodMenuImages[editWeeklyMenuDay] || {}),
+                             [editWeeklyMenuMeal]: editWeeklyMenuImage || null
+                          }
+                       };
                        setWeeklyFoodMenu(newMenu);
+                       setFoodMenuImages(newImages);
                        setShowWeeklyMenuEdit(false);
                        if (user?.ownerUid) {
                          try {
-                           await updateDoc(doc(db, 'pg_owners', user.ownerUid), { foodMenu: newMenu });
+                           await setDoc(doc(db, 'pg_owners', user.ownerUid), { 
+                             foodMenu: newMenu,
+                             foodMenuImages: newImages
+                           }, { merge: true });
                          } catch (e) { console.error('Failed to update menu', e); }
                        }
                     }}
                     style={{width:'100%', padding:16, borderRadius:14, background:'#000', color:C.primary, fontSize:15, fontWeight:800, border:'none', cursor:'pointer', fontFamily:'inherit'}}>
-                    Save Changes
+                    Save Changes &amp; Photo
                   </button>
                 </div>
               </div>
@@ -3087,8 +3220,8 @@ export default function StaffApp(){
                </div>
 
                <div style={{display:'flex', gap:12, marginTop:8, position:'relative', zIndex:1}}>
-                  <button onClick={() => setShowScan(true)} style={{flex:1, background: '#10b981', color:'white', border:'none', padding:'12px', borderRadius:'14px', fontSize:14, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6, boxShadow:'0 4px 12px rgba(16,185,129,0.3)'}}>
-                     <span className="material-symbols-outlined" style={{fontSize:20}}>qr_code_scanner</span> Scan QR
+                  <button onClick={() => { setSelectedQRMeal(activeMeal || mealTab || 'lunch'); setShowMealQR(true); }} style={{flex:1.2, background: '#10b981', color:'white', border:'none', padding:'12px', borderRadius:'14px', fontSize:14, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6, boxShadow:'0 4px 12px rgba(16,185,129,0.3)'}}>
+                     <span className="material-symbols-outlined" style={{fontSize:20}}>qr_code_2</span> Generate QR
                   </button>
                   <button onClick={() => setShowManual(true)} style={{flex:1, background: 'rgba(255,255,255,0.1)', color:'white', border:'1px solid rgba(255,255,255,0.2)', padding:'12px', borderRadius:'14px', fontSize:14, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6}}>
                      <span className="material-symbols-outlined" style={{fontSize:20}}>list_alt</span> Select Manually
@@ -7472,6 +7605,84 @@ export default function StaffApp(){
           </div>
         </div>
       )}
+
+      {/* Cook Meal QR Display Modal */}
+      {showMealQR && (() => {
+        const currentM = (selectedQRMeal || activeMeal || 'lunch').toLowerCase();
+        const mLabel = currentM.charAt(0).toUpperCase() + currentM.slice(1);
+        const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+        const qrValue = `FEBEBO_MEAL|${user?.ownerUid || ''}|${currentM}|${todayStr}`;
+        const currentEatenCount = Object.keys(eatenData).filter(k => k.includes(`_${currentM}_eaten`)).length;
+        
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(8px)', padding: 16 }}>
+            <div style={{ background: 'white', borderRadius: 28, width: '100%', maxWidth: 380, padding: '24px 20px', textAlign: 'center', position: 'relative', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)' }}>
+              <button 
+                onClick={() => setShowMealQR(false)} 
+                style={{ position: 'absolute', top: 16, right: 16, background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+              </button>
+
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#ecfdf5', color: '#059669', padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                Counter QR Pass
+              </div>
+
+              <h3 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 900, color: '#0f172a' }}>{mLabel} QR Pass</h3>
+              <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b', fontWeight: 600 }}>
+                Keep this screen open for students to scan
+              </p>
+
+              {/* Meal Selector Tabs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 18, background: '#f8fafc', padding: 4, borderRadius: 14, border: '1px solid #e2e8f0' }}>
+                {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(m => {
+                  const isSel = (selectedQRMeal || activeMeal || 'lunch').toLowerCase() === m.toLowerCase();
+                  return (
+                    <button 
+                      key={m}
+                      onClick={() => setSelectedQRMeal(m.toLowerCase())}
+                      style={{
+                        padding: '8px 2px',
+                        border: 'none',
+                        borderRadius: 10,
+                        background: isSel ? '#0f172a' : 'transparent',
+                        color: isSel ? '#ffffff' : '#64748b',
+                        fontWeight: 800,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {m}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* QR Code Container with High Contrast */}
+              <div style={{ background: '#ffffff', padding: 20, borderRadius: 24, border: '2px solid #e2e8f0', display: 'inline-block', boxShadow: '0 8px 20px rgba(0,0,0,0.06)', marginBottom: 16 }}>
+                <QRCode value={qrValue} size={210} level="M" />
+              </div>
+
+              {/* Live Count Ticker directly below QR */}
+              <div style={{ background: 'linear-gradient(135deg, #1e293b, #0f172a)', color: 'white', borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div style={{ textAlign: 'left' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Live Headcount</span>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: '#fde047' }}>{mLabel} Eaten</div>
+                </div>
+                <div style={{ fontSize: 32, fontWeight: 900, color: '#ffffff' }}>
+                  {currentEatenCount}
+                </div>
+              </div>
+
+              <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
+                Date: {todayStr} · {user?.ownerUid ? `PG ID: ${user.ownerUid.substring(0, 8)}...` : ''}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Scanner Modal */}
       {showScan && (

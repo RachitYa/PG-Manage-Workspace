@@ -124,9 +124,23 @@ export default function StudentDetailsModal({ isOpen, onClose, user, activeConta
 
       await updateDoc(userRef, updateData);
 
+      const targetAdminId = activeContact?.id || user?.subscribedPG?.adminId || user?.subscribedPG?.pgId;
+      const targetPgId = activeContact?.pgId || user?.subscribedPG?.pgId || targetAdminId;
+
+      try {
+        await setDoc(doc(db, 'tenants', user.uid), {
+          adminId: targetAdminId,
+          pgId: targetPgId,
+          detailsFilled: true
+        }, { merge: true });
+      } catch (e) {
+        console.warn('Could not merge tenants doc:', e);
+      }
+
       // Send notification to admin
       await addDoc(collection(db, 'notifications'), {
-        adminId: activeContact.id,
+        adminId: targetAdminId,
+        pgId: targetPgId,
         tenantId: user.uid,
         studentName: user.name || 'Student',
         type: 'Student Details Review',

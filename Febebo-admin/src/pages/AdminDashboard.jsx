@@ -15,7 +15,7 @@ export default function AdminDashboard() {
   const [showAllModules, setShowAllModules] = useState(false);
   const [isEditingModules, setIsEditingModules] = useState(false);
   const [visibleModuleIds, setVisibleModuleIds] = useState([
-    'account', 'inventory', 'vendor', 'room', 'user', 'staff', 'visitor', 'enquiry'
+    'account', 'mess', 'room', 'user', 'staff', 'visitor', 'vendor', 'inventory'
   ]);
   const [duesSheet, setDuesSheet] = useState(null); // selected dues person
   const [activeReceipt, setActiveReceipt] = useState(null);
@@ -52,6 +52,11 @@ export default function AdminDashboard() {
         const safeGetDocs = (q, name) => getDocs(q).catch(e => { console.error(`Error fetching ${name}:`, e); return { empty: true, size: 0, docs: [] }; });
         const safeGetDoc = (ref, name) => getDoc(ref).catch(e => { console.error(`Error fetching ${name}:`, e); return { exists: () => false, data: () => ({}) }; });
 
+        const matchesPg = (itemPgId) => {
+          if (!activePgId || activePgId === 'primary') return true;
+          return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+        };
+
         // 🔥 Massive Parallel Data Fetching! Execute all network requests simultaneously.
         const [
           qNotif, qUsers, qReqs,
@@ -60,8 +65,8 @@ export default function AdminDashboard() {
           qVisitorsPending, qLeavePending, qComplaints,
           qEnquiries, qApplications
         ] = await Promise.all([
-          safeGetDocs(query(collection(db, 'notifications'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('resolved', '==', false)), 'notifications'),
-          safeGetDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)), 'tenants'),
+          safeGetDocs(query(collection(db, 'notifications'), where('adminId', '==', user.uid), where('resolved', '==', false)), 'notifications'),
+          safeGetDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid)), 'tenants'),
           safeGetDocs(query(collection(db, 'staff_requisitions'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('status', '==', 'Pending Rate')), 'staff_requisitions'),
           safeGetDoc(doc(db, 'admins', user.uid), 'admins'),
           safeGetDoc(activePgId === 'primary' ? doc(db, 'pg_owners', user.uid) : doc(db, 'pg_owners', activePgId), 'pg_owners'),
@@ -85,15 +90,15 @@ export default function AdminDashboard() {
         setChatCount(0); // Chat unread counts require schema updates to be fully exact
 
         // Process Tenants & Enquiries
-        const tenants = qUsers.docs.map(d => {
-          const data = d.data();
-          return { id: d.id, tenantId: d.id, ...data };
-        });
+        const tenants = qUsers.docs
+          .map(d => ({ id: d.id, tenantId: d.id, ...d.data() }))
+          .filter(d => matchesPg(d.pgId));
         
         // (Enquiry count is now handled by a real-time listener below)
         setAppCount(qApplications.size);
 
-        const totalNotifs = qNotif.size + qReqs.size;
+        const filteredNotifs = qNotif.docs.filter(d => matchesPg(d.data().pgId));
+        const totalNotifs = filteredNotifs.length + qReqs.size;
         setPendingNotifsCount(totalNotifs);
 
         // Process Name
@@ -293,7 +298,7 @@ export default function AdminDashboard() {
     { id: 'enquiry',        label: 'Enquiry',        desc: 'Leads',          icon: 'contact_support',        gradient: 'linear-gradient(135deg,#06b6d4,#0891b2)', badgeCount: enquiryCount + appCount },
     { id: 'visitor',        label: 'Visitors',       desc: 'Gate Log',       icon: 'recent_actors',          gradient: 'linear-gradient(135deg,#10b981,#047857)', badgeCount: visitorCount },
     { id: 'meter',          label: 'Meters',         desc: 'Readings',       icon: 'electric_meter',         gradient: 'linear-gradient(135deg,#f59e0b,#b45309)' },
-    { id: 'mess',           label: 'Mess',           desc: 'Headcount',      icon: 'restaurant',             gradient: 'linear-gradient(135deg,#ec4899,#be185d)' },
+    { id: 'mess',           label: 'Food & Mess',    desc: 'Menu & Students',icon: 'restaurant',             gradient: 'linear-gradient(135deg,#f59e0b,#d97706)' },
     { id: 'transportation', label: 'Transport',      desc: 'Drivers',        icon: 'directions_car',         gradient: 'linear-gradient(135deg,#16a34a,#15803d)' },
     { id: 'chat',           label: 'Chat',           desc: 'Messages',       icon: 'chat',                   gradient: 'linear-gradient(135deg,#ec4899,#db2777)', badgeCount: chatCount },
     { id: 'approvals',      label: 'Approvals',      desc: 'Room changes',   icon: 'verified',               gradient: 'linear-gradient(135deg,#eab308,#ca8a04)' },

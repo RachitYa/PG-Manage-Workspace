@@ -3,22 +3,30 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { MapPin, LogOut, ExternalLink, CheckCircle } from 'lucide-react';
+import { 
+  MapPin, LogOut, ExternalLink, CheckCircle,
+  Bed, Layers, Shirt, Package, Tag, Armchair, LampDesk, AirVent, Refrigerator,
+  Wifi, WashingMachine, Flame, Zap, Droplets, Cctv, Sparkles
+} from 'lucide-react';
 import AdminBottomNav from '../components/AdminBottomNav';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const AMENITIES_MAP = {
-  'bed':             { label: 'Bed',             icon: '🛏️' },
-  'mattress':        { label: 'Mattress',         icon: '🔲' },
-  'bedsheet':        { label: 'Bedsheet',         icon: '📜' },
-  'pillow':          { label: 'Pillow',           icon: '☁️' },
-  'pillow-cover':    { label: 'Pillow Cover',     icon: '📨' },
-  'chair':           { label: 'Chair',            icon: '🪑' },
-  'table':           { label: 'Study Table',      icon: '📚' },
-  'ac':              { label: 'AC',               icon: '❄️' },
-  'fridge':          { label: 'Fridge',           icon: '🧊' },
-  'wifi':            { label: 'Wi-Fi',            icon: '📶' },
-  'washing-machine': { label: 'Washing Machine',  icon: '🧺' },
+  'bed':             { label: 'Bed',             icon: Bed },
+  'mattress':        { label: 'Mattress',         icon: Layers },
+  'bedsheet':        { label: 'Bedsheet',         icon: Shirt },
+  'pillow':          { label: 'Pillow',           icon: Package },
+  'pillow-cover':    { label: 'Pillow Cover',     icon: Tag },
+  'chair':           { label: 'Chair',            icon: Armchair },
+  'table':           { label: 'Study Table',      icon: LampDesk },
+  'ac':              { label: 'AC',               icon: AirVent },
+  'fridge':          { label: 'Fridge',           icon: Refrigerator },
+  'wifi':            { label: 'Wi-Fi',            icon: Wifi },
+  'washing-machine': { label: 'Washing Machine',  icon: WashingMachine },
+  'geyser':          { label: 'Geyser',           icon: Flame },
+  'power-backup':    { label: 'Power Backup',     icon: Zap },
+  'ro-water':        { label: 'RO Water',         icon: Droplets },
+  'cctv':            { label: 'CCTV Security',    icon: Cctv },
 };
 
 function InfoRow({ label, value, accent }) {
@@ -203,15 +211,18 @@ export default function MyProfile() {
               <p style={sectionTitle}>Amenities</p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
                 {amenities.map((amId, idx) => {
-                  const am = AMENITIES_MAP[amId] || { label: amId.replace('custom-', '').replace(/-/g, ' '), icon: '✨' };
+                  const am = AMENITIES_MAP[amId] || { label: amId.replace('custom-', '').replace(/-/g, ' '), icon: Sparkles };
+                  const IconComp = am.icon || Sparkles;
                   return (
                     <div key={idx} style={{
                       display: 'flex', alignItems: 'center', gap: 8,
-                      background: 'white', border: '1px solid var(--border-color)',
-                      borderRadius: 20, padding: '8px 16px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                      background: '#f8fafc', border: '1px solid #e2e8f0',
+                      borderRadius: 14, padding: '8px 14px', boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
                     }}>
-                      <span style={{ fontSize: 16 }}>{am.icon}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-color)', textTransform: 'capitalize' }}>
+                      <div style={{ color: '#0891b2', display: 'flex', alignItems: 'center' }}>
+                        <IconComp size={16} strokeWidth={2} />
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#334155', textTransform: 'capitalize' }}>
                         {am.label}
                       </span>
                     </div>

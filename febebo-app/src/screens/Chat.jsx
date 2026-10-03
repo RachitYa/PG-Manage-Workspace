@@ -440,6 +440,7 @@ export default function Chat() {
       // 2. Notification for Admin
       await addDoc(collection(db, 'notifications'), {
         adminId: activeContact.id,
+        pgId: demandedToken?.pgId || activeContact.id,
         title: 'New Token Payment',
         desc: `${user.name || 'Student'} paid token of ₹${tokenAmount} out of ₹${totalAmt}. Please verify and allot a room.`,
         type: 'info', action: 'VIEW_ENQUIRIES', unread: true,
@@ -475,7 +476,7 @@ export default function Chat() {
           hasPG: true,
           pgStatus: 'Upcoming User',
           subscribedPG: {
-            pgId: activeContact.id,
+            pgId: demandedToken?.pgId || activeContact.id,
             pgName: activeContact.name || 'PG',
             roomNo: 'To be allotted',
             seaterLabel: demandedToken?.seaterLabel || '',
@@ -495,6 +496,7 @@ export default function Chat() {
 
         await setDoc(doc(db, 'tenants', user.uid), {
           adminId: activeContact.id,
+          pgId: demandedToken?.pgId || activeContact.id,
           tenantId: user.uid,
           name: user.name || 'Student',
           phone: user.phone || '',
