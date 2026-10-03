@@ -805,27 +805,8 @@ export default function ManageAccount() {
             const initials = t.name ? t.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';
 
             if (hasPaidThisMonth) {
-              // Current month is already paid! Their NEXT rent is upcoming in the following month
-              const currentYear = now.getFullYear();
-              const nextMonth = now.getMonth() + 1;
-              const lastDayOfNextMonth = new Date(currentYear, nextMonth + 1, 0).getDate();
-              const nextDueDay = Math.min(doj.getDate(), lastDayOfNextMonth);
-              const nextDueDate = new Date(currentYear, nextMonth, nextDueDay);
-              const nextMonthName = nextDueDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-              const nextDueStr = nextDueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-
-              upcoming.push({
-                tenantId: tenantKey,
-                month: nextMonthName,
-                name: t.name || 'Unknown',
-                room: t.roomNo || t.room || 'N/A',
-                amount: amtStr,
-                rent: rentAmt,
-                security: t.securityDeposit || 0,
-                date: `Due: ${nextDueStr}`,
-                initials: initials,
-                color: '#0891b2'
-              });
+              // Tenant has already paid for the current month -> they appear in Collected!
+              // Do NOT push them into Upcoming for next month.
               return;
             }
 
@@ -834,12 +815,13 @@ export default function ManageAccount() {
             const currentMonth = now.getMonth();
             const lastDayOfCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
             const dueDay = Math.min(doj.getDate(), lastDayOfCurrentMonth);
-            // End of due day (23:59:59)
-            const dueDate = new Date(currentYear, currentMonth, dueDay, 23, 59, 59);
+            const dueDate = new Date(currentYear, currentMonth, dueDay);
+            const todayMidnight = new Date(currentYear, currentMonth, now.getDate());
+            const daysDiff = Math.ceil((dueDate.getTime() - todayMidnight.getTime()) / (1000 * 3600 * 24));
             const dueStr = dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
-            if (dueDate < now) {
-              // Due date has passed in the current month -> Pending
+            if (daysDiff < 0) {
+              // Due date has already passed this month -> Pending
               pending.push({
                 tenantId: tenantKey,
                 month: currentMonthName,
@@ -849,11 +831,12 @@ export default function ManageAccount() {
                 rent: rentAmt,
                 security: t.securityDeposit || 0,
                 date: `Was Due: ${dueStr}`,
+                daysOverdue: Math.abs(daysDiff),
                 initials: initials,
                 color: '#e11d48'
               });
             } else {
-              // Due date is today or coming up later this month -> Upcoming
+              // Due date is today or coming up later in the current month -> Upcoming
               upcoming.push({
                 tenantId: tenantKey,
                 month: currentMonthName,
@@ -862,12 +845,17 @@ export default function ManageAccount() {
                 amount: amtStr,
                 rent: rentAmt,
                 security: t.securityDeposit || 0,
-                date: `Due: ${dueStr}`,
+                date: daysDiff === 0 ? `Due Today (${dueStr})` : `Due: ${dueStr}`,
+                daysLeft: daysDiff,
                 initials: initials,
-                color: '#0891b2'
+                color: daysDiff === 0 ? '#f59e0b' : '#0891b2'
               });
             }
           });
+
+          // Sort Upcoming by soonest due date first; Pending by most overdue first
+          upcoming.sort((a, b) => (a.daysLeft ?? 0) - (b.daysLeft ?? 0));
+          pending.sort((a, b) => (b.daysOverdue ?? 0) - (a.daysOverdue ?? 0));
 
           setRentData({ upcoming, pending, collected });
         } catch (error) {
