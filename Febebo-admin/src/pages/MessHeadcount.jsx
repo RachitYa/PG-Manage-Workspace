@@ -519,8 +519,8 @@ export default function MessHeadcount() {
       {/* ── Header ── */}
       <div style={{
         background: 'linear-gradient(135deg, #0c1a2e, #0f2847)',
-        padding: '20px 20px 16px',
-        paddingTop: 'calc(44px + env(safe-area-inset-top, 0px))',
+        padding: '16px 20px 16px',
+        paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))',
         color: 'white',
         borderBottomLeftRadius: '24px',
         borderBottomRightRadius: '24px',

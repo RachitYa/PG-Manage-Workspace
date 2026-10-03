@@ -776,14 +776,19 @@ export default function ManageAccount() {
             const amtStr = rentAmt.toLocaleString('en-IN');
             const initials = t.name ? t.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';
 
-            // Due date is the joining day of the current month
-            let dueDate = new Date(now.getFullYear(), now.getMonth(), doj.getDate());
-            const timeDiff = dueDate.getTime() - now.getTime();
-            const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+            // Due date is the joining day of the current month (clamped to month's last day)
+            const dojDay = doj.getDate();
+            const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            const effectiveDueDay = Math.min(dojDay, lastDayOfMonth);
+            const dueDate = new Date(now.getFullYear(), now.getMonth(), effectiveDueDay);
+
+            // Today at midnight for clean day-by-day comparison
+            const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const daysDiff = Math.ceil((dueDate.getTime() - todayMidnight.getTime()) / (1000 * 3600 * 24));
             const dueStr = dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
             if (daysDiff < 0) {
-              // Due date has passed -> Pending
+              // Due date has already passed this month -> Pending
               pending.push({
                 tenantId: tenantKey,
                 month: currentMonthName,
@@ -793,11 +798,12 @@ export default function ManageAccount() {
                 rent: t.rentAmount || 0,
                 security: t.securityDeposit || 0,
                 date: `Was Due: ${dueStr}`,
+                daysOverdue: Math.abs(daysDiff),
                 initials: initials,
                 color: '#e11d48'
               });
-            } else if (daysDiff <= 20) {
-              // Due date approaching within 20 days -> Upcoming
+            } else {
+              // Due date is today or later in the current month -> Upcoming
               upcoming.push({
                 tenantId: tenantKey,
                 month: currentMonthName,
@@ -806,12 +812,17 @@ export default function ManageAccount() {
                 amount: amtStr,
                 rent: t.rentAmount || 0,
                 security: t.securityDeposit || 0,
-                date: `Due: ${dueStr}`,
+                date: daysDiff === 0 ? `Due Today (${dueStr})` : `Due: ${dueStr}`,
+                daysLeft: daysDiff,
                 initials: initials,
-                color: '#0891b2'
+                color: daysDiff === 0 ? '#f59e0b' : '#0891b2'
               });
             }
           });
+
+          // Sort Upcoming by soonest due date first; Pending by most overdue first
+          upcoming.sort((a, b) => (a.daysLeft ?? 0) - (b.daysLeft ?? 0));
+          pending.sort((a, b) => (b.daysOverdue ?? 0) - (a.daysOverdue ?? 0));
 
           setRentData({ upcoming, pending, collected });
         } catch (error) {
