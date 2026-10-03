@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { doc, updateDoc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -33,6 +33,45 @@ export default function StudentDetailsModal({ isOpen, onClose, user, activeConta
   const [permanentAddress, setPermanentAddress] = useState('');
   const [correspondingAddress, setCorrespondingAddress] = useState('');
   const [institutionAddress, setInstitutionAddress] = useState('');
+
+  // Prefill existing personal/KYC details if student was previously registered or removed
+  useEffect(() => {
+    if (!user) return;
+    const pd = user.profileData || {};
+    const kd = user.kycData || pd.kycData || {};
+    const k = user.kyc || pd.kyc || {};
+    const parents = user.parentsDetails || pd.parentsDetails || {};
+    const emg = user.emergencyContact || pd.emergencyContact || {};
+    const occ = user.occupation || pd.occupation || {};
+
+    if (kd.fatherName || parents.fatherName) setFatherName(kd.fatherName || parents.fatherName || '');
+    if (kd.fatherPhone || parents.fatherPhone) setFatherPhone(kd.fatherPhone || parents.fatherPhone || '');
+    if (kd.motherName || parents.motherName) setMotherName(kd.motherName || parents.motherName || '');
+    if (kd.motherPhone || parents.motherPhone) setMotherPhone(kd.motherPhone || parents.motherPhone || '');
+
+    if (kd.collegeName || occ.details) setCollegeName(kd.collegeName || (occ.type === 'student' ? occ.details : '') || '');
+    if (occ.role) setCourse(occ.role || '');
+    if (kd.companyName || occ.details) setCompanyName(kd.companyName || (occ.type === 'working' ? occ.details : '') || '');
+    if (occ.role) setRole(occ.role || '');
+    if (occ.details && occ.type === 'others') setOtherDesc(occ.details || '');
+    if (occ.type) setTab(occ.type);
+    else if (kd.occupationType) setTab(kd.occupationType === 'Working Professional' ? 'working' : 'student');
+
+    if (kd.aadharNumber || k.aadharNumber || user.aadhar) setAadharNumber(kd.aadharNumber || k.aadharNumber || user.aadhar || '');
+    if (kd.aadharFront || k.aadharFront) setAadharFront(kd.aadharFront || k.aadharFront || '');
+    if (kd.aadharBack || k.aadharBack) setAadharBack(kd.aadharBack || k.aadharBack || '');
+
+    if (kd.dob || user.dob || pd.dob) setDob(kd.dob || user.dob || pd.dob || '');
+
+    if (emg.name) setEmergencyName(emg.name || '');
+    if (emg.phone) setEmergencyPhone(emg.phone || '');
+    if (emg.bloodGroup || kd.bloodGroup) setBloodGroup(emg.bloodGroup || kd.bloodGroup || '');
+
+    if (user.email || pd.email) setEmail(user.email || pd.email || '');
+    if (kd.permanentAddress || user.permanentAddress || pd.permanentAddress) setPermanentAddress(kd.permanentAddress || user.permanentAddress || pd.permanentAddress || '');
+    if (kd.correspondingAddress || user.correspondingAddress || pd.correspondingAddress) setCorrespondingAddress(kd.correspondingAddress || user.correspondingAddress || pd.correspondingAddress || '');
+    if (occ.address) setInstitutionAddress(occ.address || '');
+  }, [user, isOpen]);
 
   const compressImage = (file) => {
     return new Promise((resolve, reject) => {

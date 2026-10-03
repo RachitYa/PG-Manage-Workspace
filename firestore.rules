@@ -1,0 +1,587 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: food_vacations
+// Document ID: auto-generated or composite ID
+// Fields:
+//   - id: string (optional, 1-100 chars)
+//   - tenantId: string (required, 1-100 chars, immutable, matches auth.uid on create)
+//   - tenantName: string (required, 1-100 chars)
+//   - tenantPhone: string (optional, 0-25 chars)
+//   - roomNumber: string (required, 1-50 chars)
+//   - bedNumber: string (optional, 0-50 chars)
+//   - adminId: string (required, 1-100 chars, immutable)
+//   - pgId: string (required, 1-100 chars, immutable)
+//   - startDate: string (required, YYYY-MM-DD, 10 chars, format ^[0-9]{4}-[0-9]{2}-[0-9]{2}$)
+//   - endDate: string (required, YYYY-MM-DD, 10 chars, format ^[0-9]{4}-[0-9]{2}-[0-9]{2}$)
+//   - originalEndDate: string (optional, YYYY-MM-DD, 10 chars)
+//   - dates: list of strings (required, <= 366 items, each 10 chars)
+//   - isAllMeals: bool (required)
+//   - meals: list of strings (required, <= 4 items, e.g. breakfast, lunch, snacks, dinner)
+//   - status: string (required, 'active' | 'shortened' | 'resumed' | 'cancelled')
+//   - reason: string (optional, 0-500 chars)
+//   - createdAt: string (required, 1-50 chars, immutable)
+//   - updatedAt: string (required, 1-50 chars)
+//   - resumedAt: string or null (optional, 0-50 chars)
+//
+// Collection: users
+// Document ID: user UID
+// Fields: name, email, photoURL, profileCompleted, detailsFilled, subscribedPG, etc.
+// Subcollections: notifications, payments, ratings, requests, reminders
+//
+// Collection: admins
+// Document ID: admin UID
+// Fields: email, name, role ('admin'), isApproved, hasProfile, fcmToken, etc.
+//
+// Collection: tenants
+// Document ID: tenant UID or auto ID
+// Fields: tenantId, adminId, pgId, name, room, status, etc.
+//
+// Collection: pg_owners
+// Document ID: pgId / admin UID
+// Fields: name, capacity, foodMenu, foodMenuImages, foodItemImages, etc.
+// Subcollections: food_requests, cleaner_requests, pgs
+//
+// Collection: mess_headcount
+// Document ID: ${pgId}_${date} or ${adminId}_${date}
+// Fields: per-student meal eaten status, headcount tallies, updatedAt, etc.
+//
+// Collection: meal_status
+// Document ID: auto ID
+// Fields: adminId, date, meal, status, etc.
+//
+// Collection: complaints
+// Document ID: auto ID
+// Fields: tenantId, adminId, pgId, title, desc, status, createdAt, etc.
+//
+// Collection: chats
+// Document ID: chatId
+// Fields: participants, lastMessage, updatedAt, etc.
+// Subcollections: messages
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'superadmin_backend_hidden@febebo.com' ||
+        (request.auth.token.role == 'superadmin') ||
+        (request.auth.token.admin == true)
+      );
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        isSuperAdmin() ||
+        (request.auth.token.role == 'admin')
+      );
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+        (request.resource.data[field] is string &&
+         request.resource.data[field].size() >= minLen &&
+         request.resource.data[field].size() <= maxLen);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function isValidISODate(dateStr) {
+      return dateStr is string &&
+        dateStr.size() == 10 &&
+        dateStr.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    // ===============================================================
+    // Domain Validators: Food Vacations
+    // ===============================================================
+
+    function isValidFoodVacation(data) {
+      return data.keys().hasAll([
+               'tenantId', 'tenantName', 'roomNumber', 'adminId', 'pgId',
+               'startDate', 'endDate', 'dates', 'isAllMeals', 'meals',
+               'status', 'createdAt', 'updatedAt'
+             ]) &&
+             hasOnlyAllowedFields([
+               'id', 'tenantId', 'tenantName', 'tenantPhone', 'roomNumber', 'bedNumber',
+               'adminId', 'pgId', 'startDate', 'endDate', 'originalEndDate',
+               'dates', 'isAllMeals', 'meals', 'status', 'reason',
+               'createdAt', 'updatedAt', 'resumedAt'
+             ]) &&
+             validStringLength('tenantId', 1, 100) &&
+             validStringLength('tenantName', 1, 100) &&
+             validStringLength('roomNumber', 1, 50) &&
+             validStringLength('adminId', 1, 100) &&
+             validStringLength('pgId', 1, 100) &&
+             isValidISODate(data.startDate) &&
+             isValidISODate(data.endDate) &&
+             data.startDate <= data.endDate &&
+             data.dates is list && data.dates.size() > 0 && data.dates.size() <= 366 &&
+             data.isAllMeals is bool &&
+             data.meals is list && data.meals.size() <= 4 &&
+             data.status in ['active', 'shortened', 'resumed', 'cancelled'] &&
+             validStringLength('createdAt', 1, 50) &&
+             validStringLength('updatedAt', 1, 50) &&
+             isValidOptionalString('id', 1, 100) &&
+             isValidOptionalString('tenantPhone', 0, 25) &&
+             isValidOptionalString('bedNumber', 0, 50) &&
+             (!('originalEndDate' in data) || isValidISODate(data.originalEndDate)) &&
+             isValidOptionalString('reason', 0, 500) &&
+             (!('resumedAt' in data) || data.resumedAt == null || (data.resumedAt is string && data.resumedAt.size() <= 50));
+    }
+
+    function isValidTenantVacationUpdate() {
+      let prevStatus = resource.data.status;
+      let newStatus = request.resource.data.status;
+      let prevEndDate = resource.data.endDate;
+      let newEndDate = request.resource.data.endDate;
+
+      // Tenant can only transition from active/shortened into active/shortened/resumed/cancelled
+      let validTransition = (prevStatus in ['active', 'shortened']) &&
+        (newStatus in ['active', 'shortened', 'resumed', 'cancelled']);
+
+      // Tenant shortening: end date must not be extended past current end date
+      let validEndDateChange = (newEndDate <= prevEndDate);
+
+      return validTransition && validEndDateChange;
+    }
+
+    // ===============================================================
+    // Collection: food_vacations
+    // ===============================================================
+
+    match /food_vacations/{vacationId} {
+      // 1. Read:
+      // - Authenticated student can read their own vacation documents
+      // - PG Admins can read vacations for their property
+      // - Superadmin/Staff can read vacations
+      allow read: if isAuthenticated() && (
+        resource.data.tenantId == request.auth.uid ||
+        resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+
+      // 2. Create:
+      // - Tenant creating their own vacation with initial 'active' status
+      // - Or Property Admin / Superadmin creating on behalf of tenant
+      allow create: if isAuthenticated() &&
+        isValidFoodVacation(request.resource.data) &&
+        (
+          (
+            request.resource.data.tenantId == request.auth.uid &&
+            request.resource.data.status == 'active' &&
+            request.resource.data.startDate <= request.resource.data.endDate
+          ) ||
+          request.resource.data.adminId == request.auth.uid ||
+          isSuperAdmin()
+        );
+
+      // 3. Update:
+      // - Both tenant and admin updates MUST pass isValidFoodVacation (no update bypass)
+      // - Immutable fields (tenantId, adminId, pgId, createdAt) cannot be modified
+      // - Tenants can shorten (endDate <= existing endDate) or resume/cancel
+      // - Property Admin / Superadmin can update vacation status and parameters
+      allow update: if isAuthenticated() &&
+        isValidFoodVacation(request.resource.data) &&
+        areImmutableFieldsUnchanged(['tenantId', 'adminId', 'pgId', 'createdAt']) &&
+        (
+          (resource.data.tenantId == request.auth.uid && isValidTenantVacationUpdate()) ||
+          (resource.data.adminId == request.auth.uid) ||
+          isSuperAdmin()
+        );
+
+      // 4. Delete:
+      // - Restricted to tenant owner or property admin or superadmin
+      allow delete: if isAuthenticated() && (
+        resource.data.tenantId == request.auth.uid ||
+        resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+    }
+
+    // ===============================================================
+    // Collection: users & subcollections
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin() || isSuperAdmin();
+      allow create: if isAuthenticated() && (
+        (isOwner(userId) && (!('role' in request.resource.data) || request.resource.data.role == 'student')) ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        (isOwner(userId) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))) ||
+        isAdmin() ||
+        isSuperAdmin()
+      );
+      allow delete: if isAdmin() || isSuperAdmin();
+
+      match /notifications/{notificationId} {
+        allow read: if isOwner(userId) || isSuperAdmin();
+        allow create: if isAuthenticated();
+        allow update, delete: if isOwner(userId) || isSuperAdmin();
+      }
+
+      match /payments/{paymentId} {
+        allow read: if isOwner(userId) || isAdmin() || isSuperAdmin();
+        allow create, update: if isOwner(userId) || isAdmin() || isSuperAdmin();
+        allow delete: if isAdmin() || isSuperAdmin();
+      }
+
+      match /ratings/{ratingId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isOwner(userId) || isSuperAdmin();
+        allow delete: if isOwner(userId) || isAdmin() || isSuperAdmin();
+      }
+
+      match /requests/{requestId} {
+        allow read, write: if isOwner(userId) || isAdmin() || isSuperAdmin();
+      }
+
+      match /reminders/{reminderId} {
+        allow read, write: if isOwner(userId) || isAdmin() || isSuperAdmin();
+      }
+    }
+
+    // ===============================================================
+    // Collection: admins
+    // ===============================================================
+
+    match /admins/{adminId} {
+      allow read: if isOwner(adminId) || isSuperAdmin();
+      allow write: if isOwner(adminId) || isSuperAdmin();
+    }
+
+    // ===============================================================
+    // Collection: tenants
+    // ===============================================================
+
+    match /tenants/{tenantId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == tenantId ||
+        resource.data.tenantId == request.auth.uid ||
+        resource.data.uid == request.auth.uid ||
+        resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        request.auth.uid == tenantId ||
+        request.resource.data.tenantId == request.auth.uid ||
+        request.resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        request.auth.uid == tenantId ||
+        resource.data.tenantId == request.auth.uid ||
+        resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+    }
+
+    // ===============================================================
+    // Collection: pg_owners & subcollections
+    // ===============================================================
+
+    match /pg_owners/{pgId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (
+        request.auth.uid == pgId ||
+        resource.data.adminId == request.auth.uid ||
+        request.resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow delete: if isSuperAdmin();
+
+      match /food_requests/{studentUid} {
+        allow read: if isAuthenticated() && (
+          request.auth.uid == studentUid ||
+          request.auth.uid == pgId ||
+          isSuperAdmin()
+        );
+        allow create, update: if isAuthenticated() && (
+          request.auth.uid == studentUid ||
+          request.auth.uid == pgId ||
+          isSuperAdmin()
+        );
+        allow delete: if isAuthenticated() && (
+          request.auth.uid == studentUid ||
+          request.auth.uid == pgId ||
+          isSuperAdmin()
+        );
+      }
+
+      match /cleaner_requests/{taskId} {
+        allow read, write: if isAuthenticated();
+      }
+
+      match /pgs/{subPgId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated() && (request.auth.uid == pgId || isSuperAdmin());
+      }
+    }
+
+    // ===============================================================
+    // Collection: mess_headcount
+    // ===============================================================
+
+    match /mess_headcount/{headcountId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin() || isSuperAdmin();
+    }
+
+    // ===============================================================
+    // Collection: meal_status
+    // ===============================================================
+
+    match /meal_status/{statusId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin() || isSuperAdmin();
+    }
+
+    // ===============================================================
+    // Collection: complaints & superadmin_complaints
+    // ===============================================================
+
+    match /complaints/{complaintId} {
+      allow read: if isAuthenticated() && (
+        resource.data.tenantId == request.auth.uid ||
+        resource.data.uid == request.auth.uid ||
+        resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        request.resource.data.tenantId == request.auth.uid ||
+        request.resource.data.uid == request.auth.uid ||
+        request.resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        resource.data.tenantId == request.auth.uid ||
+        resource.data.uid == request.auth.uid ||
+        resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+      allow delete: if isAuthenticated() && (
+        resource.data.tenantId == request.auth.uid ||
+        resource.data.adminId == request.auth.uid ||
+        isSuperAdmin()
+      );
+    }
+
+    match /superadmin_complaints/{ticketId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // ===============================================================
+    // Collection: chats & subcollections
+    // ===============================================================
+
+    match /chats/{chatId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid in resource.data.participants ||
+        isSuperAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        request.auth.uid in request.resource.data.participants ||
+        isSuperAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        request.auth.uid in resource.data.participants ||
+        isSuperAdmin()
+      );
+      allow delete: if isSuperAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && (
+          request.resource.data.senderId == request.auth.uid ||
+          isSuperAdmin()
+        );
+        allow update, delete: if isAuthenticated() && (
+          resource.data.senderId == request.auth.uid ||
+          isSuperAdmin()
+        );
+      }
+    }
+
+    // ===============================================================
+    // Property, Inventory, Staff & Operational Collections
+    // ===============================================================
+
+    match /staff/{staffId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /staff_tokens/{tokenId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /staff_attendance/{attId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /staff_tasks/{taskId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /staff_requisitions/{reqId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /staff_salaries/{salaryId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /leave_requests/{reqId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /petty_cash_transactions/{txId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /visitors/{visitorId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /rooms/{roomId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /enquiries/{enquiryId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /pg_applications/{appId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /notifications/{notifId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /support_tickets/{ticketId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /room_change_requests/{reqId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /item_requests/{reqId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /hired_workers/{workerId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /vendors/{vendorId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /vendor_transactions/{txId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /meters/{meterId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /meter_bills/{billId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /lease_payments/{payId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /rent_receipts/{receiptId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /inventory_allocations/{allocId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /inventory_exchange_requests/{reqId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /pg_inventory_master/{itemId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /analytics_events/{eventId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /adminSettings/{settingId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /system_setup/{setupId} {
+      allow read, write: if isSuperAdmin();
+    }
+
+    match /student_profiles/{profileId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /transport_status/{statusId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /mail/{mailId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // ===============================================================
+    // Default Deny Rule for any unmapped documents
+    // ===============================================================
+
+    match /{document=**} {
+      allow read, write: false;
+    }
+  }
+}

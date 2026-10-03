@@ -5,6 +5,9 @@ import { ReceiptText, ChevronDown, ChevronUp, X, Upload, CheckCircle2, DollarSig
 import { useAuth } from '../context/AuthContext';
 import { collection, query, orderBy, onSnapshot, addDoc, setDoc, doc, where, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import StudentOutstandingDuesModal from '../components/StudentOutstandingDuesModal';
+import StudentOutstandingDuesBar from '../components/StudentOutstandingDuesBar';
+import { aggregateTenantDues } from '../utils/duesUtils';
 import './Account.css';
 
 // ── Payment Card Component ──
@@ -149,6 +152,9 @@ const Account = () => {
   const { user } = useAuth();
   const [payments, setPayments] = useState([]);
   const [meterBills, setMeterBills] = useState([]);
+  const [customDues, setCustomDues] = useState([]);
+  const [showDuesModal, setShowDuesModal] = useState(false);
+  const [duesRefreshKey, setDuesRefreshKey] = useState(0);
   const [paymentTypeOption, setPaymentTypeOption] = useState('Rent'); // 'Rent' or 'Meter'
   const [loading, setLoading] = useState(true);
   const [showRentModal, setShowRentModal] = useState(false);
@@ -159,7 +165,6 @@ const Account = () => {
   const [isSubmittingRent, setIsSubmittingRent] = useState(false);
   const [rentSuccess, setRentSuccess] = useState(false);
   const [rentAlreadyPaid, setRentAlreadyPaid] = useState(false);
-
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -175,12 +180,19 @@ const Account = () => {
     const unsubM = onSnapshot(qM, (snapshot) => {
       setMeterBills(snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() })));
     });
+
+    // Fetch custom / recorded dues
+    const qD = query(collection(db, 'outstanding_dues'), where('tenantId', '==', user.uid));
+    const unsubD = onSnapshot(qD, (snapshot) => {
+      setCustomDues(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
     
     return () => {
       unsubscribe();
       unsubM();
+      unsubD();
     };
-  }, [user]);
+  }, [user, duesRefreshKey]);
 
 
   const thirtyDaysAgo = new Date();
@@ -312,11 +324,24 @@ const Account = () => {
   const tokenPayments = payments.filter(p => p.paymentType === 'token');
   const rentPayments = payments.filter(p => p.paymentType !== 'token' && p.type === 'Debit');
 
+  const duesData = aggregateTenantDues({
+    tenant: user,
+    rentReceipts: payments,
+    meterBills: meterBills,
+    customDues: customDues
+  });
+
   return (
     <div className="page-content bg-white pb-nav">
       <TopBar title="My Payments" />
 
       <div className="account-container">
+        {/* ── UNIFIED OUTSTANDING DUES BAR ── */}
+        <StudentOutstandingDuesBar
+          duesData={duesData}
+          onClick={() => setShowDuesModal(true)}
+        />
+
         {/* Stats Row */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
           <div style={{ background: 'linear-gradient(135deg, #064e3b, #166534)', borderRadius: '16px', padding: '14px 12px' }}>
@@ -474,6 +499,18 @@ const Account = () => {
             </button>
           </div>
         </div>
+      )}
+
+      {/* ── OUTSTANDING DUES BREAKDOWN MODAL ── */}
+      {showDuesModal && (
+        <StudentOutstandingDuesModal
+          isOpen={showDuesModal}
+          onClose={() => setShowDuesModal(false)}
+          tenant={user}
+          duesData={duesData}
+          pgName={user?.subscribedPG?.pgName}
+          onRefresh={() => setDuesRefreshKey(p => p + 1)}
+        />
       )}
 
       <style>{'@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }'}</style>

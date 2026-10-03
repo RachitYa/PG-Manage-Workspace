@@ -190,16 +190,14 @@ export default function AdminDashboard() {
       setEnquiryCount(newEnquiriesCount);
     });
 
-    // ── Real-time listener for Notifications Count ──
+    // ── Real-time listener for Notifications Count (Across all PGs) ──
     const unsubNotifs = onSnapshot(
-        query(collection(db, 'notifications'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('resolved', '==', false)),
+        query(collection(db, 'notifications'), where('adminId', '==', user.uid), where('resolved', '==', false)),
         (snap) => {
-            // Also need to get reqs count statically if we want total.
-            // A better way: just get it in real-time.
-            getDocs(query(collection(db, 'staff_requisitions'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('status', '==', 'Pending Rate')))
+            getDocs(query(collection(db, 'staff_requisitions'), where('adminId', '==', user.uid), where('status', '==', 'Pending Rate')))
               .then(reqSnap => {
                   setPendingNotifsCount(snap.size + reqSnap.size);
-              });
+              }).catch(e => console.warn('Error fetching reqs count:', e));
         }
     );
 
@@ -352,7 +350,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#f1f5f9', fontFamily: "'Hanken Grotesk', sans-serif", position: 'relative', overflowX: 'hidden', paddingBottom: 110 }}>
+    <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#f1f5f9', fontFamily: "'Hanken Grotesk', sans-serif", position: 'relative', overflowX: 'hidden', paddingBottom: 'max(110px, calc(90px + env(safe-area-inset-bottom, 0px)))' }}>
 
       {/* ── "See All" Modules Drawer ── */}
       {showAllModules && (
@@ -518,12 +516,12 @@ export default function AdminDashboard() {
       )}
 
       {/* ── HERO HEADER ── */}
-      <div style={{ background: 'linear-gradient(160deg, #0c1a2e 0%, #0f2847 60%, #0c3461 100%)', padding: '0 20px 28px', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ background: 'linear-gradient(160deg, #0c1a2e 0%, #0f2847 60%, #0c3461 100%)', padding: '0 20px 28px', paddingTop: 'max(0px, env(safe-area-inset-top, 0px))', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(56,189,248,0.12)', pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', bottom: -20, left: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(99,102,241,0.1)', pointerEvents: 'none' }} />
 
         {/* Top bar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px' }}>
           <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 26, fontWeight: 800, color: '#38bdf8', margin: 0 }}>Febebo</p>
           <button onClick={() => navigate('/request-box')} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', position: 'relative' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 22 }}>notifications</span>

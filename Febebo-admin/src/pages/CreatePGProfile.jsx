@@ -9,7 +9,7 @@ import {
   Car, Bike, Tv, Utensils, Bath, Sun, DoorClosed, Sparkles, Tag
 } from 'lucide-react';
 import { Geolocation } from '@capacitor/geolocation';
-import { doc, setDoc, addDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, setDoc, addDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
 
 // ── Custom Dropdown ────────────────────────────────────────────────────────────
@@ -217,6 +217,45 @@ export default function CreatePGProfile() {
   const [locPin, setLocPin]       = useState('');
   const [locFull, setLocFull]     = useState('');
   const [mapLink, setMapLink]     = useState('');
+
+  // Auto-fill existing admin personal details from previous registrations/profile
+  React.useEffect(() => {
+    const loadAdminDetails = async () => {
+      if (!user?.uid) return;
+      try {
+        // 1. Try primary PG owner document
+        const pgSnap = await getDoc(doc(db, 'pg_owners', user.uid));
+        if (pgSnap.exists()) {
+          const d = pgSnap.data();
+          if (d.adminName) setAdminName(prev => prev || d.adminName);
+          if (d.phone) setAdminPhone(prev => prev || d.phone);
+          if (d.email) setAdminEmail(prev => prev || d.email);
+          if (d.dob) setAdminDob(prev => prev || d.dob);
+          if (d.profileImage) setProfileImage(prev => prev || d.profileImage);
+        }
+
+        // 2. Also check admins doc
+        const adminSnap = await getDoc(doc(db, 'admins', user.uid));
+        if (adminSnap.exists()) {
+          const d = adminSnap.data();
+          if (d.name) setAdminName(prev => prev || d.name);
+          if (d.phone) setAdminPhone(prev => prev || d.phone);
+          if (d.email) setAdminEmail(prev => prev || d.email);
+          if (d.dob) setAdminDob(prev => prev || d.dob);
+        }
+
+        // 3. Fallback to auth user object
+        if (user.name) setAdminName(prev => prev || user.name);
+        if (user.phone || user.phoneNumber) setAdminPhone(prev => prev || user.phone || user.phoneNumber);
+        if (user.email) setAdminEmail(prev => prev || user.email);
+        if (user.dob) setAdminDob(prev => prev || user.dob);
+      } catch (err) {
+        console.warn("Could not auto-fill admin details:", err);
+      }
+    };
+
+    loadAdminDetails();
+  }, [user]);
 
   const handleGetLocation = async () => {
     try {

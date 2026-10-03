@@ -97,8 +97,8 @@ body {
   flex-direction: column;
   overflow-x: hidden;
   overflow: hidden;
-  padding-top: var(--safe-top);
-  padding-bottom: var(--safe-bottom);
+  padding-top: 0;
+  padding-bottom: 0;
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
 }

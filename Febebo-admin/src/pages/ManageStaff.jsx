@@ -181,7 +181,7 @@ export default function ManageStaff() {
       </div>
 
       {/* Floating Add Button */}
-      <button onClick={() => setShowAddModal(true)} style={{ position: 'fixed', right: 20, bottom: 24, width: 52, height: 52, borderRadius: '50%', background: 'linear-gradient(135deg,#0891b2,#0e7490)', color: 'white', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(8,145,178,0.4)', cursor: 'pointer', zIndex: 40 }}>
+      <button onClick={() => setShowAddModal(true)} style={{ position: 'fixed', right: 20, bottom: 'calc(24px + env(safe-area-inset-bottom, 0px))', width: 52, height: 52, borderRadius: '50%', background: 'linear-gradient(135deg,#0891b2,#0e7490)', color: 'white', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(8,145,178,0.4)', cursor: 'pointer', zIndex: 40 }}>
         <span className="material-symbols-outlined" style={{ fontSize: 24 }}>vpn_key</span>
       </button>
 

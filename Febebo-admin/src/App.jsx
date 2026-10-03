@@ -1,4 +1,4 @@
-import React, { useEffect, Suspense, lazy } from 'react';
+import React, { useEffect, Suspense, lazy, Component } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -6,48 +6,106 @@ import LoadingSpinner from './components/LoadingSpinner';
 import GlobalEnquiryListener from './components/GlobalEnquiryListener';
 import PushNotificationSetup from './components/PushNotificationSetup';
 import { logAppEvent } from './analytics';
+import { App as CapacitorApp } from '@capacitor/app';
+
+// Robust dynamic import with auto-retry and chunk mismatch handling
+function lazyWithRetry(componentImport) {
+  return lazy(async () => {
+    try {
+      return await componentImport();
+    } catch (error) {
+      console.warn("Retrying dynamic module load...", error);
+      const isRetried = window.sessionStorage.getItem('retry-lazy-refresh');
+      if (!isRetried) {
+        window.sessionStorage.setItem('retry-lazy-refresh', 'true');
+        window.location.reload();
+        return { default: () => <LoadingSpinner /> };
+      }
+      window.sessionStorage.removeItem('retry-lazy-refresh');
+      throw error;
+    }
+  });
+}
+
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error("ErrorBoundary caught an error:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center', background: '#f8fafc', fontFamily: 'sans-serif' }}>
+          <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#fee2e2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 32 }}>refresh</span>
+          </div>
+          <h2 style={{ margin: '0 0 8px', color: '#0f172a', fontSize: 20, fontWeight: 800 }}>Loading Update...</h2>
+          <p style={{ margin: '0 0 20px', color: '#64748b', fontSize: 14, maxWidth: 360 }}>
+            An update was made to the app. Tap reload to refresh the latest version smoothly.
+          </p>
+          <button
+            onClick={() => {
+              window.sessionStorage.removeItem('retry-lazy-refresh');
+              window.location.reload();
+            }}
+            style={{ padding: '12px 24px', background: '#0891b2', color: 'white', border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: 'pointer' }}
+          >
+            Reload Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Pages
-const Login = lazy(() => import('./pages/Login'));
-const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
-const StaffDashboard = lazy(() => import('./pages/StaffDashboard'));
-const CustomerDashboard = lazy(() => import('./pages/CustomerDashboard'));
-const CreatePGProfile = lazy(() => import('./pages/CreatePGProfile'));
-const PendingScreen = lazy(() => import('./pages/PendingScreen'));
-const ManageRooms = lazy(() => import('./pages/ManageRooms'));
-const ManageTenants = lazy(() => import('./pages/ManageTenants'));
-const ManageStaff = lazy(() => import('./pages/ManageStaff'));
-const StaffAttendance = lazy(() => import('./pages/StaffAttendance'));
-const StaffWork = lazy(() => import('./pages/StaffWork'));
-const StaffWorkDetails = lazy(() => import('./pages/StaffWorkDetails'));
-const ManageAccount = lazy(() => import('./pages/ManageAccount'));
-const VendorTransactions = lazy(() => import('./pages/VendorTransactions'));
-const Reports = lazy(() => import('./pages/Reports'));
-const Inventory = lazy(() => import('./pages/Inventory'));
-const Enquiry = lazy(() => import('./pages/Enquiry'));
-const Complain = lazy(() => import('./pages/Complain'));
-const RequestBox = lazy(() => import('./pages/RequestBox'));
-const Leave = lazy(() => import('./pages/Leave'));
-const Subscription = lazy(() => import('./pages/Subscription'));
-const PriceMenu = lazy(() => import('./pages/PriceMenu'));
-const UserProfile = lazy(() => import('./pages/UserProfile'));
-const StaffProfile = lazy(() => import('./pages/StaffProfile'));
-const Chat = lazy(() => import('./pages/Chat'));
-const Transportation = lazy(() => import('./pages/Transportation'));
-const Approvals = lazy(() => import('./pages/Approvals'));
-const HiredWorkers = lazy(() => import('./pages/HiredWorkers'));
-const AssignWork = lazy(() => import('./pages/AssignWork'));
-const AdminProfile = lazy(() => import('./pages/AdminProfile'));
-const MyProfile = lazy(() => import('./pages/MyProfile'));
-const AddTenant = lazy(() => import('./pages/AddTenant'));
-const AlreadyResidence = lazy(() => import('./pages/AlreadyResidence'));
-const MoveOutFlow = lazy(() => import('./pages/MoveOutFlow'));
-const HelpSupport = lazy(() => import('./pages/HelpSupport'));
-const MeterReading = lazy(() => import('./pages/MeterReading'));
-const VisitorLog = lazy(() => import('./pages/VisitorLog'));
-const MeterHistory = lazy(() => import('./pages/MeterHistory'));
-const MessHeadcount = lazy(() => import('./pages/MessHeadcount'));
-const StaffApp = lazy(() => import('./pages/StaffApp'));
+const Login = lazyWithRetry(() => import('./pages/Login'));
+const AdminDashboard = lazyWithRetry(() => import('./pages/AdminDashboard'));
+const StaffDashboard = lazyWithRetry(() => import('./pages/StaffDashboard'));
+const CustomerDashboard = lazyWithRetry(() => import('./pages/CustomerDashboard'));
+const CreatePGProfile = lazyWithRetry(() => import('./pages/CreatePGProfile'));
+const PendingScreen = lazyWithRetry(() => import('./pages/PendingScreen'));
+const ManageRooms = lazyWithRetry(() => import('./pages/ManageRooms'));
+const ManageTenants = lazyWithRetry(() => import('./pages/ManageTenants'));
+const ManageStaff = lazyWithRetry(() => import('./pages/ManageStaff'));
+const StaffAttendance = lazyWithRetry(() => import('./pages/StaffAttendance'));
+const StaffWork = lazyWithRetry(() => import('./pages/StaffWork'));
+const StaffWorkDetails = lazyWithRetry(() => import('./pages/StaffWorkDetails'));
+const ManageAccount = lazyWithRetry(() => import('./pages/ManageAccount'));
+const VendorTransactions = lazyWithRetry(() => import('./pages/VendorTransactions'));
+const Reports = lazyWithRetry(() => import('./pages/Reports'));
+const Inventory = lazyWithRetry(() => import('./pages/Inventory'));
+const Enquiry = lazyWithRetry(() => import('./pages/Enquiry'));
+const Complain = lazyWithRetry(() => import('./pages/Complain'));
+const RequestBox = lazyWithRetry(() => import('./pages/RequestBox'));
+const Leave = lazyWithRetry(() => import('./pages/Leave'));
+const Subscription = lazyWithRetry(() => import('./pages/Subscription'));
+const PriceMenu = lazyWithRetry(() => import('./pages/PriceMenu'));
+const UserProfile = lazyWithRetry(() => import('./pages/UserProfile'));
+const StaffProfile = lazyWithRetry(() => import('./pages/StaffProfile'));
+const Chat = lazyWithRetry(() => import('./pages/Chat'));
+const Transportation = lazyWithRetry(() => import('./pages/Transportation'));
+const Approvals = lazyWithRetry(() => import('./pages/Approvals'));
+const HiredWorkers = lazyWithRetry(() => import('./pages/HiredWorkers'));
+const AssignWork = lazyWithRetry(() => import('./pages/AssignWork'));
+const AdminProfile = lazyWithRetry(() => import('./pages/AdminProfile'));
+const MyProfile = lazyWithRetry(() => import('./pages/MyProfile'));
+const AddTenant = lazyWithRetry(() => import('./pages/AddTenant'));
+const AlreadyResidence = lazyWithRetry(() => import('./pages/AlreadyResidence'));
+const MoveOutFlow = lazyWithRetry(() => import('./pages/MoveOutFlow'));
+const HelpSupport = lazyWithRetry(() => import('./pages/HelpSupport'));
+const MeterReading = lazyWithRetry(() => import('./pages/MeterReading'));
+const VisitorLog = lazyWithRetry(() => import('./pages/VisitorLog'));
+const MeterHistory = lazyWithRetry(() => import('./pages/MeterHistory'));
+const MessHeadcount = lazyWithRetry(() => import('./pages/MessHeadcount'));
+const StaffApp = lazyWithRetry(() => import('./pages/StaffApp'));
 
 // Redirect helper
 const RootRedirect = () => {
@@ -76,8 +134,6 @@ const AdminRoute = ({ children }) => {
 };
 
 // Android hardware back button fix
-import { App as CapacitorApp } from '@capacitor/app';
-
 function AndroidBackFix() {
   const navigate = useNavigate();
   useEffect(() => {
@@ -166,11 +222,13 @@ function AppRoutes() {
 
 function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <AppRoutes />
-      </Router>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <Router>
+          <AppRoutes />
+        </Router>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

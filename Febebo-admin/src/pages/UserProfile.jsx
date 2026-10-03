@@ -2,8 +2,12 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DetailedReceiptModal, { CollectPaymentModal } from '../components/DetailedReceiptModal';
-import { collection, query, orderBy, onSnapshot, where, updateDoc, doc, writeBatch, addDoc } from 'firebase/firestore';
+import OutstandingDuesModal from '../components/OutstandingDuesModal';
+import OutstandingDuesBar from '../components/OutstandingDuesBar';
+import { aggregateTenantDues } from '../utils/duesUtils';
+import { collection, query, orderBy, onSnapshot, where, updateDoc, doc, writeBatch, addDoc, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuth } from '../context/AuthContext';
 
 const BASE = { backgroundColor: '#f8fafc', minHeight: '100vh', position: 'relative', paddingBottom: 80, fontFamily: "'Hanken Grotesk', sans-serif" };
 const cyan = '#0ea5e9';
@@ -271,7 +275,7 @@ function AmenitiesDetailView({ user, onBack }) {
         </div>
       )}
 
-      {/* Kick Confirm Modal */}
+      {/* Remove Confirm Modal */}
       {showKickConfirm && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }} onClick={() => !isKicking && setShowKickConfirm(false)}></div>
@@ -279,13 +283,13 @@ function AmenitiesDetailView({ user, onBack }) {
             <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#fef2f2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 32 }}>person_remove</span>
             </div>
-            <h3 style={{ margin: '0 0 8px', fontSize: 18, color: '#0f172a' }}>Kick Student?</h3>
+            <h3 style={{ margin: '0 0 8px', fontSize: 18, color: '#0f172a' }}>Remove Student?</h3>
             <p style={{ margin: '0 0 20px', fontSize: 13, color: '#64748b' }}>Are you sure you want to immediately remove <b>{profile.name}</b> from the PG? This action cannot be undone.</p>
             
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => setShowKickConfirm(false)} disabled={isKicking} style={{ flex: 1, padding: 12, borderRadius: 10, background: '#f1f5f9', color: '#64748b', fontWeight: 600, border: 'none', cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleKickImmediately} disabled={isKicking} style={{ flex: 1, padding: 12, borderRadius: 10, background: '#ef4444', color: 'white', fontWeight: 700, border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                {isKicking ? <div style={{ width: 16, height: 16, border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> : 'Kick Now'}
+                {isKicking ? <div style={{ width: 16, height: 16, border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> : 'Remove Now'}
               </button>
             </div>
           </div>
@@ -299,6 +303,26 @@ function AmenitiesDetailView({ user, onBack }) {
 function InventoryDetailView({ user, onBack }) {
   const name = user?.name || 'User';
   const [expandedImage, setExpandedImage] = useState(null);
+  const [exchangeRequests, setExchangeRequests] = useState([]);
+  const [storyModalItem, setStoryModalItem] = useState(null);
+
+  useEffect(() => {
+    const uid = user?.id || user?.tenantId;
+    if (!uid) return;
+    const fetchEx = async () => {
+      try {
+        const q = query(collection(db, 'inventory_exchange_requests'), where('tenantId', '==', uid));
+        const snap = await getDocs(q);
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        data.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        setExchangeRequests(data);
+      } catch (e) {
+        console.error('Failed to load exchange requests:', e);
+      }
+    };
+    fetchEx();
+  }, [user]);
+
   return (
     <>
       <Header title="Room Inventory" onBack={onBack} center={false} />
@@ -315,25 +339,199 @@ function InventoryDetailView({ user, onBack }) {
             const hasImage = user.inventory[itemKey];
             const isCustom = itemKey.startsWith('inv-custom-');
             const cleanName = itemKey.replace('inv-custom-', '').replace(/-/g, ' ');
+
+            const itemExchanges = exchangeRequests.filter(r => 
+              r.itemId === itemKey ||
+              r.itemName?.toLowerCase() === cleanName.toLowerCase() ||
+              r.itemName?.toLowerCase() === itemKey.toLowerCase()
+            );
+            const latestExReq = itemExchanges[0];
+
             return (
-            <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', borderBottom: idx < Object.keys(user.inventory).length - 1 ? '1px solid #f1f5f9' : 'none' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {hasImage ? (
-                  <img src={hasImage} alt={itemKey} onClick={() => setExpandedImage(hasImage)} style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover', border: '1px solid #e2e8f0', cursor: 'pointer' }} />
-                ) : (
-                  <div style={{ width: 44, height: 44, borderRadius: 10, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#0ea5e9' }}>{isCustom ? 'inventory_2' : 'chair'}</span>
+            <div key={idx} style={{ padding: '14px 16px', borderBottom: idx < Object.keys(user.inventory).length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {hasImage ? (
+                    <img src={hasImage} alt={itemKey} onClick={() => setExpandedImage(hasImage)} style={{ width: 44, height: 44, borderRadius: 10, objectFit: 'cover', border: '1px solid #e2e8f0', cursor: 'pointer' }} />
+                  ) : (
+                    <div style={{ width: 44, height: 44, borderRadius: 10, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#0ea5e9' }}>{isCustom ? 'inventory_2' : 'chair'}</span>
+                    </div>
+                  )}
+                  <div>
+                    <p style={{ fontWeight: 700, fontSize: 14, color: '#0f172a', margin: '0 0 2px', textTransform: 'capitalize' }}>{cleanName}</p>
+                    {latestExReq && (
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        background: latestExReq.status === 'Confirmed' ? '#ecfdf5' : latestExReq.status === 'Approved' ? '#f0fdf4' : latestExReq.status === 'Disputed' ? '#faf5ff' : latestExReq.status === 'Rejected' ? '#fef2f2' : '#fffbeb',
+                        color: latestExReq.status === 'Confirmed' ? '#059669' : latestExReq.status === 'Approved' ? '#16a34a' : latestExReq.status === 'Disputed' ? '#7c3aed' : latestExReq.status === 'Rejected' ? '#dc2626' : '#d97706',
+                        display: 'inline-block'
+                      }}>
+                        {latestExReq.status === 'Confirmed' ? '✓ Exchange Confirmed' : latestExReq.status === 'Approved' ? '⏳ Awaiting Student Confirmation' : latestExReq.status === 'Disputed' ? '⚠️ Disputed by Student' : latestExReq.status === 'Rejected' ? '✕ Exchange Declined' : `⏳ Requested: ${latestExReq.reason}`}
+                      </span>
+                    )}
                   </div>
-                )}
-                <div>
-                  <p style={{ fontWeight: 600, fontSize: 14, color: '#0f172a', margin: '0 0 2px', textTransform: 'capitalize' }}>{cleanName}</p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    onClick={() => setStoryModalItem({ name: cleanName, image: hasImage, history: itemExchanges })}
+                    style={{
+                      background: itemExchanges.length > 0 ? '#ecfeff' : '#f8fafc',
+                      border: `1px solid ${itemExchanges.length > 0 ? '#a5f3fc' : '#e2e8f0'}`,
+                      borderRadius: 8,
+                      padding: '5px 10px',
+                      fontSize: 11.5,
+                      color: itemExchanges.length > 0 ? '#0891b2' : '#64748b',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>history</span>
+                    {itemExchanges.length > 0 ? `Exchange Story (${itemExchanges.length})` : 'Story'}
+                  </button>
+                  <span style={{ background: '#f1f5f9', color: '#475569', fontWeight: 700, fontSize: 13, padding: '4px 10px', borderRadius: 8 }}>×1</span>
                 </div>
               </div>
-              <span style={{ background: '#f1f5f9', color: '#475569', fontWeight: 700, fontSize: 14, padding: '4px 10px', borderRadius: 8 }}>×1</span>
             </div>
           );})}
         </div>
       </div>
+
+      {/* ── ADMIN ITEM EXCHANGE STORY MODAL ── */}
+      {storyModalItem && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(4px)', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 20, maxWidth: 520, width: '100%', padding: '24px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a', textTransform: 'capitalize' }}>
+                  📜 Exchange Story: {storyModalItem.name}
+                </h3>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
+                  Tenant: {name} · Room {user?.room || 'N/A'}
+                </p>
+              </div>
+              <button onClick={() => setStoryModalItem(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>close</span>
+              </button>
+            </div>
+
+            {storyModalItem.history.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '36px 16px', color: '#94a3b8' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 44, color: '#cbd5e1', marginBottom: 8, display: 'block' }}>history</span>
+                <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#334155' }}>No exchange history recorded</p>
+                <p style={{ margin: '4px 0 0', fontSize: 12 }}>This item remains in its originally issued allocation.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {storyModalItem.history.map((ex, idx) => {
+                  const isApproved = ex.status === 'Approved';
+                  const isConfirmed = ex.status === 'Confirmed';
+                  const isDisputed = ex.status === 'Disputed';
+                  const isRejected = ex.status === 'Rejected';
+
+                  return (
+                    <div
+                      key={ex.id || idx}
+                      style={{
+                        background: '#f8fafc',
+                        borderRadius: 14,
+                        border: '1.5px solid #e2e8f0',
+                        borderLeft: isConfirmed ? '4px solid #059669' : isApproved ? '4px solid #16a34a' : isDisputed ? '4px solid #7c3aed' : isRejected ? '4px solid #dc2626' : '4px solid #d97706',
+                        padding: 14
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>
+                          Exchange #{storyModalItem.history.length - idx} · {ex.date || (ex.createdAt ? new Date(ex.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A')}
+                        </span>
+                        <span style={{
+                          fontSize: 11,
+                          fontWeight: 800,
+                          padding: '2px 8px',
+                          borderRadius: 6,
+                          background: isConfirmed ? '#ecfdf5' : isApproved ? '#f0fdf4' : isDisputed ? '#faf5ff' : isRejected ? '#fef2f2' : '#fffbeb',
+                          color: isConfirmed ? '#059669' : isApproved ? '#16a34a' : isDisputed ? '#7c3aed' : isRejected ? '#dc2626' : '#d97706',
+                          border: `1px solid ${isConfirmed ? '#a7f3d0' : isApproved ? '#86efac' : isDisputed ? '#ddd6fe' : isRejected ? '#fecaca' : '#fde68a'}`
+                        }}>
+                          {isConfirmed ? '✓ Confirmed Received' : isApproved ? '⏳ Awaiting Student Confirmation' : isDisputed ? '⚠️ Disputed by Student' : isRejected ? '✕ Declined' : '⏳ In Review'}
+                        </span>
+                      </div>
+
+                      <div style={{ background: '#fff', borderRadius: 10, padding: 10, border: '1px solid #e2e8f0', marginBottom: 8 }}>
+                        <p style={{ margin: '0 0 4px', fontSize: 12.5, color: '#1e293b' }}>
+                          Reason: <strong>{ex.reason || 'Exchange'}</strong>
+                        </p>
+                        {ex.description && (
+                          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>"{ex.description}"</p>
+                        )}
+                      </div>
+
+                      {/* Photos grid: Student damage photo + Admin replacement photo */}
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                        {ex.photo && (
+                          <div style={{ background: '#fff', padding: 6, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 4 }}>Damage Proof:</span>
+                            <img
+                              src={ex.photo}
+                              alt="Damage Proof"
+                              onClick={() => setExpandedImage(ex.photo)}
+                              style={{ width: 64, height: 64, borderRadius: 6, objectFit: 'cover', cursor: 'pointer' }}
+                            />
+                          </div>
+                        )}
+                        {ex.issuedItemPhoto && (
+                          <div style={{ background: '#ecfdf5', padding: 6, borderRadius: 8, border: '1px solid #bbf7d0' }}>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: '#166534', display: 'block', marginBottom: 4 }}>Issued Replacement:</span>
+                            <img
+                              src={ex.issuedItemPhoto}
+                              alt="Issued Replacement"
+                              onClick={() => setExpandedImage(ex.issuedItemPhoto)}
+                              style={{ width: 64, height: 64, borderRadius: 6, objectFit: 'cover', cursor: 'pointer' }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {ex.issuedItemNote && (
+                        <p style={{ margin: '0 0 6px', fontSize: 12, color: '#166534', fontWeight: 600 }}>
+                          Admin Note: {ex.issuedItemNote}
+                        </p>
+                      )}
+
+                      {/* Confirmation / Dispute details */}
+                      {isConfirmed && (
+                        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, padding: '6px 10px', fontSize: 11.5, color: '#065f46', fontWeight: 700 }}>
+                          ✓ Student confirmed receipt {ex.confirmedAt ? `on ${new Date(ex.confirmedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}
+                        </div>
+                      )}
+
+                      {isDisputed && (
+                        <div style={{ background: '#faf5ff', border: '1px solid #ddd6fe', borderRadius: 8, padding: '6px 10px', fontSize: 11.5, color: '#6d28d9', fontWeight: 600 }}>
+                          ⚠️ Disputed by Student: {ex.disputeNote || 'Replacement not received or defective'}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <button
+              onClick={() => setStoryModalItem(null)}
+              style={{ width: '100%', marginTop: 16, padding: '12px', background: '#f1f5f9', border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 14, color: '#475569', cursor: 'pointer' }}
+            >
+              Close Story
+            </button>
+          </div>
+        </div>
+      )}
+
       {expandedImage && (
         <div onClick={() => setExpandedImage(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, backdropFilter: 'blur(4px)' }}>
           <img src={expandedImage} alt="Expanded" style={{ maxWidth: '100%', maxHeight: '90vh', objectFit: 'contain', borderRadius: 12, boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }} onClick={(e) => e.stopPropagation()} />
@@ -891,8 +1089,8 @@ function UserDetailsView({ user, onBack, onReceipt, onHistory, onMoveOut, onColl
   const [showNoticeModal, setShowNoticeModal] = useState(false);
   const [noticeForm, setNoticeForm] = useState({ fromDate: '', toDate: '', leaveDate: '', message: '' });
   const [isSendingNotice, setIsSendingNotice] = useState(false);
-  const [isKicking, setIsKicking] = useState(false);
-  const [showKickConfirm, setShowKickConfirm] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
 
   const handleSendNotice = async () => {
     if(!noticeForm.fromDate || !noticeForm.toDate || !noticeForm.leaveDate || !noticeForm.message) {
@@ -923,8 +1121,7 @@ function UserDetailsView({ user, onBack, onReceipt, onHistory, onMoveOut, onColl
       // Add Notification
       batch.set(doc(collection(db, 'users', uid, 'notifications')), {
         title: 'Notice Period Started',
-        desc: `${noticeForm.message}
-Clear your all dues before leaving the PG on ${noticeForm.leaveDate}.`,
+        desc: `${noticeForm.message}\nClear your all dues before leaving the PG on ${noticeForm.leaveDate}.`,
         type: 'warning',
         createdAt: new Date().toISOString(),
         unread: true
@@ -941,46 +1138,112 @@ Clear your all dues before leaving the PG on ${noticeForm.leaveDate}.`,
     }
   };
 
-  const handleKickImmediately = async () => {
-    setIsKicking(true);
+  const handleRemoveImmediately = async () => {
+    setIsRemoving(true);
     try {
-      const uid = user.tenantId || user.id || user.uid;
+      const tenantDocId = user.id || user.tenantId || user.uid;
+      const studentUid = user.tenantId || user.uid || user.id;
       const batch = writeBatch(db);
+      const nowIso = new Date().toISOString();
       
-      // Update tenant status to Moved Out
-      batch.update(doc(db, 'tenants', uid), {
-        status: 'Moved Out',
-        movedOutDate: new Date().toISOString()
+      // Update tenant status to Removed so they appear in Removed Students tab
+      batch.update(doc(db, 'tenants', tenantDocId), {
+        status: 'Removed',
+        removedAt: nowIso,
+        movedOutDate: nowIso
       });
 
-      // Remove subscribedPG from users so they see main menu
-      batch.update(doc(db, 'users', uid), {
-        subscribedPG: null
+      // Remove subscribedPG from users so they return to normal explore view,
+      // while PRESERVING all user profile details (name, phone, kyc, address, parents, etc.)
+      batch.update(doc(db, 'users', studentUid), {
+        subscribedPG: null,
+        pgStatus: null,
+        currentPG: null
       });
 
       // Add Notification
-      batch.set(doc(collection(db, 'users', uid, 'notifications')), {
+      batch.set(doc(collection(db, 'users', studentUid, 'notifications')), {
         title: 'Removed from PG',
-        desc: 'You have been immediately removed from the PG by the Admin.',
+        desc: 'You have been removed from the PG by the Admin. You can now explore other PGs.',
         type: 'warning',
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso,
         unread: true
       });
 
       await batch.commit();
-      setShowKickConfirm(false);
-      alert('Student kicked successfully!');
+      setShowRemoveConfirm(false);
+      alert('Student removed successfully!');
       onBack();
     } catch(err) {
       console.error(err);
-      alert('Failed to kick student.');
+      alert('Failed to remove student.');
     } finally {
-      setIsKicking(false);
+      setIsRemoving(false);
+    }
+  };
+  // Backward compatibility alias
+  const handleKickImmediately = handleRemoveImmediately;
+  const isKicking = isRemoving;
+  const showKickConfirm = showRemoveConfirm;
+  const setShowKickConfirm = setShowRemoveConfirm;
+
+  const { user: authUser, activePgId } = useAuth();
+  const [realUnpaid, setRealUnpaid] = useState(0);
+  const [realMeterBills, setRealMeterBills] = useState([]);
+  const [realOutstandingDues, setRealOutstandingDues] = useState([]);
+  const [realRentReceipts, setRealRentReceipts] = useState([]);
+  const [showOutstandingDuesModal, setShowOutstandingDuesModal] = useState(false);
+
+  // Co-Residents / Roommates Management State
+  const [showAddCoResidentModal, setShowAddCoResidentModal] = useState(false);
+  const [newCoResident, setNewCoResident] = useState({ name: '', phone: '', relation: 'Roommate', aadhar: '' });
+  const [isSavingCoResident, setIsSavingCoResident] = useState(false);
+
+  const handleSaveCoResident = async () => {
+    if (!newCoResident.name.trim()) return;
+    setIsSavingCoResident(true);
+    try {
+      const uid = user.tenantId || user.id || user.uid;
+      const currentList = fullUser?.coResidents || fullUser?.subscribedPG?.coResidents || user?.coResidents || [];
+      const updatedList = [...currentList, { ...newCoResident, id: 'cr_' + Date.now() }];
+      
+      // Update users doc
+      await updateDoc(doc(db, 'users', uid), {
+        coResidents: updatedList,
+        'subscribedPG.coResidents': updatedList
+      });
+      // Update tenants doc
+      await updateDoc(doc(db, 'tenants', uid), {
+        coResidents: updatedList,
+        'subscribedPG.coResidents': updatedList
+      }).catch(() => {});
+      
+      setNewCoResident({ name: '', phone: '', relation: 'Roommate', aadhar: '' });
+      setShowAddCoResidentModal(false);
+    } catch (err) {
+      console.error('Failed to save co-resident:', err);
+    } finally {
+      setIsSavingCoResident(false);
     }
   };
 
-  const [realUnpaid, setRealUnpaid] = useState(0);
-  const [realMeterBills, setRealMeterBills] = useState([]);
+  const handleRemoveCoResident = async (crId, index) => {
+    const uid = user.tenantId || user.id || user.uid;
+    const currentList = fullUser?.coResidents || fullUser?.subscribedPG?.coResidents || user?.coResidents || [];
+    const updatedList = currentList.filter((cr, idx) => (cr.id ? cr.id !== crId : idx !== index));
+    try {
+      await updateDoc(doc(db, 'users', uid), {
+        coResidents: updatedList,
+        'subscribedPG.coResidents': updatedList
+      });
+      await updateDoc(doc(db, 'tenants', uid), {
+        coResidents: updatedList,
+        'subscribedPG.coResidents': updatedList
+      }).catch(() => {});
+    } catch (err) {
+      console.error('Failed to delete co-resident:', err);
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -1016,13 +1279,30 @@ Clear your all dues before leaving the PG on ${noticeForm.leaveDate}.`,
       }
       setRealUnpaid(bills.filter(b => b.status === 'Unpaid').length);
     });
+
+    // Fetch custom / recorded outstanding dues
+    const qDues = query(collection(db, 'outstanding_dues'), where('tenantId', '==', uid));
+    const unsubDues = onSnapshot(qDues, (snap) => {
+      setRealOutstandingDues(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    // Fetch rent receipts
+    const qReceipts = query(collection(db, 'rent_receipts'), where('tenantId', '==', uid));
+    const unsubReceipts = onSnapshot(qReceipts, (snap) => {
+      setRealRentReceipts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
     
-    return () => { unsubUser(); unsubTenant(); unsubPay(); unsubMeter(); };
+    return () => { unsubUser(); unsubTenant(); unsubPay(); unsubMeter(); unsubDues(); unsubReceipts(); };
   }, [user]);
 
   const profile = {
     roomType: fullUser?.subscribedPG?.seaterLabel || fullUser?.subscribedPG?.roomType || fullUser?.demandedToken?.seaterLabel || user?.seaterLabel || '-',
     type: user?.status === 'Approved' || fullUser?.status === 'Approved' ? 'current' : 'upcoming',
+    leaseType: fullUser?.leaseType || fullUser?.subscribedPG?.leaseType || user?.leaseType || user?.subscribedPG?.leaseType || 'bed_sharing',
+    foodIncluded: fullUser?.foodIncluded !== undefined ? fullUser.foodIncluded : (fullUser?.subscribedPG?.foodIncluded !== undefined ? fullUser.subscribedPG.foodIncluded : (user?.foodIncluded !== undefined ? user.foodIncluded : (user?.subscribedPG?.foodIncluded !== undefined ? user.subscribedPG.foodIncluded : true))),
+    includedFoodPersons: fullUser?.includedFoodPersons || fullUser?.subscribedPG?.includedFoodPersons || user?.includedFoodPersons || 1,
+    coResidents: fullUser?.coResidents || fullUser?.subscribedPG?.coResidents || user?.coResidents || [],
+    isPrimaryPayer: fullUser?.isPrimaryPayer || user?.isPrimaryPayer || false,
     name: fullUser?.name || user?.name || '-' ,
     phone: fullUser?.phone || user?.phone || '-' ,
     email: fullUser?.email || user?.email || '-' ,
@@ -1062,12 +1342,20 @@ Clear your all dues before leaving the PG on ${noticeForm.leaveDate}.`,
   if (subView === 'visitor')   return <VisitorHistoryView user={user} onBack={() => setSubView(null)} />;
   if (subView === 'room')      return <RoomPreviewView profile={profile} user={user} onBack={() => setSubView(null)} />;
   if (subView === 'meter')     return <MeterHistoryView profile={profile} meterBills={realMeterBills} initialMeter={fullUser?.meterReading} joiningDate={fullUser?.dateOfJoining || fullUser?.joiningDate || user?.joiningDate || '-'} onBack={() => setSubView(null)} />;
-const rent = profile.rent;
+  const rent = profile.rent;
   const token = profile.token;
   const pending = profile.pending;
   const currentMonthUnits = realUnits;
   const currentMonthAmt   = realAmount;
   const unpaidMonths      = realUnpaid;
+
+  const currentTenantObj = fullUser || user;
+  const duesData = aggregateTenantDues({
+    tenant: currentTenantObj,
+    rentReceipts: realRentReceipts,
+    meterBills: realMeterBills,
+    customDues: realOutstandingDues
+  });
 
   return (
     <>
@@ -1091,7 +1379,13 @@ const rent = profile.rent;
             <h2 style={{ margin: '0 0 4px', fontSize: 18, color: '#0f172a' }}>{profile.name}</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
               <span className="material-symbols-outlined" style={{ fontSize: 14, color: cyan }}>badge</span>
-              <span style={{ fontSize: 12, color: '#64748b' }}>{user?.studentId || '#' + String(1234560 + (user?.id || 1))}</span>
+              <span style={{ fontSize: 12, color: '#64748b' }}>
+                {user?.studentId
+                  ? user.studentId
+                  : (user?.id
+                    ? '#FB-' + String(user.id).slice(0, 8).toUpperCase()
+                    : '#FB-??????')}
+              </span>
             </div>
             <a href={`tel:${profile.phone !== '-' ? profile.phone : (user?.phone || '+91 9234567681')}`} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, textDecoration: 'none', background: '#ecfeff', padding: '6px 12px', borderRadius: '20px', border: `1px solid ${cyan}`, width: 'fit-content' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 16, color: cyan }}>call</span>
@@ -1107,26 +1401,40 @@ const rent = profile.rent;
             </div>
           </div>
         </div>
-        <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
-          <button 
-            onClick={() => {
-              setNoticeForm(prev => ({...prev, message: 'Please clear your all dues before leaving the PG.'}));
-              setShowNoticeModal(true);
-            }}
-            style={{ flex: 1, background: '#fefce8', color: '#92400e', border: '2px solid #fbbf24', padding: '12px 8px', borderRadius: '14px', fontWeight: '800', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(251,191,36,0.3)' }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>notifications_active</span>
-            Send Notice
-          </button>
-          
-          <button 
-            onClick={() => setShowKickConfirm(true)}
-            style={{ flex: 1, background: '#fef2f2', color: '#991b1b', border: '2px solid #f87171', padding: '12px 8px', borderRadius: '14px', fontWeight: '800', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(239,68,68,0.25)' }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>person_remove</span>
-            Kick Student
-          </button>
-        </div>
+
+        {/* ── UNIFIED OUTSTANDING DUES AGGREGATED BAR ── */}
+        <OutstandingDuesBar
+          duesData={duesData}
+          onClick={() => setShowOutstandingDuesModal(true)}
+          style={{ marginTop: 14 }}
+        />
+        {(user?.status === 'Removed' || user?.status === 'Moved Out' || fullUser?.status === 'Removed' || fullUser?.status === 'Moved Out') ? (
+          <div style={{ marginTop: 12, background: '#fee2e2', border: '1.5px solid #fca5a5', borderRadius: '14px', padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <span className="material-symbols-outlined" style={{ color: '#dc2626', fontSize: 20 }}>person_off</span>
+            <span style={{ color: '#991b1b', fontWeight: 800, fontSize: 13 }}>Student Removed from PG</span>
+          </div>
+        ) : (
+          <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+            <button 
+              onClick={() => {
+                setNoticeForm(prev => ({...prev, message: 'Please clear your all dues before leaving the PG.'}));
+                setShowNoticeModal(true);
+              }}
+              style={{ flex: 1, background: '#fefce8', color: '#92400e', border: '2px solid #fbbf24', padding: '12px 8px', borderRadius: '14px', fontWeight: '800', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(251,191,36,0.3)' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>notifications_active</span>
+              Send Notice
+            </button>
+            
+            <button 
+              onClick={() => setShowRemoveConfirm(true)}
+              style={{ flex: 1, background: '#fef2f2', color: '#991b1b', border: '2px solid #f87171', padding: '12px 8px', borderRadius: '14px', fontWeight: '800', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', boxShadow: '0 2px 8px rgba(239,68,68,0.25)' }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>person_remove</span>
+              Remove Student
+            </button>
+          </div>
+        )}
       </div>
 
       <div style={{ padding: 16 }}>
@@ -1162,11 +1470,81 @@ const rent = profile.rent;
 
         <Accordion title="Room Details" icon="meeting_room" defaultOpen={true}>
           <InfoRow label="Room Number" value={`Room ${profile.roomNo}`} />
-          <InfoRow label="Bed Number" value={`Bed ${profile.bedNo}`} />
+          {profile.leaseType === 'entire_room' ? (
+            <>
+              <InfoRow label="Lease Model" value="🏢 Entire Flat / Single Payer" />
+              <InfoRow label="Mess / Food" value={profile.foodIncluded ? `🍽️ Included (${profile.includedFoodPersons || 1} Persons)` : '🚫 Self-Cooking (Excluded)'} />
+            </>
+          ) : (
+            <>
+              <InfoRow label="Bed Number" value={`Bed ${profile.bedNo}`} />
+              <InfoRow label="Mess / Food" value={profile.foodIncluded ? '🍽️ Included' : '🚫 Excluded (Self-Cooking)'} />
+            </>
+          )}
           <div style={{ marginTop: 12 }}>
             <button onClick={() => setSubView('room')} style={{ width: '100%', padding: 10, background: 'rgba(14,165,233,0.08)', border: `1px solid ${cyan}`, color: cyan, borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>meeting_room</span>
               View Room Details
+            </button>
+          </div>
+        </Accordion>
+
+        <Accordion 
+          title="Roommates & Co-Residents" 
+          icon="group" 
+          defaultOpen={profile.leaseType === 'entire_room' || profile.coResidents.length > 0}
+          badge={profile.coResidents.length > 0 ? `${profile.coResidents.length} Roommate${profile.coResidents.length > 1 ? 's' : ''}` : null}
+        >
+          <div style={{ padding: '4px 0' }}>
+            {profile.coResidents.length === 0 ? (
+              <p style={{ margin: '8px 0 12px', fontSize: 13, color: '#94a3b8', textAlign: 'center' }}>
+                No non-paying co-residents or roommates registered yet.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+                {profile.coResidents.map((cr, idx) => (
+                  <div key={cr.id || idx} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>{cr.name}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#e0f2fe', color: '#0369a1' }}>
+                            {cr.relation || 'Roommate'}
+                          </span>
+                        </div>
+                        {cr.phone && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#64748b' }}>call</span>
+                            <a href={`tel:${cr.phone}`} style={{ fontSize: 13, color: cyan, fontWeight: 700, textDecoration: 'none' }}>
+                              {cr.phone}
+                            </a>
+                          </div>
+                        )}
+                        {cr.aadhar && (
+                          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>
+                            ID/Aadhaar: <strong style={{ color: '#334155' }}>{cr.aadhar}</strong>
+                          </p>
+                        )}
+                      </div>
+                      <button 
+                        onClick={() => handleRemoveCoResident(cr.id, idx)}
+                        style={{ background: '#fee2e2', border: 'none', borderRadius: 8, padding: '6px 8px', cursor: 'pointer', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        title="Remove Roommate"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button 
+              onClick={() => setShowAddCoResidentModal(true)}
+              style={{ width: '100%', padding: '10px', background: '#f0fdf4', border: '1.5px dashed #16a34a', color: '#166534', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>person_add</span>
+              + Add Roommate / Co-Resident
             </button>
           </div>
         </Accordion>
@@ -1399,10 +1777,10 @@ const rent = profile.rent;
         </div>
       )}
 
-      {/* ── KICK CONFIRMATION MODAL ── */}
-      {showKickConfirm && (
+      {/* ── REMOVE CONFIRMATION MODAL ── */}
+      {showRemoveConfirm && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} onClick={() => !isKicking && setShowKickConfirm(false)} />
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }} onClick={() => !isRemoving && setShowRemoveConfirm(false)} />
           <div style={{ position: 'relative', background: 'white', width: '100%', maxWidth: 340, borderRadius: 24, padding: '28px 24px', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
             {/* Red icon */}
             <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'linear-gradient(135deg, #fef2f2, #fee2e2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', boxShadow: '0 4px 16px rgba(239,68,68,0.2)' }}>
@@ -1414,42 +1792,148 @@ const rent = profile.rent;
               You are about to immediately remove <span style={{ fontWeight: 700, color: '#0f172a' }}>{profile.name}</span> from your PG.
             </p>
             <p style={{ margin: '0 0 24px', fontSize: 13, color: '#ef4444', fontWeight: 600 }}>
-              ⚠️ This action cannot be undone.
+              ⚠️ This will revoke their PG stay and move them to Removed Students history.
             </p>
 
             <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: '12px 14px', marginBottom: 20, textAlign: 'left' }}>
               <p style={{ margin: 0, fontSize: 12, color: '#991b1b', lineHeight: 1.6 }}>
                 • Student's PG access will be revoked immediately<br />
-                • They will be redirected to the main PG listing screen<br />
-                • A notification will be sent to them
+                • Student can explore and apply to other PGs<br />
+                • Their saved profile details remain preserved<br />
+                • A notification will be sent to the student
               </p>
             </div>
             
             <div style={{ display: 'flex', gap: 10 }}>
               <button
-                onClick={() => setShowKickConfirm(false)}
-                disabled={isKicking}
+                onClick={() => setShowRemoveConfirm(false)}
+                disabled={isRemoving}
                 style={{ flex: 1, padding: 14, borderRadius: 12, background: '#f1f5f9', color: '#475569', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button
-                onClick={handleKickImmediately}
-                disabled={isKicking}
+                onClick={handleRemoveImmediately}
+                disabled={isRemoving}
                 style={{ flex: 1, padding: 14, borderRadius: 12, background: 'linear-gradient(135deg, #dc2626, #ef4444)', color: 'white', fontWeight: 800, fontSize: 14, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >
-                {isKicking ? (
+                {isRemoving ? (
                   <div style={{ width: 18, height: 18, border: '2.5px solid rgba(255,255,255,0.4)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                 ) : (
                   <>
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>bolt</span>
-                    Kick Now
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>person_remove</span>
+                    Remove Now
                   </>
                 )}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── ADD CO-RESIDENT MODAL ── */}
+      {showAddCoResidentModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(3px)' }} onClick={() => !isSavingCoResident && setShowAddCoResidentModal(false)} />
+          <div style={{ position: 'relative', background: 'white', width: '100%', maxWidth: 420, borderRadius: 20, padding: 24, boxShadow: '0 20px 50px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 24, color: cyan }}>person_add</span>
+                <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: '#0f172a' }}>Add Roommate / Co-Resident</h3>
+              </div>
+              <button onClick={() => !isSavingCoResident && setShowAddCoResidentModal(false)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', display: 'flex' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>close</span>
+              </button>
+            </div>
+
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b' }}>
+              Add a roommate living in this room. They will be registered under <strong>{profile.name}</strong>.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>Full Name *</label>
+                <input 
+                  type="text" 
+                  value={newCoResident.name} 
+                  onChange={e => setNewCoResident({ ...newCoResident, name: e.target.value })} 
+                  placeholder="e.g. Rahul Sharma"
+                  style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>Mobile Number</label>
+                <input 
+                  type="tel" 
+                  value={newCoResident.phone} 
+                  onChange={e => setNewCoResident({ ...newCoResident, phone: e.target.value })} 
+                  placeholder="e.g. +91 9876543210"
+                  style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>Relationship</label>
+                  <select 
+                    value={newCoResident.relation} 
+                    onChange={e => setNewCoResident({ ...newCoResident, relation: e.target.value })}
+                    style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, outline: 'none', background: 'white', boxSizing: 'border-box' }}
+                  >
+                    <option value="Roommate">Roommate</option>
+                    <option value="Friend">Friend</option>
+                    <option value="Colleague">Colleague</option>
+                    <option value="Brother">Brother</option>
+                    <option value="Sister">Sister</option>
+                    <option value="Spouse">Spouse</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>Aadhaar / ID Proof</label>
+                  <input 
+                    type="text" 
+                    value={newCoResident.aadhar} 
+                    onChange={e => setNewCoResident({ ...newCoResident, aadhar: e.target.value })} 
+                    placeholder="e.g. 1234 5678 9012"
+                    style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button 
+                onClick={() => setShowAddCoResidentModal(false)}
+                disabled={isSavingCoResident}
+                style={{ flex: 1, padding: 12, borderRadius: 10, background: '#f1f5f9', color: '#475569', fontWeight: 700, fontSize: 13, border: 'none', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSaveCoResident}
+                disabled={isSavingCoResident || !newCoResident.name.trim()}
+                style={{ flex: 1, padding: 12, borderRadius: 10, background: cyan, color: 'white', fontWeight: 800, fontSize: 13, border: 'none', cursor: (!newCoResident.name.trim() || isSavingCoResident) ? 'not-allowed' : 'pointer', opacity: (!newCoResident.name.trim() || isSavingCoResident) ? 0.6 : 1 }}
+              >
+                {isSavingCoResident ? 'Saving...' : 'Add Roommate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── OUTSTANDING DUES BREAKDOWN MODAL ── */}
+      {showOutstandingDuesModal && (
+        <OutstandingDuesModal
+          isOpen={showOutstandingDuesModal}
+          onClose={() => setShowOutstandingDuesModal(false)}
+          tenant={currentTenantObj}
+          duesData={duesData}
+          adminUser={authUser}
+          activePgId={activePgId}
+        />
       )}
 
     </>

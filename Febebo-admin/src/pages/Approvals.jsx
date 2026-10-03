@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { collection, query, where, getDoc, getDocs, doc, updateDoc, setDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
+import { shiftTenantToRoom, swapTenantsBetweenRooms } from '../utils/roomAllocationUtils';
 
 const INVENTORY_ITEMS = [
   { id: 'bed', label: 'Bed', icon: '🛏️' },
@@ -14,7 +15,6 @@ const INVENTORY_ITEMS = [
   { id: 'keys', label: 'Keys', icon: '🔑' },
   { id: 'dustbin', label: 'Dustbin', icon: '🗑️' }
 ];
-
 
 const compressImage = (file, maxWidth = 800) => {
   return new Promise((resolve) => {
@@ -42,26 +42,33 @@ const compressImage = (file, maxWidth = 800) => {
 
 export default function Approvals() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, activePgId } = useAuth();
   
-  const [approvalType, setApprovalType] = useState('Applications'); // 'Applications' or 'RoomChanges'
+  const [approvalType, setApprovalType] = useState(location.state?.approvalType || location.state?.tab || 'Applications'); // 'Applications' or 'RoomChanges'
   const [activeTab, setActiveTab] = useState('Pending');
   
   const [roomRequests, setRoomRequests] = useState([]);
   const [pgApplications, setPgApplications] = useState([]);
   const [availableRooms, setAvailableRooms] = useState([]);
+  const [allRoomsList, setAllRoomsList] = useState([]);
+  const [activeTenantsList, setActiveTenantsList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
 
-  // Modal State for Allotting Room
+  // Modal State for Allotting Application Room
   const [allotModal, setAllotModal] = useState(null);
   const [allotForm, setAllotForm] = useState({ roomNo: '', rentAmount: '', securityDeposit: '', dateOfJoining: new Date().toISOString().split('T')[0], inventory: {} });
 
-  
-  
-  const [customInventory, setCustomInventory] = useState([]);
+  // Modal State for Shift Room (Room Change Request)
+  const [shiftModal, setShiftModal] = useState(null);
+  const [shiftForm, setShiftForm] = useState({ toRoomNo: '', toBedNo: '1', newRent: '' });
 
-  // Image picker popup: { id, type } where type = 'inventory' | 'amenity'
+  // Modal State for Swap Residents (Room Change Request)
+  const [swapModal, setSwapModal] = useState(null);
+  const [swapTargetTenantId, setSwapTargetTenantId] = useState('');
+
+  const [customInventory, setCustomInventory] = useState([]);
   const [imgPickerFor, setImgPickerFor] = useState(null);
 
   const openImagePicker = (id, type) => setImgPickerFor({ id, type });
@@ -83,7 +90,6 @@ export default function Approvals() {
     } catch(err) { console.error('Compression failed', err); }
     closeImagePicker();
   };
-
 
   const handleAddCustomInventory = () => {
     const name = window.prompt('Enter custom inventory item:');
@@ -118,7 +124,6 @@ export default function Approvals() {
     }
   };
 
-
   const INVENTORY_ICON_MAP = {
     bed: 'bed', mattress: 'bed', table: 'table_restaurant',
     chair: 'chair', cupboard: 'door_sliding', ac_remote: 'air',
@@ -140,6 +145,7 @@ export default function Approvals() {
       const snapRC = await getDocs(qRC);
       let rcDocs = snapRC.docs.map(d => ({ id: d.id, ...d.data() }));
       rcDocs = rcDocs.filter(d => d.pgId === activePgId || (activePgId === 'primary' && d.pgId === user.uid) || (!d.pgId));
+      rcDocs.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
       setRoomRequests(rcDocs);
 
       // 2. Fetch PG Applications
@@ -149,19 +155,27 @@ export default function Approvals() {
       paDocs = paDocs.filter(d => d.pgId === activePgId || (activePgId === 'primary' && d.pgId === user.uid) || (!d.pgId));
       setPgApplications(paDocs);
 
-      // 3. Fetch Available Rooms for Allotment (filter out fully occupied)
+      // 3. Fetch All Rooms & Tenants for Allotment/Shift/Swap
       const qRooms = query(collection(db, 'rooms'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
       const qTenants = query(collection(db, 'tenants'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
       const [snapRooms, snapTenants] = await Promise.all([getDocs(qRooms), getDocs(qTenants)]);
       
       const fetchedRooms = snapRooms.docs.map(d => ({ id: d.id, ...d.data() }));
-      const fetchedTenants = snapTenants.docs.map(d => d.data());
+      const fetchedTenants = snapTenants.docs.map(d => ({ id: d.id, tenantId: d.id, ...d.data() })).filter(t => t.status === 'Approved' || t.status === 'Current User' || t.status === 'Notice' || t.status === 'On Notice Period' || t.status === 'Upcoming User');
       
-      const roomsWithVacancy = fetchedRooms.filter(room => {
-        const roomTenantsCount = fetchedTenants.filter(t => t.roomNo === room.roomNo).length;
-        const vacantSeats = Math.max(0, (Number(room.beds) || 1) - roomTenantsCount);
-        return vacantSeats > 0;
-      });
+      setAllRoomsList(fetchedRooms);
+      setActiveTenantsList(fetchedTenants);
+
+      const roomsWithVacancy = fetchedRooms.map(room => {
+        const roomTenants = fetchedTenants.filter(t => String(t.roomNo) === String(room.roomNo) || String(t.room) === String(room.roomNo));
+        const totalBeds = Number(room.beds) || 1;
+        const vacantSeats = Math.max(0, totalBeds - roomTenants.length);
+        return {
+          ...room,
+          occupiedCount: roomTenants.length,
+          vacantSeats: vacantSeats
+        };
+      }).filter(r => r.vacantSeats > 0);
       
       setAvailableRooms(roomsWithVacancy);
     } catch (err) {
@@ -171,66 +185,115 @@ export default function Approvals() {
     }
   };
 
-  const handleRoomChangeAction = async (id, action) => {
-    setActionLoading(id + action);
+  // ── HANDLE SHIFT ROOM (SINGLE ALLOTMENT) ──
+  const handleConfirmShift = async (e) => {
+    e.preventDefault();
+    if (!shiftModal || !shiftForm.toRoomNo) {
+      alert('Please select a target room');
+      return;
+    }
+
+    setActionLoading('shifting_room');
     try {
-      await updateDoc(doc(db, 'room_change_requests', id), { status: action });
-      setRoomRequests(prev => prev.map(r => r.id === id ? { ...r, status: action } : r));
+      await shiftTenantToRoom({
+        tenantId: shiftModal.tenantId,
+        tenantName: shiftModal.tenantName,
+        fromRoomNo: shiftModal.currentRoom,
+        toRoomNo: shiftForm.toRoomNo,
+        toBedNo: shiftForm.toBedNo || '1',
+        newRent: shiftForm.newRent || null,
+        adminId: user.uid,
+        pgId: activePgId,
+        requestId: shiftModal.id,
+        adminName: user?.displayName || user?.name || 'Admin'
+      });
 
-      if (action === 'Approved') {
-        const req = roomRequests.find(r => r.id === id);
-        if (req && req.tenantId && req.requestedRoom) {
-          try {
-            // Get new room's rent
-            let newRent = null;
-            try {
-              const rq = query(collection(db, 'rooms'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('roomNo', '==', req.requestedRoom));
-              const rs = await getDocs(rq);
-              if (!rs.empty) {
-                 newRent = Number(rs.docs[0].data().price) || null;
-              }
-            } catch(re) {}
-
-            const tUpdate = {
-              roomNo: req.requestedRoom,
-              room: req.requestedRoom
-            };
-            if (newRent !== null) tUpdate.rentAmount = newRent;
-            await updateDoc(doc(db, 'tenants', req.tenantId), tUpdate);
-            
-            // Try to update users doc too
-            try {
-               const uDoc = await getDoc(doc(db, 'users', req.tenantId));
-               if (uDoc.exists()) {
-                   const uData = uDoc.data();
-                   const uUpdate = {};
-                   if (uData.subscribedPG) {
-                       uUpdate['subscribedPG.roomNumber'] = req.requestedRoom;
-                       if (newRent !== null) uUpdate['subscribedPG.leaseAmount'] = newRent;
-                   }
-                   if (uData.profileData && uData.profileData.roomDetails) {
-                       uUpdate['profileData.roomDetails.roomNumber'] = req.requestedRoom;
-                       if (newRent !== null) uUpdate['profileData.roomDetails.rentAmount'] = newRent;
-                   }
-                   if (Object.keys(uUpdate).length > 0) {
-                       await updateDoc(doc(db, 'users', req.tenantId), uUpdate);
-                   }
-               }
-            } catch(ue) { console.error("users update error", ue); }
-
-            await addDoc(collection(db, 'users', req.tenantId, 'notifications'), {
-              title: "Room Shift Approved! 🏡",
-              desc: `Your request to move to Room ${req.requestedRoom} has been approved by admin.`,
-              type: "success",
-              action: "VIEW_PROFILE",
-              unread: true,
-              createdAt: new Date().toISOString()
-            });
-          } catch(e) { console.error(e) }
-        }
-      }
+      alert(`Resident ${shiftModal.tenantName} successfully shifted to Room ${shiftForm.toRoomNo} (Bed ${shiftForm.toBedNo || '1'})!`);
+      setShiftModal(null);
+      setShiftForm({ toRoomNo: '', toBedNo: '1', newRent: '' });
+      fetchData();
     } catch (err) {
-      console.error('Error updating request:', err);
+      console.error('Error shifting room:', err);
+      alert('Failed to shift room: ' + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // ── HANDLE SWAP RESIDENTS ──
+  const handleConfirmSwap = async (e) => {
+    e.preventDefault();
+    if (!swapModal || !swapTargetTenantId) {
+      alert('Please select a resident to swap with');
+      return;
+    }
+
+    const tenantA = {
+      id: swapModal.tenantId,
+      tenantId: swapModal.tenantId,
+      name: swapModal.tenantName,
+      roomNo: swapModal.currentRoom,
+      bedNo: swapModal.currentBed || '1'
+    };
+
+    const targetTenant = activeTenantsList.find(t => (t.id === swapTargetTenantId || t.tenantId === swapTargetTenantId));
+    if (!targetTenant) {
+      alert('Target resident not found');
+      return;
+    }
+
+    setActionLoading('swapping_residents');
+    try {
+      await swapTenantsBetweenRooms({
+        tenantA,
+        tenantB: targetTenant,
+        adminId: user.uid,
+        pgId: activePgId,
+        requestId: swapModal.id,
+        adminName: user?.displayName || user?.name || 'Admin'
+      });
+
+      alert(`Successfully swapped rooms between ${tenantA.name} and ${targetTenant.name}!`);
+      setSwapModal(null);
+      setSwapTargetTenantId('');
+      fetchData();
+    } catch (err) {
+      console.error('Error swapping residents:', err);
+      alert('Failed to swap residents: ' + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // ── REJECT ROOM CHANGE REQUEST ──
+  const handleRejectRoomChange = async (req) => {
+    const reason = window.prompt('Reason for declining this room change request (optional):', 'No suitable rooms currently available');
+    if (reason === null) return;
+
+    setActionLoading(req.id + 'rejected');
+    try {
+      const nowIso = new Date().toISOString();
+      await updateDoc(doc(db, 'room_change_requests', req.id), {
+        status: 'Rejected',
+        rejectionReason: reason,
+        resolvedAt: nowIso
+      });
+
+      if (req.tenantId) {
+        await addDoc(collection(db, 'users', req.tenantId, 'notifications'), {
+          title: '❌ Room Change Request Declined',
+          desc: `Your room change request was declined: "${reason}". Please contact management for assistance.`,
+          type: 'error',
+          action: 'VIEW_PROFILE',
+          unread: true,
+          createdAt: nowIso
+        });
+      }
+
+      setRoomRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'Rejected', rejectionReason: reason } : r));
+    } catch (err) {
+      console.error('Error rejecting room change:', err);
+      alert('Failed to reject request: ' + err.message);
     } finally {
       setActionLoading(null);
     }
@@ -275,11 +338,9 @@ export default function Approvals() {
         inventory: allotForm.inventory
       }, { merge: true });
 
-      // 2b. Write each selected inventory item to inventory_allocations
-      //     (so it shows up in Inventory → User Inventory page)
+      // 2b. Inventory Allocations
       {
         const tenantId = app.tenantId;
-        // First clear any existing allocations for this tenant
         const qOld = query(
           collection(db, 'inventory_allocations'),
           where('adminId', '==', user.uid), where('pgId', '==', activePgId),
@@ -288,7 +349,6 @@ export default function Approvals() {
         const snapOld = await getDocs(qOld);
         await Promise.all(snapOld.docs.map(d => deleteDoc(d.ref)));
 
-        // Now write fresh allocations from the selected inventory
         const selectedItems = Object.keys(allotForm.inventory);
         if (selectedItems.length > 0) {
           const allItems = [...INVENTORY_ITEMS, ...customInventory];
@@ -331,7 +391,6 @@ export default function Approvals() {
         pendingAmount: 0
       });
 
-
       // 3. Unlock Student Dashboard
       await updateDoc(doc(db, 'users', app.tenantId), {
         subscribedPG: {
@@ -346,7 +405,7 @@ export default function Approvals() {
       const esnap = await getDocs(eq);
       esnap.forEach(d => updateDoc(doc(db, 'enquiries', d.id), { enquiryStatus: 'Closed' }));
 
-      // 4. Send Notification to Student
+      // 5. Send Notification to Student
       await addDoc(collection(db, 'users', app.tenantId, 'notifications'), {
         title: "Application Approved! 🎉",
         desc: `Your PG application was approved. You have been allotted Room ${allotForm.roomNo}.`,
@@ -356,7 +415,6 @@ export default function Approvals() {
         createdAt: new Date().toISOString()
       });
 
-      // Update local state
       setPgApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: 'approved' } : a));
       setAllotModal(null);
     } catch (err) {
@@ -374,19 +432,425 @@ export default function Approvals() {
 
   // Filter Data
   const currentData = approvalType === 'RoomChanges' ? roomRequests : pgApplications;
-  const pending = currentData.filter(r => r.status === 'pending');
-  const history = currentData.filter(r => r.status !== 'pending');
+  const pending = currentData.filter(r => (r.status === 'pending' || r.status === 'Pending'));
+  const history = currentData.filter(r => (r.status !== 'pending' && r.status !== 'Pending'));
   const shown = activeTab === 'Pending' ? pending : history;
 
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#f1f5f9', fontFamily: "'Hanken Grotesk', sans-serif", paddingBottom: 40 }}>
-      {/* ── ALLOTMENT MODAL ── */}
+      
+      {/* ── HEADER ── */}
+      <div style={{ background: 'linear-gradient(135deg, #0c1a2e, #0f2847)', paddingTop: 'calc(44px + env(safe-area-inset-top, 0px))', padding: '0 16px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, height: 64 }}>
+          <button onClick={() => navigate('/admin-dashboard')} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back_ios_new</span>
+          </button>
+          <div style={{ flex: 1 }}>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'white' }}>Approvals Hub</h1>
+            <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>
+              {approvalType === 'Applications' ? 'New Joiner Applications' : 'Room Change & Swap Requests'}
+            </p>
+          </div>
+          {pending.length > 0 && (
+            <div style={{ background: '#fef3c7', borderRadius: 10, padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#d97706' }}>pending_actions</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#d97706' }}>{pending.length}</span>
+            </div>
+          )}
+        </div>
+
+        {/* TOP LEVEL TOGGLE: Applications vs Room Changes */}
+        <div style={{ display: 'flex', background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 4, marginBottom: 12 }}>
+          {['Applications', 'RoomChanges'].map(type => (
+            <button
+              key={type}
+              onClick={() => setApprovalType(type)}
+              style={{
+                flex: 1, padding: '9px 0', border: 'none', borderRadius: 9,
+                background: approvalType === type ? '#0891b2' : 'transparent',
+                color: approvalType === type ? 'white' : '#94a3b8',
+                fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                fontFamily: 'inherit', transition: 'all 0.2s',
+              }}
+            >
+              {type === 'Applications' ? 'New Joiners' : 'Room Change Requests'}
+            </button>
+          ))}
+        </div>
+
+        {/* PENDING / HISTORY TOGGLE */}
+        <div style={{ display: 'flex', background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 4 }}>
+          {['Pending', 'History'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                flex: 1, padding: '9px 0', border: 'none', borderRadius: 9,
+                background: activeTab === tab ? 'white' : 'transparent',
+                color: activeTab === tab ? '#0f172a' : '#94a3b8',
+                fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                fontFamily: 'inherit', transition: 'all 0.2s',
+              }}
+            >
+              {tab} ({tab === 'Pending' ? pending.length : history.length})
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: 16 }}>
+        {loading && (
+          <div style={{ textAlign: 'center', paddingTop: 60 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 40, color: '#94a3b8', display: 'block', marginBottom: 12, animation: 'spin 1s linear infinite' }}>sync</span>
+            <p style={{ color: '#94a3b8', fontSize: 14, fontWeight: 600 }}>Loading requests...</p>
+          </div>
+        )}
+
+        {!loading && shown.length === 0 && (
+          <div style={{ textAlign: 'center', paddingTop: 60 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 56, color: '#e2e8f0' }}>verified</span>
+            <p style={{ color: '#94a3b8', fontSize: 15, fontWeight: 600, marginTop: 12, lineHeight: 1.5, padding: '0 24px' }}>
+              {activeTab === 'Pending'
+                ? `No pending ${approvalType === 'Applications' ? 'applications' : 'room change requests'}.`
+                : 'No history yet.'}
+            </p>
+          </div>
+        )}
+
+        {/* ── RENDERING LIST ── */}
+        {!loading && shown.map(req => {
+          const name = req.tenantName || 'Unknown';
+          const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+          const isPending = req.status === 'pending' || req.status === 'Pending';
+          const isApproved = req.status === 'approved' || req.status === 'Approved';
+          const isRejected = req.status === 'rejected' || req.status === 'Rejected';
+
+          if (approvalType === 'RoomChanges') {
+            return (
+              <div key={req.id} style={{ background: 'white', borderRadius: 18, border: '1px solid #e2e8f0', marginBottom: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                <div style={{ padding: 16 }}>
+                  
+                  {/* Top: Student Profile & Status Badge */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 12, background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0369a1', fontWeight: 800, fontSize: 16 }}>
+                        {initials}
+                      </div>
+                      <div>
+                        <h3 style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 800, color: '#0f172a' }}>{name}</h3>
+                        <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Requested on {formatDate(req.createdAt || req.date)}</p>
+                      </div>
+                    </div>
+                    {isApproved && <span style={{ background: '#ecfdf5', color: '#059669', padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Approved</span>}
+                    {isRejected && <span style={{ background: '#fef2f2', color: '#ef4444', padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Rejected</span>}
+                    {isPending && <span style={{ background: '#fffbeb', color: '#d97706', padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Pending Allotment</span>}
+                  </div>
+
+                  {/* Current Room Pill & Preferences */}
+                  <div style={{ background: '#f8fafc', borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: '#64748b', fontWeight: 700 }}>Current Allocation:</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>
+                        Room {req.currentRoom} {req.currentBed ? `(Bed ${req.currentBed})` : ''}
+                      </span>
+                    </div>
+                    {req.preference && req.preference !== 'Any suitable room/bed' && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: '#0369a1', fontWeight: 700 }}>Student Preference:</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#0369a1', background: '#e0f2fe', padding: '2px 8px', borderRadius: 6 }}>
+                          {req.preference}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Student Reason */}
+                  <div style={{ background: '#fff', border: '1px solid #f1f5f9', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
+                    <p style={{ margin: '0 0 2px', fontSize: 11, color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase' }}>Reason for Change:</p>
+                    <p style={{ margin: 0, fontSize: 13, color: '#334155', fontStyle: 'italic', lineHeight: 1.4 }}>
+                      "{req.reason || 'Requested room change'}"
+                    </p>
+                  </div>
+
+                  {/* Approved Details if Already Resolved */}
+                  {isApproved && (
+                    <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 10, padding: '10px 12px', marginBottom: 6, fontSize: 12, color: '#065f46' }}>
+                      <div style={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check_circle</span>
+                        Shifted to Room {req.newRoom || req.requestedRoom} {req.newBed ? `(Bed ${req.newBed})` : ''}
+                      </div>
+                      {req.swappedWith && (
+                        <p style={{ margin: '2px 0 0', fontSize: 11, color: '#047857' }}>
+                          Swapped with <strong>{req.swappedWith.name}</strong> (prev in Room {req.swappedWith.previousRoom})
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Action Controls for Pending Requests */}
+                  {isPending && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                      <button 
+                        onClick={() => handleRejectRoomChange(req)}
+                        style={{ background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: 10, padding: '10px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        Reject
+                      </button>
+
+                      <button 
+                        onClick={() => {
+                          setSwapModal(req);
+                          setSwapTargetTenantId('');
+                        }}
+                        style={{ flex: 1, background: '#f5f3ff', color: '#7c3aed', border: '1.5px solid #ddd6fe', borderRadius: 10, padding: '10px 12px', fontSize: 13, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>swap_horiz</span>
+                        Swap Resident
+                      </button>
+
+                      <button 
+                        onClick={() => {
+                          setShiftModal(req);
+                          setShiftForm({ toRoomNo: '', toBedNo: '1', newRent: '' });
+                        }}
+                        style={{ flex: 1, background: '#0891b2', color: 'white', border: 'none', borderRadius: 10, padding: '10px 12px', fontSize: 13, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>meeting_room</span>
+                        Allot / Shift
+                      </button>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            );
+          } else {
+            // PG Applications
+            const isRejecting = actionLoading === req.id + 'rejected';
+            return (
+              <div key={req.id} style={{ background: 'white', borderRadius: 16, border: '1px solid #e2e8f0', marginBottom: 12, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                <div style={{ padding: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2', fontWeight: 800, fontSize: 16 }}>
+                        {initials}
+                      </div>
+                      <div>
+                        <h3 style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 800, color: '#0f172a' }}>{name}</h3>
+                        <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Applied on {formatDate(req.date)}</p>
+                      </div>
+                    </div>
+                    {req.status === 'approved' && <span style={{ background: '#ecfdf5', color: '#059669', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Approved</span>}
+                    {req.status === 'rejected' && <span style={{ background: '#fef2f2', color: '#ef4444', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Rejected</span>}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+                     <a href={`tel:${req.tenantPhone}`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', color: '#334155', border: '1px solid #e2e8f0', borderRadius: 9, padding: '7px 12px', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>call</span> {req.tenantPhone}
+                      </a>
+                  </div>
+
+                  {req.status === 'pending' && (
+                    <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                      <button onClick={() => rejectApplication(req.id)} disabled={isRejecting} style={{ flex: 1, background: 'white', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: 10, padding: '10px 0', fontSize: 14, fontWeight: 700, cursor: isRejecting ? 'not-allowed' : 'pointer', opacity: isRejecting ? 0.7 : 1 }}>
+                        Reject
+                      </button>
+                      <button onClick={() => setAllotModal(req)} style={{ flex: 1, background: '#0891b2', color: 'white', border: 'none', borderRadius: 10, padding: '10px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                        Review & Approve
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          }
+        })}
+      </div>
+
+      {/* ── SUB-MODAL 1: SHIFT / ALLOT AVAILABLE ROOM ── */}
+      {shiftModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 110, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+          <div onClick={() => setShiftModal(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(3px)' }} />
+          <div style={{ position: 'relative', background: 'white', borderRadius: '24px 24px 0 0', padding: '24px 20px 40px', maxHeight: '85vh', overflowY: 'auto' }}>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Allot / Shift Room</h3>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Moving {shiftModal.tenantName} from Room {shiftModal.currentRoom}</p>
+              </div>
+              <button onClick={() => setShiftModal(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 10, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#475569' }}>close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmShift} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                  Select Target Room *
+                </label>
+                <select
+                  required
+                  value={shiftForm.toRoomNo}
+                  onChange={e => {
+                    const rNo = e.target.value;
+                    const rObj = allRoomsList.find(r => String(r.roomNo) === String(rNo));
+                    setShiftForm(p => ({
+                      ...p,
+                      toRoomNo: rNo,
+                      newRent: rObj?.price ? String(rObj.price) : p.newRent
+                    }));
+                  }}
+                  style={{ width: '100%', padding: '12px', borderRadius: 10, border: '1.5px solid #cbd5e1', fontSize: 14, fontFamily: 'inherit', background: 'white' }}
+                >
+                  <option value="">Choose a room...</option>
+                  {allRoomsList.map(r => {
+                    const occ = activeTenantsList.filter(t => String(t.roomNo) === String(r.roomNo) || String(t.room) === String(r.roomNo)).length;
+                    const vac = Math.max(0, (Number(r.beds) || 1) - occ);
+                    const isCurrent = String(r.roomNo) === String(shiftModal.currentRoom);
+                    return (
+                      <option key={r.id || r.roomNo} value={r.roomNo} disabled={isCurrent}>
+                        Room {r.roomNo} ({r.roomType || `${r.beds} Beds`} · {vac} Vacant{isCurrent ? ' - Current' : ''})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Target Bed No.</label>
+                  <select
+                    value={shiftForm.toBedNo}
+                    onChange={e => setShiftForm(p => ({ ...p, toBedNo: e.target.value }))}
+                    style={{ width: '100%', padding: '12px', borderRadius: 10, border: '1.5px solid #cbd5e1', fontSize: 14, fontFamily: 'inherit', background: 'white' }}
+                  >
+                    {[1, 2, 3, 4, 5, 6].map(b => (
+                      <option key={b} value={String(b)}>Bed {b}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Monthly Rent (₹)</label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 8000"
+                    value={shiftForm.newRent}
+                    onChange={e => setShiftForm(p => ({ ...p, newRent: e.target.value }))}
+                    style={{ width: '100%', padding: '12px', borderRadius: 10, border: '1.5px solid #cbd5e1', fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={actionLoading === 'shifting_room'}
+                style={{ background: '#0891b2', color: 'white', border: 'none', borderRadius: 12, padding: '14px', fontSize: 15, fontWeight: 800, cursor: 'pointer', marginTop: 8 }}
+              >
+                {actionLoading === 'shifting_room' ? 'Shifting Resident...' : 'Confirm & Shift Room'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── SUB-MODAL 2: SWAP TWO RESIDENTS ── */}
+      {swapModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 110, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+          <div onClick={() => setSwapModal(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(3px)' }} />
+          <div style={{ position: 'relative', background: 'white', borderRadius: '24px 24px 0 0', padding: '24px 20px 40px', maxHeight: '85vh', overflowY: 'auto' }}>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#f5f3ff', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 20 }}>swap_horiz</span>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Swap Residents</h3>
+                  <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Exchange rooms between 2 residents</p>
+                </div>
+              </div>
+              <button onClick={() => setSwapModal(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 10, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#475569' }}>close</span>
+              </button>
+            </div>
+
+            {/* Resident A (Requesting) */}
+            <div style={{ background: '#f8fafc', borderRadius: 12, padding: '12px 14px', border: '1.5px solid #e2e8f0', marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#0284c7', textTransform: 'uppercase' }}>Resident A (Requesting)</span>
+                  <h4 style={{ margin: '2px 0 0', fontSize: 15, fontWeight: 800, color: '#0f172a' }}>{swapModal.tenantName}</h4>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: '#475569' }}>Room {swapModal.currentRoom}</span>
+                  <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>Bed {swapModal.currentBed || '1'}</p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmSwap} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                  Select Resident B to Swap With *
+                </label>
+                <select
+                  required
+                  value={swapTargetTenantId}
+                  onChange={e => setSwapTargetTenantId(e.target.value)}
+                  style={{ width: '100%', padding: '12px', borderRadius: 10, border: '1.5px solid #7c3aed', fontSize: 14, fontFamily: 'inherit', background: 'white' }}
+                >
+                  <option value="">Choose resident to swap with...</option>
+                  {activeTenantsList
+                    .filter(t => (t.id !== swapModal.tenantId && t.tenantId !== swapModal.tenantId) && (t.roomNo || t.room))
+                    .map(t => (
+                      <option key={t.id || t.tenantId} value={t.id || t.tenantId}>
+                        {t.name} (Room {t.roomNo || t.room} · Bed {t.bedNo || '1'})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Swap Preview Box */}
+              {swapTargetTenantId && (() => {
+                const targetTenant = activeTenantsList.find(t => (t.id === swapTargetTenantId || t.tenantId === swapTargetTenantId));
+                if (!targetTenant) return null;
+                return (
+                  <div style={{ background: '#f5f3ff', border: '1.5px dashed #c4b5fd', borderRadius: 14, padding: 14 }}>
+                    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 800, color: '#6d28d9', textAlign: 'center', textTransform: 'uppercase' }}>
+                      ⚡ Swap Outcome Preview
+                    </p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                      <div>
+                        <strong>{swapModal.tenantName}</strong> ➜ Room {targetTenant.roomNo || targetTenant.room}
+                      </div>
+                      <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#7c3aed' }}>sync_alt</span>
+                      <div>
+                        <strong>{targetTenant.name}</strong> ➜ Room {swapModal.currentRoom}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <button
+                type="submit"
+                disabled={actionLoading === 'swapping_residents' || !swapTargetTenantId}
+                style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: 12, padding: '14px', fontSize: 15, fontWeight: 800, cursor: 'pointer', marginTop: 6 }}
+              >
+                {actionLoading === 'swapping_residents' ? 'Executing Swap...' : 'Confirm & Execute Swap'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── SUB-MODAL 3: APPLICATION ALLOTMENT MODAL ── */}
       {allotModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
           <div onClick={() => setAllotModal(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(3px)' }} />
-          <div style={{ position: 'relative', background: 'white', borderRadius: '24px 24px 0 0', padding: '24px 20px 40px' }}>
+          <div style={{ position: 'relative', background: 'white', borderRadius: '24px 24px 0 0', padding: '24px 20px 40px', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 20, fontWeight: 800, color: '#0f172a', margin: 0 }}>Allot Room</p>
+              <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 20, fontWeight: 800, color: '#0f172a', margin: 0 }}>Allot Room (New Joiner)</p>
               <button onClick={() => setAllotModal(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 10, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#475569' }}>close</span>
               </button>
@@ -408,7 +872,7 @@ export default function Approvals() {
                 >
                   <option value="">Choose a room...</option>
                   {availableRooms.map(r => (
-                    <option key={r.id} value={r.roomNo}>Room {r.roomNo}</option>
+                    <option key={r.id} value={r.roomNo}>Room {r.roomNo} ({r.vacantSeats} Vacant)</option>
                   ))}
                 </select>
               </div>
@@ -489,211 +953,6 @@ export default function Approvals() {
         </div>
       )}
 
-
-      {/* ── CAMERA / FOLDER PICKER POPUP ── */}
-      {imgPickerFor && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-          <div onClick={closeImagePicker} style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(2px)' }} />
-          <div style={{ position: 'relative', background: 'white', borderRadius: '20px 20px 0 0', padding: '20px 20px 36px', width: '100%', maxWidth: 480, zIndex: 1 }}>
-            <p style={{ margin: '0 0 16px', fontWeight: 800, fontSize: 16, color: '#0f172a', textAlign: 'center' }}>Upload Photo</p>
-            <div style={{ display: 'flex', gap: 12 }}>
-              {/* Camera option */}
-              <label style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '18px 0', borderRadius: 14, border: '1.5px solid #e2e8f0', cursor: 'pointer', background: '#f8fafc' }}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  style={{ display: 'none' }}
-                  onChange={(e) => handlePickedFile(e, imgPickerFor.id, imgPickerFor.type, imgPickerFor.type === 'inventory' ? setAllotForm : setApproveForm)}
-                />
-                <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#0891b2' }}>photo_camera</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>Camera</span>
-              </label>
-              {/* Folder option */}
-              <label style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '18px 0', borderRadius: 14, border: '1.5px solid #e2e8f0', cursor: 'pointer', background: '#f8fafc' }}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={(e) => handlePickedFile(e, imgPickerFor.id, imgPickerFor.type, imgPickerFor.type === 'inventory' ? setAllotForm : setApproveForm)}
-                />
-                <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#7c3aed' }}>folder_open</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>Gallery</span>
-              </label>
-            </div>
-            <button onClick={closeImagePicker} style={{ marginTop: 14, width: '100%', padding: '12px', background: '#f1f5f9', border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 14, color: '#64748b', cursor: 'pointer' }}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {/* ── HEADER ── */}
-      <div style={{ background: 'linear-gradient(135deg, #0c1a2e, #0f2847)', padding: '0 16px 20px', paddingTop: 'max(env(safe-area-inset-top), 40px)', position: 'sticky', top: 0, zIndex: 10 , paddingTop: 'calc(44px + env(safe-area-inset-top, 0px))'}}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, height: 64 }}>
-          <button onClick={() => navigate('/admin-dashboard')} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back_ios_new</span>
-          </button>
-          <div style={{ flex: 1 }}>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'white' }}>Requests</h1>
-            <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>Review & Approve</p>
-          </div>
-          {pending.length > 0 && (
-            <div style={{ background: '#fef3c7', borderRadius: 10, padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#d97706' }}>pending_actions</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#d97706' }}>{pending.length}</span>
-            </div>
-          )}
-        </div>
-
-        {/* TOP LEVEL TOGGLE: Applications vs Room Changes */}
-        <div style={{ display: 'flex', background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 4, marginBottom: 12 }}>
-          {['Applications', 'RoomChanges'].map(type => (
-            <button
-              key={type}
-              onClick={() => setApprovalType(type)}
-              style={{
-                flex: 1, padding: '9px 0', border: 'none', borderRadius: 9,
-                background: approvalType === type ? '#0891b2' : 'transparent',
-                color: approvalType === type ? 'white' : '#94a3b8',
-                fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                fontFamily: 'inherit', transition: 'all 0.2s',
-              }}
-            >
-              {type === 'Applications' ? 'New Joiners' : 'Room Shifts'}
-            </button>
-          ))}
-        </div>
-
-        {/* PENDING / HISTORY TOGGLE */}
-        <div style={{ display: 'flex', background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 4 }}>
-          {['Pending', 'History'].map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              style={{
-                flex: 1, padding: '9px 0', border: 'none', borderRadius: 9,
-                background: activeTab === tab ? 'white' : 'transparent',
-                color: activeTab === tab ? '#0f172a' : '#94a3b8',
-                fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                fontFamily: 'inherit', transition: 'all 0.2s',
-              }}
-            >
-              {tab} ({tab === 'Pending' ? pending.length : history.length})
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ padding: 16 }}>
-        {loading && (
-          <div style={{ textAlign: 'center', paddingTop: 60 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 40, color: '#94a3b8', display: 'block', marginBottom: 12, animation: 'spin 1s linear infinite' }}>sync</span>
-            <p style={{ color: '#94a3b8', fontSize: 14, fontWeight: 600 }}>Loading requests...</p>
-          </div>
-        )}
-
-        {!loading && shown.length === 0 && (
-          <div style={{ textAlign: 'center', paddingTop: 60 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 56, color: '#e2e8f0' }}>verified</span>
-            <p style={{ color: '#94a3b8', fontSize: 15, fontWeight: 600, marginTop: 12, lineHeight: 1.5, padding: '0 24px' }}>
-              {activeTab === 'Pending'
-                ? `No pending ${approvalType === 'Applications' ? 'applications' : 'room change requests'}.`
-                : 'No history yet.'}
-            </p>
-          </div>
-        )}
-
-        {/* ── RENDERING LIST ── */}
-        {!loading && shown.map(req => {
-          const name = req.tenantName || 'Unknown';
-          const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-          
-          if (approvalType === 'RoomChanges') {
-            const isApproving = actionLoading === req.id + 'approved';
-            const isRejecting = actionLoading === req.id + 'rejected';
-            return (
-              <div key={req.id} style={{ background: 'white', borderRadius: 16, border: '1px solid #e2e8f0', marginBottom: 12, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-                <div style={{ padding: 16 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2', fontWeight: 800, fontSize: 16 }}>
-                        {initials}
-                      </div>
-                      <div>
-                        <h3 style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 800, color: '#0f172a' }}>{name}</h3>
-                        <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Requested on {formatDate(req.date)}</p>
-                      </div>
-                    </div>
-                    {req.status === 'approved' && <span style={{ background: '#ecfdf5', color: '#059669', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Approved</span>}
-                    {req.status === 'rejected' && <span style={{ background: '#fef2f2', color: '#ef4444', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Rejected</span>}
-                  </div>
-
-                  <div style={{ background: '#f8fafc', borderRadius: 12, padding: 12, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ margin: '0 0 2px', fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Current</p>
-                      <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>Room {req.currentRoom}</p>
-                    </div>
-                    <span className="material-symbols-outlined" style={{ color: '#cbd5e1' }}>arrow_forward</span>
-                    <div style={{ flex: 1, textAlign: 'right' }}>
-                      <p style={{ margin: '0 0 2px', fontSize: 11, color: '#0891b2', textTransform: 'uppercase', fontWeight: 700 }}>Requested</p>
-                      <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0891b2' }}>Room {req.requestedRoom}</p>
-                    </div>
-                  </div>
-
-                  <p style={{ margin: 0, fontSize: 13, color: '#475569', lineHeight: 1.5 }}>
-                    <span style={{ fontWeight: 700, color: '#0f172a' }}>Reason:</span> {req.reason}
-                  </p>
-
-                  {req.status === 'pending' && (
-                    <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                      <button onClick={() => handleRoomChangeAction(req.id, 'rejected')} disabled={isRejecting || isApproving} style={{ flex: 1, background: 'white', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: 10, padding: '10px 0', fontSize: 14, fontWeight: 700, cursor: isRejecting || isApproving ? 'not-allowed' : 'pointer', opacity: isRejecting || isApproving ? 0.7 : 1 }}>Reject</button>
-                      <button onClick={() => handleRoomChangeAction(req.id, 'approved')} disabled={isApproving || isRejecting} style={{ flex: 1, background: '#0891b2', color: 'white', border: 'none', borderRadius: 10, padding: '10px 0', fontSize: 14, fontWeight: 700, cursor: isApproving || isRejecting ? 'not-allowed' : 'pointer', opacity: isApproving || isRejecting ? 0.7 : 1 }}>Approve</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          } else {
-            // PG Applications
-            const isRejecting = actionLoading === req.id + 'rejected';
-            return (
-              <div key={req.id} style={{ background: 'white', borderRadius: 16, border: '1px solid #e2e8f0', marginBottom: 12, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-                <div style={{ padding: 16 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2', fontWeight: 800, fontSize: 16 }}>
-                        {initials}
-                      </div>
-                      <div>
-                        <h3 style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 800, color: '#0f172a' }}>{name}</h3>
-                        <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Applied on {formatDate(req.date)}</p>
-                      </div>
-                    </div>
-                    {req.status === 'approved' && <span style={{ background: '#ecfdf5', color: '#059669', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Approved</span>}
-                    {req.status === 'rejected' && <span style={{ background: '#fef2f2', color: '#ef4444', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Rejected</span>}
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-                     <a href={`tel:${req.tenantPhone}`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', color: '#334155', border: '1px solid #e2e8f0', borderRadius: 9, padding: '7px 12px', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>call</span> {req.tenantPhone}
-                      </a>
-                  </div>
-
-                  {req.status === 'pending' && (
-                    <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                      <button onClick={() => rejectApplication(req.id)} disabled={isRejecting} style={{ flex: 1, background: 'white', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: 10, padding: '10px 0', fontSize: 14, fontWeight: 700, cursor: isRejecting ? 'not-allowed' : 'pointer', opacity: isRejecting ? 0.7 : 1 }}>
-                        Reject
-                      </button>
-                      <button onClick={() => setAllotModal(req)} style={{ flex: 1, background: '#0891b2', color: 'white', border: 'none', borderRadius: 10, padding: '10px 0', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-                        Review & Approve
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          }
-        })}
-      </div>
       <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
     </div>
   );

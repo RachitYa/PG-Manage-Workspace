@@ -123,8 +123,8 @@ function ChatFAB() {
   const location = useLocation();
   const { user } = useAuth();
 
-  // Hide on these paths
-  const hiddenPaths = ['/profile', '/chat', '/signup', '/location-permission', '/onboarding', '/'];
+  // Hide on these paths to avoid overlapping action buttons or on screens with dedicated flows
+  const hiddenPaths = ['/profile', '/my-profile', '/chat', '/signup', '/location-permission', '/onboarding', '/', '/request-box', '/complaints', '/room-description'];
   if (hiddenPaths.includes(location.pathname)) return null;
 
   // Only show when the user is logged in and has a subscribed PG (i.e. has someone to chat with)

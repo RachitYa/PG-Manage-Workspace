@@ -11,6 +11,9 @@ import BottomNav from '../components/BottomNav';
 import './StudentDashboard.css';
 import './FilterModal.css';
 import StudentDetailsModal from '../components/StudentDetailsModal';
+import StudentOutstandingDuesModal from '../components/StudentOutstandingDuesModal';
+import StudentOutstandingDuesBar from '../components/StudentOutstandingDuesBar';
+import { aggregateTenantDues } from '../utils/duesUtils';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -23,6 +26,13 @@ const StudentDashboard = () => {
   const [isLocating, setIsLocating] = useState(false);
   const [isLocationAccurate, setIsLocationAccurate] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Outstanding Dues Dynamic State
+  const [customDues, setCustomDues] = useState([]);
+  const [meterBills, setMeterBills] = useState([]);
+  const [userPayments, setUserPayments] = useState([]);
+  const [showDuesModal, setShowDuesModal] = useState(false);
+  const [duesRefreshKey, setDuesRefreshKey] = useState(0);
   const [showPayModal, setShowPayModal] = useState(false);
   const [fullPaymentMode, setFullPaymentMode] = useState('Online');
   const [fullTransactionId, setFullTransactionId] = useState('');
@@ -59,6 +69,27 @@ const StudentDashboard = () => {
     }
   }, [user?.pgStatus, user?.detailsFilled]);
 
+  // Outstanding Dues Real-Time Listeners
+  useEffect(() => {
+    if (!user?.uid) return;
+    const qDues = query(collection(db, 'outstanding_dues'), where('tenantId', '==', user.uid));
+    const unsubDues = onSnapshot(qDues, (snap) => {
+      setCustomDues(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Error fetching dues:", err));
+
+    const qMeter = query(collection(db, 'meter_bills'), where('tenantId', '==', user.uid), where('status', '==', 'Unpaid'));
+    const unsubMeter = onSnapshot(qMeter, (snap) => {
+      setMeterBills(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Error fetching meter bills:", err));
+
+    const qPay = query(collection(db, 'users', user.uid, 'payments'));
+    const unsubPay = onSnapshot(qPay, (snap) => {
+      setUserPayments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Error fetching payments:", err));
+
+    return () => { unsubDues(); unsubMeter(); unsubPay(); };
+  }, [user?.uid, duesRefreshKey]);
+
   const [remainTransId, setRemainTransId] = useState('');
   const [remainReceivedBy, setRemainReceivedBy] = useState('');
   const [remainScreenshot, setRemainScreenshot] = useState(null);
@@ -80,6 +111,29 @@ const StudentDashboard = () => {
   const [kycOccupation, setKycOccupation] = useState('Student');
   const [kycCollegeCompany, setKycCollegeCompany] = useState('');
   const [kycLoading, setKycLoading] = useState(false);
+
+  // Prefill KYC form if student already has details saved
+  useEffect(() => {
+    if (!user) return;
+    const pd = user.profileData || {};
+    const kd = user.kycData || pd.kycData || {};
+    const k = user.kyc || pd.kyc || {};
+    const parents = user.parentsDetails || pd.parentsDetails || {};
+
+    if (kd.dob || user.dob || pd.dob) setKycDob(kd.dob || user.dob || pd.dob || '');
+    if (kd.permanentAddress || user.permanentAddress || pd.permanentAddress) setKycPermAddr(kd.permanentAddress || user.permanentAddress || pd.permanentAddress || '');
+    if (kd.correspondingAddress || user.correspondingAddress || pd.correspondingAddress) setKycCorrAddr(kd.correspondingAddress || user.correspondingAddress || pd.correspondingAddress || '');
+    if (kd.fatherName || parents.fatherName) setKycFatherName(kd.fatherName || parents.fatherName || '');
+    if (kd.fatherPhone || parents.fatherPhone) setKycFatherPhone(kd.fatherPhone || parents.fatherPhone || '');
+    if (kd.motherName || parents.motherName) setKycMotherName(kd.motherName || parents.motherName || '');
+    if (kd.motherPhone || parents.motherPhone) setKycMotherPhone(kd.motherPhone || parents.motherPhone || '');
+    if (kd.parentsAddress || parents.address) setKycParentsAddr(kd.parentsAddress || parents.address || '');
+    if (kd.aadharNumber || k.aadharNumber || user.aadhar) setKycAadharNum(kd.aadharNumber || k.aadharNumber || user.aadhar || '');
+    if (kd.aadharFront || k.aadharFront) setKycAadharFront(kd.aadharFront || k.aadharFront || null);
+    if (kd.aadharBack || k.aadharBack) setKycAadharBack(kd.aadharBack || k.aadharBack || null);
+    if (kd.occupationType) setKycOccupation(kd.occupationType);
+    if (kd.collegeName || kd.companyName || user.occupation?.details) setKycCollegeCompany(kd.collegeName || kd.companyName || user.occupation?.details || '');
+  }, [user, showKycModal]);
 
   const [activeFilter, setActiveFilter] = useState('All');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
@@ -1017,6 +1071,22 @@ const StudentDashboard = () => {
           })()
         ) : (
           <div style={{ padding: '0 20px', marginTop: '24px', marginBottom: '40px' }}>
+            {/* ── UNIFIED OUTSTANDING DUES AGGREGATED BAR ── */}
+            {(() => {
+              const duesData = aggregateTenantDues({
+                tenant: user,
+                rentReceipts: userPayments,
+                meterBills: meterBills,
+                customDues: customDues
+              });
+              return (
+                <StudentOutstandingDuesBar
+                  duesData={duesData}
+                  onClick={() => setShowDuesModal(true)}
+                />
+              );
+            })()}
+
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>Dashboard Features</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
               {dashboardItems.map((item, idx) => {
@@ -1398,19 +1468,6 @@ const StudentDashboard = () => {
         </>
       )}
 
-      {/* Chat FAB */}
-      <div 
-        onClick={() => navigate('/chat')}
-        style={{
-          position: 'fixed', bottom: 110, right: 16, width: 54, height: 54,
-          borderRadius: '50%', background: 'linear-gradient(135deg, #d3a429, #b8891f)',
-          boxShadow: '0 4px 16px rgba(211,164,41,0.4)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 50, cursor: 'pointer'
-        }}
-      >
-        <span className="material-symbols-outlined" style={{ color: 'white', fontSize: 24 }}>chat</span>
-      </div>
-
       <BottomNav activeNav="home" />
 
       {/* Student Details Modal */}
@@ -1422,6 +1479,23 @@ const StudentDashboard = () => {
           activeContact={{ id: user.subscribedPG.adminId || user.subscribedPG.pgId, name: user.subscribedPG.pgName }}
           chatId={[user.uid, user.subscribedPG.adminId || user.subscribedPG.pgId].sort().join('_')}
           setSuccessMessage={() => {}}
+        />
+      )}
+
+      {/* ── OUTSTANDING DUES BREAKDOWN MODAL ── */}
+      {showDuesModal && (
+        <StudentOutstandingDuesModal
+          isOpen={showDuesModal}
+          onClose={() => setShowDuesModal(false)}
+          tenant={user}
+          duesData={aggregateTenantDues({
+            tenant: user,
+            rentReceipts: userPayments,
+            meterBills: meterBills,
+            customDues: customDues
+          })}
+          pgName={user?.subscribedPG?.pgName}
+          onRefresh={() => setDuesRefreshKey(p => p + 1)}
         />
       )}
     </div>
