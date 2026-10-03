@@ -19,7 +19,7 @@ export default function AdminBottomNav({ activeTab }) {
       {showAddMenu && ReactDOM.createPortal(
         <>
           <div onClick={() => setShowAddMenu(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.2)', zIndex: 51 }} />
-          <div style={{ position: 'fixed', bottom: 'calc(68px + env(safe-area-inset-bottom, 0px))', left: '50%', transform: 'translateX(-75px)', background: '#fff', borderRadius: '16px', padding: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 52, display: 'flex', flexDirection: 'column', gap: '4px', width: '220px', border: '1px solid #e2e8f0' }}>
+          <div style={{ position: 'fixed', bottom: 'max(76px, calc(68px + env(safe-area-inset-bottom, 0px)))', left: '50%', transform: 'translateX(-75px)', background: '#fff', borderRadius: '16px', padding: '8px', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', zIndex: 52, display: 'flex', flexDirection: 'column', gap: '4px', width: '220px', border: '1px solid #e2e8f0' }}>
             <div onClick={() => { setShowAddMenu(false); navigate('/add-tenant'); }} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', borderRadius: '10px', color: '#0f172a', fontWeight: '600', fontSize: '14px' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0891b2' }}>person_add</span>
               Add New Tenant
@@ -45,7 +45,7 @@ export default function AdminBottomNav({ activeTab }) {
         display: 'flex',
         justifyContent: 'space-around',
         alignItems: 'center',
-        padding: '8px 0 calc(12px + env(safe-area-inset-bottom, 0px)) 0',
+        padding: '8px 0 max(14px, calc(8px + env(safe-area-inset-bottom, 0px))) 0',
         zIndex: 50,
         boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.03)'
       }}>

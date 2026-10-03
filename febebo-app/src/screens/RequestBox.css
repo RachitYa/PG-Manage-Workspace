@@ -42,25 +42,29 @@
 /* Floating Action Button */
 .fab-btn {
   position: fixed;
-  bottom: 80px;
-  right: 24px;
-  width: 56px;
-  height: 56px;
+  bottom: calc(85px + env(safe-area-inset-bottom, 0px));
+  right: 20px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background: #166534;
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 16px rgba(22, 101, 52, 0.3);
+  box-shadow: 0 6px 20px rgba(22, 101, 52, 0.35);
   border: none;
   cursor: pointer;
   z-index: 90;
-  transition: transform 0.2s;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fab-btn:hover {
+  transform: scale(1.08);
 }
 
 .fab-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.92);
 }
 
 /* Popup Overlay */

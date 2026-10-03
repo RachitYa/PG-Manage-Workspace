@@ -1,8 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { TopBar } from '../App';
-import { Users, Star, Heart, BedDouble, Refrigerator, BookOpen, Armchair, Wifi, Shield, CheckCircle, MapPin, Navigation, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react';
+import { 
+  Users, Star, Heart, BedDouble, Refrigerator, BookOpen, Armchair, Wifi, Shield, 
+  CheckCircle, MapPin, Navigation, ChevronLeft, ChevronRight, MessageSquare,
+  AirVent, WashingMachine, Flame, Zap, Droplets, Cctv, Bed, Layers, Shirt, Tag, Sparkles
+} from 'lucide-react';
 import { doc, updateDoc, collection, addDoc, query, where, getDocs } from 'firebase/firestore';
+
+const AMENITY_CONFIG = {
+  'bed':             { label: 'Bed',             icon: <Bed size={22} /> },
+  'mattress':        { label: 'Mattress',         icon: <Layers size={22} /> },
+  'bedsheet':        { label: 'Bedsheet',         icon: <Shirt size={22} /> },
+  'pillow':          { label: 'Pillow',           icon: <BedDouble size={22} /> },
+  'pillow-cover':    { label: 'Pillow Cover',     icon: <Tag size={22} /> },
+  'chair':           { label: 'Chair',            icon: <Armchair size={22} /> },
+  'table':           { label: 'Study Table',      icon: <BookOpen size={22} /> },
+  'study-table':     { label: 'Study Table',      icon: <BookOpen size={22} /> },
+  'ac':              { label: 'AC',               icon: <AirVent size={22} /> },
+  'fridge':          { label: 'Fridge',           icon: <Refrigerator size={22} /> },
+  'wifi':            { label: 'Wi-Fi',            icon: <Wifi size={22} /> },
+  'washing-machine': { label: 'Washing Machine',  icon: <WashingMachine size={22} /> },
+  'geyser':          { label: 'Geyser',           icon: <Flame size={22} /> },
+  'power-backup':    { label: 'Power Backup',     icon: <Zap size={22} /> },
+  'ro-water':        { label: 'RO Water',         icon: <Droplets size={22} /> },
+  'cctv':            { label: 'CCTV Security',    icon: <Cctv size={22} /> },
+  'security':        { label: 'Security',         icon: <Shield size={22} /> },
+};
+
+const getAmenityDetails = (raw) => {
+  if (!raw) return { label: 'Amenity', icon: <Tag size={22} /> };
+  const key = String(raw).toLowerCase().trim();
+  if (AMENITY_CONFIG[key]) return AMENITY_CONFIG[key];
+  if (key.startsWith('custom-')) {
+    const formatted = key.replace('custom-', '').replace(/-/g, ' ');
+    return { label: formatted.charAt(0).toUpperCase() + formatted.slice(1), icon: <Sparkles size={22} /> };
+  }
+  return { label: raw, icon: <Sparkles size={22} /> };
+};
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import './RoomDescription.css';
@@ -103,15 +138,6 @@ const RoomDescription = () => {
     ? pg.amenities
     : ['Mattress', 'Fridge', 'Study Table', 'Chair', 'WiFi', 'Security'];
 
-  const amenityIcons = {
-    'Mattress': <BedDouble size={24} />,
-    'Fridge': <Refrigerator size={24} />,
-    'Study Table': <BookOpen size={24} />,
-    'Chair': <Armchair size={24} />,
-    'WiFi': <Wifi size={24} />,
-    'Security': <Shield size={24} />,
-  };
-
   const handleEnquiry = async () => {
     if (!user?.uid) return alert('Please login to send an enquiry');
     try {
@@ -139,13 +165,37 @@ const RoomDescription = () => {
     if (user?.location?.lat && user?.location?.lng) {
       origin = `${user.location.lat},${user.location.lng}`;
     }
-    const destination = pg.location?.mapLink || pg.location?.fullAddress || pgAddress;
-    
-    // If mapLink is a direct Google Maps URL, we might want to just open it. 
-    // But to provide directions, we use the intent URL.
+
+    let destination = '';
+
+    // 1. Direct coordinates if available in pg.location
+    if (pg.location?.lat && pg.location?.lng) {
+      destination = `${pg.location.lat},${pg.location.lng}`;
+    } 
+    // 2. Extract coordinates if mapLink was stored
+    else if (pg.location?.mapLink) {
+      const link = String(pg.location.mapLink).trim();
+      const qMatch = link.match(/[?&]q=([0-9.-]+,[0-9.-]+)/);
+      const atMatch = link.match(/@([0-9.-]+,[0-9.-]+)/);
+      if (qMatch) {
+        destination = qMatch[1];
+      } else if (atMatch) {
+        destination = atMatch[1];
+      } else if (!link.startsWith('http://') && !link.startsWith('https://')) {
+        destination = link;
+      }
+    }
+
+    // 3. Fallback to full address string
+    if (!destination) {
+      const loc = pg.location || {};
+      const fullAddr = loc.address || loc.fullAddress || [loc.street, loc.city, loc.state, loc.pin].filter(Boolean).join(', ');
+      destination = fullAddr || pgAddress || pgName;
+    }
+
     let mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
     if (origin) {
-      mapsUrl += `&origin=${origin}`;
+      mapsUrl += `&origin=${encodeURIComponent(origin)}`;
     }
     
     window.open(mapsUrl, '_blank');
@@ -263,14 +313,17 @@ const RoomDescription = () => {
         <div className="mt-4">
           <h3 className="section-title">Amenities</h3>
           <div className="amenities-grid mt-2">
-            {amenities.slice(0, 6).map((amenity) => (
-              <div className="amenity-item" key={amenity}>
-                <div className="amenity-icon">
-                  {amenityIcons[amenity] || <Shield size={24} />}
+            {amenities.map((item) => {
+              const { label, icon } = getAmenityDetails(item);
+              return (
+                <div className="amenity-item" key={item}>
+                  <div className="amenity-icon">
+                    {icon}
+                  </div>
+                  <span>{label}</span>
                 </div>
-                <span>{amenity}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
                 {/* Action Buttons */}

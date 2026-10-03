@@ -9,7 +9,7 @@
   background-color: #fff;
   display: flex;
   justify-content: space-around;
-  padding: 0 0 calc(12px + env(safe-area-inset-bottom, 0px)) 0;
+  padding: 4px 0 max(14px, calc(8px + env(safe-area-inset-bottom, 0px))) 0;
   border-top: 1px solid #e2e8f0;
   z-index: 500;
   box-shadow: 0 -4px 16px rgba(22, 101, 52, 0.08);

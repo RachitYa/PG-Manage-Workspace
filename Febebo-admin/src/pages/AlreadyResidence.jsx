@@ -205,8 +205,9 @@ export default function AlreadyResidence() {
         email: formData.email,
         phone: formData.phone,
         role: 'customer',
+        hasPG: true,
         pgStatus: 'Upcoming User',
-        profileCompleted: false,
+        profileCompleted: true,
         detailsFilled: false,
         registeredVia: 'already_residence',
         isAlreadyResident: true,
@@ -231,7 +232,9 @@ export default function AlreadyResidence() {
           meterReadingAtJoin: Number(formData.meterReading) || 0,
           dateOfJoining: joinIso,
           kycStatus: 'pending',
-          status: 'Pending'
+          status: 'Pending',
+          isAlreadyResident: true,
+          isAddTenant: true
         }
       });
 

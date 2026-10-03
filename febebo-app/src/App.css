@@ -1,11 +1,23 @@
 /* Top Navigation Bar */
 .top-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
   display: flex;
   align-items: center;
-  padding: 16px 16px 12px 16px;
+  padding: max(14px, calc(10px + env(safe-area-inset-top, 0px))) 16px 12px 16px;
   background-color: var(--card-bg);
   box-shadow: 0 1px 3px rgba(22, 101, 52, 0.08);
-  z-index: 10;
+  backdrop-filter: blur(8px);
+}
+
+/* Edge-to-edge sticky TopBar when placed directly inside .page-content */
+.page-content > .top-bar:first-child {
+  margin: -16px -16px 16px -16px;
+  width: calc(100% + 32px);
+  position: sticky;
+  top: -16px;
+  z-index: 100;
 }
 
 .top-bar-title {
@@ -235,7 +247,7 @@
 
 /* Global Padding for fixed Bottom Navigation */
 .pb-nav {
-  padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)) !important;
+  padding-bottom: max(96px, calc(80px + env(safe-area-inset-bottom, 0px))) !important;
 }
 
 /* Global Chat FAB */
@@ -274,4 +286,11 @@
 
 .global-chat-fab:active {
   transform: scale(0.93);
+}
+
+.global-chat-fab.stacked-fab {
+  bottom: calc(150px + env(safe-area-inset-bottom, 0px));
+  right: 20px;
+  width: 50px;
+  height: 50px;
 }

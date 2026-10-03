@@ -5,6 +5,8 @@ import { collection, query, where, getDocs, addDoc, doc, getDoc, updateDoc, orde
 import { db } from '../firebase';
 import DetailedReceiptModal, { CollectPaymentModal } from '../components/DetailedReceiptModal';
 import PayStaffModal from '../components/PayStaffModal';
+import OutstandingDuesModal from '../components/OutstandingDuesModal';
+import { aggregateTenantDues, formatCurrency } from '../utils/duesUtils';
 
 const MODULES = [
   { id: 'total-rents',   label: 'Total\nRents',         icon: 'account_balance_wallet', gradient: 'linear-gradient(135deg,#0ea5e9,#0891b2)' },
@@ -146,12 +148,20 @@ function PettyCashView({ onBack }) {
   useEffect(() => {
     if (!user?.uid) return;
     
+    const matchesPg = (itemPgId) => {
+      if (!activePgId || activePgId === 'primary') return true;
+      return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+    };
+
     // Fetch Staff List
-    const unsubStaff = onSnapshot(query(collection(db, 'staff_tokens'), where('ownerUid', '==', user.uid), where('pgId', '==', activePgId)), snap => {
-      const list = snap.docs.map(d => ({
-        id: d.data().uid || d.id,
-        name: d.data().name || 'Staff'
-      }));
+    const unsubStaff = onSnapshot(query(collection(db, 'staff_tokens'), where('ownerUid', '==', user.uid)), snap => {
+      const list = snap.docs
+        .map(d => ({
+          id: d.data().uid || d.id,
+          ...d.data(),
+          name: d.data().name || 'Staff'
+        }))
+        .filter(s => matchesPg(s.pgId));
       setStaffList(list);
       if (list.length > 0 && !form.staffId) {
         setForm(p => ({ ...p, staffId: list[0].id }));
@@ -159,14 +169,16 @@ function PettyCashView({ onBack }) {
     });
 
     // Fetch Transactions
-    const unsubTx = onSnapshot(query(collection(db, 'petty_cash_transactions'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)), snap => {
-      const txs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const unsubTx = onSnapshot(query(collection(db, 'petty_cash_transactions'), where('adminId', '==', user.uid)), snap => {
+      const txs = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(t => matchesPg(t.pgId));
       setTransactions(txs.sort((a, b) => new Date(b.date) - new Date(a.date)));
       setLoading(false);
     });
 
     return () => { unsubStaff(); unsubTx(); };
-  }, [user]);
+  }, [user, activePgId]);
 
   // Compute total available petty cash across ALL staff members
   // Sum of allocations - Sum of expenses
@@ -416,9 +428,14 @@ export default function ManageAccount() {
           }
 
           // Fetch Lease Payments
-          const q = query(collection(db, 'lease_payments'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
+          const q = query(collection(db, 'lease_payments'), where('adminId', '==', user.uid));
           const snap = await getDocs(q);
-          const payments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const payments = snap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter(item => {
+              if (!activePgId || activePgId === 'primary') return true;
+              return !item.pgId || item.pgId === activePgId || item.pgId === user.uid;
+            });
           // Sort by date descending
           payments.sort((a, b) => new Date(b.date) - new Date(a.date));
           setLeasePayments(payments);
@@ -437,10 +454,15 @@ export default function ManageAccount() {
       const fetchRentData = async () => {
         setLoadingRents(true);
         try {
+          const matchesPg = (itemPgId) => {
+            if (!activePgId || activePgId === 'primary') return true;
+            return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+          };
+
           // 1. Fetch Registered Tenants for this admin
-          const tenantsQ = query(collection(db, 'tenants'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
+          const tenantsQ = query(collection(db, 'tenants'), where('adminId', '==', user.uid));
           const tenantsSnap = await getDocs(tenantsQ);
-          const tenants = tenantsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const tenants = tenantsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(t => matchesPg(t.pgId));
 
           // Index registered tenants for fast validation and lookup
           const registeredTenantIds = new Set();
@@ -483,9 +505,9 @@ export default function ManageAccount() {
           });
 
           // 2. Fetch Receipts (rent_receipts where adminId == user.uid)
-          const receiptsQ = query(collection(db, 'rent_receipts'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
+          const receiptsQ = query(collection(db, 'rent_receipts'), where('adminId', '==', user.uid));
           const receiptsSnap = await getDocs(receiptsQ);
-          const receipts = receiptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const receipts = receiptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(r => matchesPg(r.pgId));
 
           // Helper to extract timestamp
           const getTimestamp = (item) => {
@@ -751,11 +773,18 @@ export default function ManageAccount() {
           const pending = [];
 
           tenants.forEach(t => {
-            if (t.status && t.status !== 'Approved' && t.status !== 'Active') return;
-            if (!t.dateOfJoining) return;
+            // Exclude tenants who have officially moved out, left, or kicked
+            const st = String(t.status || '').toLowerCase().trim();
+            if (st === 'removed' || st === 'moved out' || st === 'left' || st === 'kicked') return;
 
-            const doj = new Date(t.dateOfJoining);
-            if (isNaN(doj.getTime())) return;
+            // Resolve joining date robustly across multiple possible field names
+            const joinRaw = t.joiningDate || t.dateOfJoining || t.subscribedPG?.joiningDate || t.subscribedPG?.dateOfJoining || t.createdAt;
+            let doj = null;
+            if (joinRaw) {
+              const parsed = new Date(joinRaw);
+              if (!isNaN(parsed.getTime())) doj = parsed;
+            }
+            if (!doj) doj = new Date(now.getFullYear(), now.getMonth(), 1);
 
             const tenantKey = t.tenantId || t.id;
 
@@ -763,48 +792,75 @@ export default function ManageAccount() {
             const hasPaidThisMonth = collected.some(c => {
               const cr = c.rawReceipt;
               const crTenantKey = cr.tenantId || cr.id;
-              const isSameTenant = crTenantKey === tenantKey || (cr.tenantName && cr.tenantName.toLowerCase() === t.name?.toLowerCase());
+              const isSameTenant = (crTenantKey && tenantKey && crTenantKey === tenantKey) || 
+                                   (cr.tenantName && t.name && cr.tenantName.trim().toLowerCase() === t.name.trim().toLowerCase());
               if (!isSameTenant) return false;
               if (cr.rentMonth && cr.rentMonth.toLowerCase() === currentMonthName.toLowerCase()) return true;
               return false;
             });
 
-            if (hasPaidThisMonth) return; // Already paid this month
-
-            const rentAmt = Number(t.rentAmount || t.rent || 0);
+            const rentAmt = Number(t.rentAmount || t.rent || t.roomRent || t.monthlyRent || t.price || t.subscribedPG?.rent || t.leaseAmount || 0);
             if (rentAmt <= 0) return;
             const amtStr = rentAmt.toLocaleString('en-IN');
             const initials = t.name ? t.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';
 
-            // Due date is the joining day of the current month
-            let dueDate = new Date(now.getFullYear(), now.getMonth(), doj.getDate());
-            const timeDiff = dueDate.getTime() - now.getTime();
-            const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+            if (hasPaidThisMonth) {
+              // Current month is already paid! Their NEXT rent is upcoming in the following month
+              const currentYear = now.getFullYear();
+              const nextMonth = now.getMonth() + 1;
+              const lastDayOfNextMonth = new Date(currentYear, nextMonth + 1, 0).getDate();
+              const nextDueDay = Math.min(doj.getDate(), lastDayOfNextMonth);
+              const nextDueDate = new Date(currentYear, nextMonth, nextDueDay);
+              const nextMonthName = nextDueDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+              const nextDueStr = nextDueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+              upcoming.push({
+                tenantId: tenantKey,
+                month: nextMonthName,
+                name: t.name || 'Unknown',
+                room: t.roomNo || t.room || 'N/A',
+                amount: amtStr,
+                rent: rentAmt,
+                security: t.securityDeposit || 0,
+                date: `Due: ${nextDueStr}`,
+                initials: initials,
+                color: '#0891b2'
+              });
+              return;
+            }
+
+            // Tenant has NOT paid current month yet
+            const currentYear = now.getFullYear();
+            const currentMonth = now.getMonth();
+            const lastDayOfCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const dueDay = Math.min(doj.getDate(), lastDayOfCurrentMonth);
+            // End of due day (23:59:59)
+            const dueDate = new Date(currentYear, currentMonth, dueDay, 23, 59, 59);
             const dueStr = dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
-            if (daysDiff < 0) {
-              // Due date has passed -> Pending
+            if (dueDate < now) {
+              // Due date has passed in the current month -> Pending
               pending.push({
                 tenantId: tenantKey,
                 month: currentMonthName,
                 name: t.name || 'Unknown',
-                room: t.roomNo || 'N/A',
+                room: t.roomNo || t.room || 'N/A',
                 amount: amtStr,
-                rent: t.rentAmount || 0,
+                rent: rentAmt,
                 security: t.securityDeposit || 0,
                 date: `Was Due: ${dueStr}`,
                 initials: initials,
                 color: '#e11d48'
               });
-            } else if (daysDiff <= 20) {
-              // Due date approaching within 20 days -> Upcoming
+            } else {
+              // Due date is today or coming up later this month -> Upcoming
               upcoming.push({
                 tenantId: tenantKey,
                 month: currentMonthName,
                 name: t.name || 'Unknown',
-                room: t.roomNo || 'N/A',
+                room: t.roomNo || t.room || 'N/A',
                 amount: amtStr,
-                rent: t.rentAmount || 0,
+                rent: rentAmt,
                 security: t.securityDeposit || 0,
                 date: `Due: ${dueStr}`,
                 initials: initials,
@@ -843,23 +899,45 @@ export default function ManageAccount() {
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [securityRefundModal, setSecurityRefundModal] = useState(null);
 
+  // Outstanding Dues Dynamic State
+  const [outstandingDuesList, setOutstandingDuesList] = useState([]);
+  const [meterBillsList, setMeterBillsList] = useState([]);
+  const [duesRentReceipts, setDuesRentReceipts] = useState([]);
+  const [selectedDuesTenant, setSelectedDuesTenant] = useState(null);
+  const [duesRefreshKey, setDuesRefreshKey] = useState(0);
+
   useEffect(() => {
-    if ((activeModule === 'user-account' || activeModule === 'security-deposits') && user?.uid && !selectedUser) {
+    if ((activeModule === 'user-account' || activeModule === 'security-deposits' || activeModule === 'outstanding-dues') && user?.uid && !selectedUser) {
       const fetchUsers = async () => {
         setLoadingUsers(true);
         try {
-          const q = query(collection(db, 'tenants'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
+          const matchesPg = (itemPgId) => {
+            if (!activePgId || activePgId === 'primary') return true;
+            return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+          };
+          const q = query(collection(db, 'tenants'), where('adminId', '==', user.uid));
           const snap = await getDocs(q);
-          setUsersList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+          setUsersList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(t => matchesPg(t.pgId)));
+
+          // Also fetch all dues, meter bills, and rent receipts for live dues calculation
+          const [dSnap, mSnap, rSnap] = await Promise.all([
+            getDocs(query(collection(db, 'outstanding_dues'), where('adminId', '==', user.uid))),
+            getDocs(query(collection(db, 'meter_bills'), where('adminId', '==', user.uid))),
+            getDocs(query(collection(db, 'rent_receipts'), where('adminId', '==', user.uid)))
+          ]);
+
+          setOutstandingDuesList(dSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => matchesPg(d.pgId)));
+          setMeterBillsList(mSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(m => matchesPg(m.pgId)));
+          setDuesRentReceipts(rSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => matchesPg(r.pgId)));
         } catch (e) {
-          console.error("Error fetching tenants:", e);
+          console.error("Error fetching tenants/dues:", e);
         } finally {
           setLoadingUsers(false);
         }
       };
       fetchUsers();
     }
-  }, [activeModule, user, selectedUser]);
+  }, [activeModule, user, selectedUser, activePgId, duesRefreshKey]);
 
   useEffect(() => {
     if (activeModule === 'user-account' && selectedUser && user?.uid) {
@@ -897,9 +975,13 @@ export default function ManageAccount() {
       const fetchStaff = async () => {
         setLoadingStaff(true);
         try {
-          const q = query(collection(db, 'staff_tokens'), where('ownerUid', '==', user.uid), where('pgId', '==', activePgId));
+          const matchesPg = (itemPgId) => {
+            if (!activePgId || activePgId === 'primary') return true;
+            return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+          };
+          const q = query(collection(db, 'staff_tokens'), where('ownerUid', '==', user.uid));
           const snap = await getDocs(q);
-          setStaffList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+          setStaffList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(s => matchesPg(s.pgId)));
         } catch (e) {
           console.error("Error fetching staff:", e);
         } finally {
@@ -908,24 +990,28 @@ export default function ManageAccount() {
       };
       fetchStaff();
     }
-  }, [activeModule, user, selectedStaff]);
+  }, [activeModule, user, selectedStaff, activePgId]);
 
   // Fetch Staff Salaries and Attendance
   useEffect(() => {
     if (activeModule === 'staff-account' && selectedStaff && user?.uid) {
       const fetchData = async () => {
         try {
+          const matchesPg = (itemPgId) => {
+            if (!activePgId || activePgId === 'primary') return true;
+            return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+          };
           // Fetch Salaries
-          const qSalaries = query(collection(db, 'staff_salaries'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('staffId', '==', selectedStaff.id));
+          const qSalaries = query(collection(db, 'staff_salaries'), where('adminId', '==', user.uid), where('staffId', '==', selectedStaff.id));
           const snapSalaries = await getDocs(qSalaries);
-          const salaries = snapSalaries.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const salaries = snapSalaries.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(s => matchesPg(s.pgId));
           salaries.sort((a, b) => new Date(b.datePaid) - new Date(a.datePaid));
           setStaffSalaries(salaries);
 
           // Fetch Attendance
-          const qAttendance = query(collection(db, 'staff_attendance'), where('ownerUid', '==', user.uid), where('pgId', '==', activePgId), where('staffId', '==', selectedStaff.id));
+          const qAttendance = query(collection(db, 'staff_attendance'), where('ownerUid', '==', user.uid), where('staffId', '==', selectedStaff.id));
           const snapAttendance = await getDocs(qAttendance);
-          const attendance = snapAttendance.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const attendance = snapAttendance.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(a => matchesPg(a.pgId));
           setStaffAttendance(attendance);
         } catch (e) {
           console.error("Error fetching staff data:", e);
@@ -933,118 +1019,246 @@ export default function ManageAccount() {
       };
       fetchData();
     }
-  }, [selectedStaff, activeModule, user]);
+  }, [selectedStaff, activeModule, user, activePgId]);
 
-  // Profit-Loss Dynamic State
+  // Profit-Loss Dynamic State (Live Real-Time)
   const [profitLossData, setProfitLossData] = useState([]);
   const [loadingProfitLoss, setLoadingProfitLoss] = useState(false);
 
-  // Fetch Profit-Loss Data
+  // Live Profit-Loss Data Calculation with onSnapshot
   useEffect(() => {
-    if (activeModule === 'profit-loss' && user?.uid) {
-      const fetchProfitLoss = async () => {
-        setLoadingProfitLoss(true);
-        try {
-          const [snapRent, snapStaff, snapPetty, snapLease, snapVendor] = await Promise.all([
-            getDocs(query(collection(db, 'rent_receipts'), where('adminId', '==', user.uid), where('pgId', '==', activePgId))),
-            getDocs(query(collection(db, 'staff_salaries'), where('adminId', '==', user.uid), where('pgId', '==', activePgId))),
-            getDocs(query(collection(db, 'petty_cash_transactions'), where('adminId', '==', user.uid), where('pgId', '==', activePgId))),
-            getDocs(query(collection(db, 'lease_payments'), where('adminId', '==', user.uid), where('pgId', '==', activePgId))),
-            getDocs(query(collection(db, 'vendor_transactions'), where('adminId', '==', user.uid))) // Vendor txns don't have pgId yet
-          ]);
+    if (activeModule !== 'profit-loss' || !user?.uid) return;
+    setLoadingProfitLoss(true);
 
-          const monthlyData = {}; // Format: { "June 2026": { rent: 0, staff: 0, petty: 0, pettyDetails: [], lease: 0, vendor: 0, timestamp: 0 } }
+    const matchesPgItem = (itemPgId) => {
+      if (!activePgId || activePgId === 'primary') return true;
+      return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+    };
 
-          const initMonth = (monthStr, dateObj) => {
-            if (!monthlyData[monthStr]) {
-              monthlyData[monthStr] = { rent: 0, staff: 0, petty: 0, pettyDetails: [], lease: 0, vendor: 0, timestamp: dateObj.getTime() };
-            }
+    let rentDocs = [];
+    let staffDocs = [];
+    let pettyDocs = [];
+    let leaseDocs = [];
+    let vendorDocs = [];
+    let meterDocs = [];
+    let studentPaymentDocs = [];
+
+    const recalculateProfitLoss = () => {
+      const monthlyData = {}; // Format: { "June 2026": { rent: 0, meter: 0, staff: 0, petty: 0, pettyDetails: [], lease: 0, vendor: 0, timestamp: 0 } }
+
+      const initMonth = (monthStr, dateObj) => {
+        if (!monthlyData[monthStr]) {
+          monthlyData[monthStr] = {
+            rent: 0,
+            meter: 0,
+            staff: 0,
+            petty: 0,
+            pettyDetails: [],
+            lease: 0,
+            vendor: 0,
+            timestamp: dateObj ? dateObj.getTime() : Date.now()
           };
-
-          // Aggregate Rent (Income)
-          snapRent.docs.forEach(doc => {
-            const data = doc.data();
-            const dateObj = data.datePaid ? new Date(data.datePaid) : new Date();
-            const monthStr = data.rentMonth || dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-            initMonth(monthStr, dateObj);
-            monthlyData[monthStr].rent += (Number(data.amountPaid) || 0);
-          });
-
-          // Aggregate Staff Salaries (Expense)
-          snapStaff.docs.forEach(doc => {
-            const data = doc.data();
-            const monthStr = data.month || new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
-            const dateObj = data.datePaid ? new Date(data.datePaid) : new Date();
-            initMonth(monthStr, dateObj);
-            monthlyData[monthStr].staff += (Number(data.amountPaid) || 0);
-          });
-
-          // Aggregate Petty Cash (Expense)
-          snapPetty.docs.forEach(doc => {
-            const data = doc.data();
-            if (data.type === 'debit') return; // We only care about credit (given to staff) as expense for admin. Wait, debit is spent by staff. Actually, money given to staff is an expense. But what if staff returns it? 
-            // For admin, money given to staff (credit to staff) is money out.
-            if (data.type === 'credit') {
-              const dateObj = data.date ? new Date(data.date) : new Date();
-              const monthStr = dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-              initMonth(monthStr, dateObj);
-              monthlyData[monthStr].petty += (Number(data.amount) || 0);
-              monthlyData[monthStr].pettyDetails.push({ staffName: data.staffName || 'Staff', amount: Number(data.amount) || 0, date: dateObj });
-            }
-          });
-
-          // Aggregate Lease Payments (Expense)
-          snapLease.docs.forEach(doc => {
-            const data = doc.data();
-            const dateObj = data.datePaid ? new Date(data.datePaid) : new Date();
-            const monthStr = dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-            initMonth(monthStr, dateObj);
-            monthlyData[monthStr].lease += (Number(data.amount) || 0);
-          });
-
-          // Aggregate Vendor Transactions (Expense)
-          snapVendor.docs.forEach(doc => {
-            const data = doc.data();
-            const dateObj = data.date ? new Date(data.date) : new Date();
-            const monthStr = dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-            initMonth(monthStr, dateObj);
-            
-            // Handle both older 'payment_out' style and the new VendorTransactions style
-            if (data.type === 'payment_out') {
-              monthlyData[monthStr].vendor += (Number(data.amount) || 0);
-            } else if (data.isClearing) {
-              monthlyData[monthStr].vendor += (Number(data.clearedAmount) || 0);
-            } else if (data.payInfo && data.payInfo.amtNow) {
-              monthlyData[monthStr].vendor += (Number(data.payInfo.amtNow) || 0);
-            }
-          });
-          // Convert to Array and Calculate Net
-          const processedData = Object.keys(monthlyData).map(monthStr => {
-            const details = monthlyData[monthStr];
-            const expenses = details.staff + details.petty + details.lease + details.vendor;
-            const net = details.rent - expenses;
-            return {
-              id: monthStr,
-              month: monthStr,
-              type: net >= 0 ? 'profit' : 'loss',
-              net: net,
-              expenses,
-              details,
-              timestamp: details.timestamp
-            };
-          });
-
-          processedData.sort((a, b) => b.timestamp - a.timestamp);
-          setProfitLossData(processedData);
-        } catch (e) {
-          console.error("Error fetching profit-loss data:", e);
-        } finally {
-          setLoadingProfitLoss(false);
         }
       };
-      fetchProfitLoss();
-    }
-  }, [activeModule, user]);
+
+      const seenKeys = new Set();
+
+      // 1. Rent Receipts (Income)
+      rentDocs.forEach(r => {
+        if (!matchesPgItem(r.pgId)) return;
+        const amt = Number(r.totalAmount || r.amountPaid || r.amount || 0);
+        if (amt <= 0 || isNaN(amt)) return;
+
+        const dateObj = r.datePaid ? new Date(r.datePaid) : (r.date ? new Date(r.date) : new Date(r.createdAt?.toDate ? r.createdAt.toDate() : (r.createdAt || Date.now())));
+        const monthStr = r.rentMonth || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
+        initMonth(monthStr, dateObj);
+
+        const key = r.transactionId ? `txn_${r.transactionId}` : `rcpt_${r.id || r.tenantId}_${monthStr}_${amt}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          monthlyData[monthStr].rent += amt;
+        }
+      });
+
+      // 2. Student app chat payments (Income)
+      studentPaymentDocs.forEach(p => {
+        if (!matchesPgItem(p.pgId)) return;
+        const amt = Number(p.amount || p.amountPaid || p.totalAmount || 0);
+        if (amt <= 0 || isNaN(amt)) return;
+
+        const dateObj = p.datePaid ? new Date(p.datePaid) : (p.date ? new Date(p.date) : new Date(p.createdAt?.toDate ? p.createdAt.toDate() : (p.createdAt || Date.now())));
+        const monthStr = p.rentMonth || p.month || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
+        initMonth(monthStr, dateObj);
+
+        const key = p.transactionId ? `txn_${p.transactionId}` : `pay_${p.tenantId || p.userId}_${monthStr}_${amt}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          if (p.paymentType === 'meter' || (p.name && p.name.toLowerCase().includes('electricity'))) {
+            monthlyData[monthStr].meter += amt;
+          } else {
+            monthlyData[monthStr].rent += amt;
+          }
+        }
+      });
+
+      // 3. Paid Meter Bills (Income)
+      meterDocs.forEach(m => {
+        if (!matchesPgItem(m.pgId)) return;
+        if (m.status !== 'Paid') return;
+        const amt = Number(m.totalAmount || m.amount || 0);
+        if (amt <= 0 || isNaN(amt)) return;
+
+        const dateObj = m.paidDate ? new Date(m.paidDate) : (m.date ? new Date(m.date) : new Date());
+        const monthStr = m.billMonth || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
+        initMonth(monthStr, dateObj);
+
+        const key = `meter_${m.id}_${monthStr}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          monthlyData[monthStr].meter += amt;
+        }
+      });
+
+      // 4. Staff Salaries (Expense)
+      staffDocs.forEach(s => {
+        if (!matchesPgItem(s.pgId)) return;
+        const amt = Number(s.amountPaid || s.amount || 0);
+        if (amt <= 0 || isNaN(amt)) return;
+
+        const dateObj = s.datePaid ? new Date(s.datePaid) : (s.date ? new Date(s.date) : new Date());
+        const monthStr = s.month || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
+        initMonth(monthStr, dateObj);
+        monthlyData[monthStr].staff += amt;
+      });
+
+      // 5. Petty Cash (Expense)
+      pettyDocs.forEach(pt => {
+        if (!matchesPgItem(pt.pgId)) return;
+        if (pt.type === 'debit') return; // Debit is staff spending from already-allocated cash
+        if (pt.type === 'credit' || pt.type === 'allocation' || !pt.type) {
+          const amt = Number(pt.amount || 0);
+          if (amt <= 0 || isNaN(amt)) return;
+
+          const dateObj = pt.date ? new Date(pt.date) : (pt.createdAt?.toDate ? pt.createdAt.toDate() : new Date());
+          const monthStr = dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General';
+          initMonth(monthStr, dateObj);
+          monthlyData[monthStr].petty += amt;
+          monthlyData[monthStr].pettyDetails.push({
+            staffName: pt.staffName || 'Staff',
+            amount: amt,
+            date: dateObj
+          });
+        }
+      });
+
+      // 6. PG Property Lease (Expense)
+      leaseDocs.forEach(l => {
+        if (!matchesPgItem(l.pgId)) return;
+        const amt = Number(l.amount || 0);
+        if (amt <= 0 || isNaN(amt)) return;
+
+        const dateObj = l.datePaid ? new Date(l.datePaid) : (l.date ? new Date(l.date) : new Date());
+        const monthStr = l.month || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
+        initMonth(monthStr, dateObj);
+        monthlyData[monthStr].lease += amt;
+      });
+
+      // 7. Vendor Transactions & PG Maintenance (Expense)
+      vendorDocs.forEach(v => {
+        if (!matchesPgItem(v.pgId)) return;
+        let amt = 0;
+        if (v.type === 'payment_out') {
+          amt = Number(v.amount || 0);
+        } else if (v.isClearing) {
+          amt = Number(v.clearedAmount || 0);
+        } else if (v.payInfo && v.payInfo.amtNow) {
+          amt = Number(v.payInfo.amtNow || 0);
+        } else {
+          amt = Number(v.amount || 0);
+        }
+        if (amt <= 0 || isNaN(amt)) return;
+
+        const dateObj = v.date ? new Date(v.date) : (v.createdAt?.toDate ? v.createdAt.toDate() : new Date());
+        const monthStr = dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General';
+        initMonth(monthStr, dateObj);
+        monthlyData[monthStr].vendor += amt;
+      });
+
+      // Convert to array and calculate Live Net Profit / Loss
+      const processedData = Object.keys(monthlyData).map(monthStr => {
+        const details = monthlyData[monthStr];
+        const totalIncome = details.rent + (details.meter || 0);
+        const totalExpenses = details.staff + details.petty + details.lease + details.vendor;
+        const net = totalIncome - totalExpenses;
+        return {
+          id: monthStr,
+          month: monthStr,
+          type: net >= 0 ? 'profit' : 'loss',
+          net: net,
+          totalIncome: totalIncome,
+          expenses: totalExpenses,
+          details: {
+            ...details,
+            totalIncome
+          },
+          timestamp: details.timestamp
+        };
+      });
+
+      processedData.sort((a, b) => b.timestamp - a.timestamp);
+      setProfitLossData(processedData);
+      setLoadingProfitLoss(false);
+    };
+
+    // Set up Real-time Snapshot Listeners
+    const unsubRent = onSnapshot(query(collection(db, 'rent_receipts'), where('adminId', '==', user.uid)), (snap) => {
+      rentDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recalculateProfitLoss();
+    }, () => setLoadingProfitLoss(false));
+
+    const unsubStaff = onSnapshot(query(collection(db, 'staff_salaries'), where('adminId', '==', user.uid)), (snap) => {
+      staffDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recalculateProfitLoss();
+    }, () => setLoadingProfitLoss(false));
+
+    const unsubPetty = onSnapshot(query(collection(db, 'petty_cash_transactions'), where('adminId', '==', user.uid)), (snap) => {
+      pettyDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recalculateProfitLoss();
+    }, () => setLoadingProfitLoss(false));
+
+    const unsubLease = onSnapshot(query(collection(db, 'lease_payments'), where('adminId', '==', user.uid)), (snap) => {
+      leaseDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recalculateProfitLoss();
+    }, () => setLoadingProfitLoss(false));
+
+    const unsubVendor = onSnapshot(query(collection(db, 'vendor_transactions'), where('adminId', '==', user.uid)), (snap) => {
+      vendorDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recalculateProfitLoss();
+    }, () => setLoadingProfitLoss(false));
+
+    const unsubMeter = onSnapshot(query(collection(db, 'meter_bills'), where('adminId', '==', user.uid)), (snap) => {
+      meterDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      recalculateProfitLoss();
+    }, () => setLoadingProfitLoss(false));
+
+    // Also fetch student app payments
+    getDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid))).then(tSnap => {
+      const tenantUids = tSnap.docs.map(d => d.data().tenantId || d.id);
+      Promise.all(tenantUids.map(uid => getDocs(collection(db, 'users', uid, 'payments')))).then(allPayments => {
+        studentPaymentDocs = allPayments.flatMap(snap => snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        recalculateProfitLoss();
+      }).catch(() => {});
+    }).catch(() => {});
+
+    return () => {
+      unsubRent();
+      unsubStaff();
+      unsubPetty();
+      unsubLease();
+      unsubVendor();
+      unsubMeter();
+    };
+  }, [activeModule, user, activePgId]);
 
   const fromDate = '2025-02-02';
   const toDate = '2025-02-02';
@@ -1774,7 +1988,7 @@ export default function ManageAccount() {
               ) : rentData[rentTab].length === 0 ? (
                 <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No records found.</div>
               ) : rentData[rentTab]
-                  .filter(t => t.name.toLowerCase().includes(search.toLowerCase()) || t.room.toLowerCase().includes(search.toLowerCase()))
+                  .filter(t => String(t.name || '').toLowerCase().includes(search.toLowerCase()) || String(t.room || '').toLowerCase().includes(search.toLowerCase()))
                   .map((t, i) => {
                 const amtVal = parseInt(String(t.amount).replace(/,/g, '')) || 8000;
                 const isCollected = rentTab === 'collected';
@@ -1846,100 +2060,125 @@ export default function ManageAccount() {
             <button onClick={() => { setActiveModule(null); setSelectedMonth(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#0891b2' }}>
               <span className="material-symbols-outlined">arrow_back</span>
             </button>
-            <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 18, color: '#0f172a', margin: 0, flex: 1, textAlign: 'center' }}>Profit-Loss Account</p>
+            <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 18, color: '#0f172a', margin: 0, flex: 1, textAlign: 'center' }}>Live Profit-Loss Account</p>
             <div style={{ width: 32 }} />
           </div>
           <div style={{ padding: '16px' }}>
             {selectedMonth ? (
               <div style={{ background: 'white', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
                 <div style={{ padding: '20px', textAlign: 'center', borderBottom: '1px solid #e2e8f0', background: selectedMonth.type === 'profit' ? '#f0fdf4' : '#fff1f2' }}>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: selectedMonth.type === 'profit' ? '#059669' : '#e11d48', marginBottom: 4 }}>Net {selectedMonth.type === 'profit' ? 'Profit' : 'Loss'}</p>
-                  <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 28, fontWeight: 800, color: selectedMonth.type === 'profit' ? '#059669' : '#e11d48', margin: 0 }}>₹{Math.abs(selectedMonth.net).toLocaleString('en-IN')}</p>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: selectedMonth.type === 'profit' ? '#059669' : '#e11d48', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    {selectedMonth.month} · Net {selectedMonth.type === 'profit' ? 'Profit' : 'Loss'}
+                  </p>
+                  <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 32, fontWeight: 800, color: selectedMonth.type === 'profit' ? '#059669' : '#e11d48', margin: 0 }}>
+                    {selectedMonth.type === 'profit' ? '+' : '-'} ₹{Math.abs(selectedMonth.net).toLocaleString('en-IN')}
+                  </p>
                 </div>
                 <div style={{ padding: '16px' }}>
-                  <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 16 }}>Income</p>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9' }}>
-                    <span style={{ fontSize: 14, color: '#64748b' }}>Payments Received (Rent)</span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: '#059669' }}>+ ₹{selectedMonth.details.rent.toLocaleString('en-IN')}</span>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 12 }}>Income Breakdown</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #f1f5f9' }}>
+                    <span style={{ fontSize: 13.5, color: '#64748b' }}>Rent & Token Collections</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>+ ₹{selectedMonth.details.rent.toLocaleString('en-IN')}</span>
                   </div>
 
-                  <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: '20px 0 16px' }}>Expenses</p>
+                  {selectedMonth.details.meter > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #f1f5f9' }}>
+                      <span style={{ fontSize: 13.5, color: '#64748b' }}>Electricity Bills Collected</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>+ ₹{selectedMonth.details.meter.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+
+                  <p style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', margin: '20px 0 12px' }}>Expenses Breakdown</p>
                   
+                  {selectedMonth.details.staff > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <span style={{ fontSize: 13.5, color: '#64748b' }}>Staff Salaries Paid</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#e11d48' }}>- ₹{selectedMonth.details.staff.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+
                   {selectedMonth.details.lease > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <span style={{ fontSize: 14, color: '#64748b' }}>PG Lease Paid</span>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: '#e11d48' }}>- ₹{selectedMonth.details.lease.toLocaleString('en-IN')}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <span style={{ fontSize: 13.5, color: '#64748b' }}>PG Property Lease</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#e11d48' }}>- ₹{selectedMonth.details.lease.toLocaleString('en-IN')}</span>
                     </div>
                   )}
 
                   {selectedMonth.details.vendor > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <span style={{ fontSize: 14, color: '#64748b' }}>PG Expenses</span>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: '#e11d48' }}>- ₹{selectedMonth.details.vendor.toLocaleString('en-IN')}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <span style={{ fontSize: 13.5, color: '#64748b' }}>Vendor & Maintenance</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#e11d48' }}>- ₹{selectedMonth.details.vendor.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+
+                  {selectedMonth.details.petty > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <span style={{ fontSize: 13.5, color: '#64748b' }}>Petty Cash Allocations</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#e11d48' }}>- ₹{selectedMonth.details.petty.toLocaleString('en-IN')}</span>
                     </div>
                   )}
                   
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <span style={{ fontSize: 14, color: '#64748b' }}>Staff Salaries Paid</span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: '#e11d48' }}>- ₹{selectedMonth.details.staff.toLocaleString('en-IN')}</span>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <span style={{ fontSize: 14, color: '#64748b' }}>Petty Cash Allotted</span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: '#e11d48' }}>- ₹{selectedMonth.details.petty.toLocaleString('en-IN')}</span>
-                  </div>
-                  
                   {selectedMonth.details.pettyDetails?.length > 0 && (
-                    <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, marginTop: 8, marginBottom: 16 }}>
-                      <p style={{ fontSize: 12, fontWeight: 600, color: '#475569', margin: '0 0 8px' }}>Petty Cash Breakdown:</p>
+                    <div style={{ background: '#f8fafc', padding: 12, borderRadius: 10, marginTop: 6, marginBottom: 14, border: '1px solid #e2e8f0' }}>
+                      <p style={{ fontSize: 11.5, fontWeight: 700, color: '#475569', margin: '0 0 6px', textTransform: 'uppercase' }}>Petty Cash Breakdown:</p>
                       {selectedMonth.details.pettyDetails.map((pd, i) => (
                         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                           <span style={{ fontSize: 12, color: '#64748b' }}>{pd.staffName}</span>
-                          <span style={{ fontSize: 12, color: '#475569', fontWeight: 500 }}>₹{pd.amount.toLocaleString('en-IN')}</span>
+                          <span style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>₹{pd.amount.toLocaleString('en-IN')}</span>
                         </div>
                       ))}
                     </div>
                   )}
                   
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Total Income</span>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: '#059669' }}>₹{selectedMonth.details.rent.toLocaleString('en-IN')}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, paddingTop: 14, borderTop: '1.5px solid #e2e8f0' }}>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Total Month Income</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: '#059669' }}>₹{selectedMonth.totalIncome.toLocaleString('en-IN')}</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, paddingBottom: 16 }}>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>Total Expenses</span>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: '#e11d48' }}>₹{selectedMonth.expenses.toLocaleString('en-IN')}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, paddingBottom: 8 }}>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Total Month Expenses</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: '#e11d48' }}>₹{selectedMonth.expenses.toLocaleString('en-IN')}</span>
                   </div>
                 </div>
                 <div style={{ padding: '0 16px 16px' }}>
-                  <button onClick={() => setSelectedMonth(null)} style={{ width: '100%', padding: 12, background: '#f1f5f9', border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', color: '#475569' }}>← Back to List</button>
+                  <button onClick={() => setSelectedMonth(null)} style={{ width: '100%', padding: 12, background: '#f1f5f9', border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', color: '#475569' }}>← Back to All Months</button>
                 </div>
               </div>
             ) : loadingProfitLoss ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Calculating Profit/Loss...</div>
+              <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                <div style={{ width: 32, height: 32, border: '3px solid #e2e8f0', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 12px' }} />
+                <p style={{ margin: 0, fontSize: 14 }}>Calculating Live Profit & Loss...</p>
+              </div>
             ) : profitLossData.length === 0 ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No financial records found.</div>
+              <div style={{ padding: 32, textAlign: 'center', background: 'white', borderRadius: 16, border: '1px solid #e2e8f0' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 44, color: '#cbd5e1', marginBottom: 8 }}>account_balance</span>
+                <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: '#0f172a' }}>No financial records found</p>
+                <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>Rent collections, staff salaries, and expenses will appear here automatically.</p>
+              </div>
             ) : (
               <>
-              <div style={{ background: 'linear-gradient(135deg, #1e293b, #0f172a)', borderRadius: 16, padding: 20, marginBottom: 20, color: 'white', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>Overall PG Status (Till Date)</p>
+              <div style={{ background: 'linear-gradient(135deg, #0f172a, #1e293b)', borderRadius: 16, padding: 20, marginBottom: 16, color: 'white', boxShadow: '0 4px 16px rgba(15,23,42,0.15)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <p style={{ fontSize: 12, color: '#94a3b8', margin: 0, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>Overall PG Status (Till Date)</p>
+                  <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 6, background: 'rgba(16,185,129,0.2)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }}>LIVE SYNC</span>
+                </div>
                 {(() => {
-                  const totalIncome = profitLossData.reduce((acc, curr) => acc + curr.details.rent, 0);
+                  const totalIncome = profitLossData.reduce((acc, curr) => acc + curr.totalIncome, 0);
                   const totalExpense = profitLossData.reduce((acc, curr) => acc + curr.expenses, 0);
                   const overallNet = totalIncome - totalExpense;
                   return (
                     <>
-                      <p style={{ fontSize: 32, fontWeight: 800, margin: '0 0 16px', color: overallNet >= 0 ? '#10b981' : '#f43f5e' }}>
+                      <p style={{ fontSize: 32, fontWeight: 900, margin: '0 0 16px', color: overallNet >= 0 ? '#34d399' : '#f87171' }}>
                         {overallNet >= 0 ? '+' : '-'} ₹{Math.abs(overallNet).toLocaleString('en-IN')}
-                        <span style={{ fontSize: 14, fontWeight: 500, marginLeft: 8, color: '#94a3b8' }}>{overallNet >= 0 ? 'Profit' : 'Loss'}</span>
+                        <span style={{ fontSize: 14, fontWeight: 600, marginLeft: 8, color: '#94a3b8' }}>{overallNet >= 0 ? 'Net Profit' : 'Net Loss'}</span>
                       </p>
                       <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 12 }}>
                         <div>
-                          <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 2px' }}>Total Income</p>
-                          <p style={{ fontSize: 15, fontWeight: 700, margin: 0, color: '#10b981' }}>₹{totalIncome.toLocaleString('en-IN')}</p>
+                          <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 2px' }}>Total Collections</p>
+                          <p style={{ fontSize: 16, fontWeight: 800, margin: 0, color: '#34d399' }}>₹{totalIncome.toLocaleString('en-IN')}</p>
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 2px' }}>Total Expenses</p>
-                          <p style={{ fontSize: 15, fontWeight: 700, margin: 0, color: '#f43f5e' }}>₹{totalExpense.toLocaleString('en-IN')}</p>
+                          <p style={{ fontSize: 16, fontWeight: 800, margin: 0, color: '#f87171' }}>₹{totalExpense.toLocaleString('en-IN')}</p>
                         </div>
                       </div>
                     </>
@@ -1953,11 +2192,18 @@ export default function ManageAccount() {
                       <div style={{ width: 40, height: 40, borderRadius: 10, background: item.type === 'profit' ? '#ecfdf5' : '#fff1f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <span className="material-symbols-outlined" style={{ color: item.type === 'profit' ? '#059669' : '#e11d48' }}>{item.type === 'profit' ? 'trending_up' : 'trending_down'}</span>
                       </div>
-                      <span style={{ fontWeight: 600, color: '#0f172a', fontSize: 15 }}>{item.month}</span>
+                      <div>
+                        <span style={{ fontWeight: 700, color: '#0f172a', fontSize: 15, display: 'block' }}>{item.month}</span>
+                        <span style={{ fontSize: 11, color: '#64748b' }}>Income: ₹{item.totalIncome.toLocaleString('en-IN')} · Exp: ₹{item.expenses.toLocaleString('en-IN')}</span>
+                      </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 16, margin: 0, color: item.type === 'profit' ? '#059669' : '#e11d48' }}>₹{Math.abs(item.net).toLocaleString('en-IN')}</p>
-                      <p style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 0', textTransform: 'capitalize' }}>{item.type}</p>
+                      <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 16, margin: 0, color: item.type === 'profit' ? '#059669' : '#e11d48' }}>
+                        {item.type === 'profit' ? '+' : '-'}₹{Math.abs(item.net).toLocaleString('en-IN')}
+                      </p>
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 4, background: item.type === 'profit' ? '#ecfdf5' : '#fff1f2', color: item.type === 'profit' ? '#059669' : '#e11d48', textTransform: 'uppercase' }}>
+                        {item.type}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -2134,6 +2380,19 @@ export default function ManageAccount() {
       {/* Modals for Detailed Receipt Breakdown */}
       {activeReceipt && (
         <DetailedReceiptModal receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />
+      )}
+
+      {/* Outstanding Dues Modal */}
+      {selectedDuesTenant && (
+        <OutstandingDuesModal
+          isOpen={!!selectedDuesTenant}
+          onClose={() => setSelectedDuesTenant(null)}
+          tenant={selectedDuesTenant.tenant}
+          duesData={selectedDuesTenant.dues}
+          adminUser={user}
+          activePgId={activePgId}
+          onRefresh={() => setDuesRefreshKey(p => p + 1)}
+        />
       )}
 
       {collectModalData && (

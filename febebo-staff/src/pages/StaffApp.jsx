@@ -5,6 +5,9 @@ import { initializeApp, deleteApp, getApps } from 'firebase/app';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, getAuth as getFirebaseAuth } from 'firebase/auth';
 import { collection, addDoc, doc, setDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, getDocs, getDoc } from 'firebase/firestore';
 import { Scanner } from '@yudiel/react-qr-scanner';
+import QRCode from 'react-qr-code';
+import { isStudentOnVacation, getStudentActiveVacation, formatDateDisplay, isMealPausedOnDate, ALL_MEALS } from '../utils/vacationUtils';
+import { COMMON_PG_DISHES, DISH_CATEGORIES, getDishPresetImage, DEFAULT_FOOD_PLACEHOLDER } from '../data/commonFoodDishes';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -28,6 +31,33 @@ class ErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
+
+// ─── Image Compressor Helper ───────────────────────────────────────────────
+const compressImage = (file, maxWidth = 750) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.65));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -86,10 +116,51 @@ const STORE_ITEMS = [
   {id:6,name:'Heavy Duty Mop Set',cat:'Housekeeping',stock:'0 pcs',status:'Out of Stock',min:'2 pcs'},
 ];
 
+const getContactInitials = (name) => {
+  if (!name) return '??';
+  const clean = name.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+  if (!clean) return name.substring(0, 2).toUpperCase();
+  const parts = clean.split(/\s+/);
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+};
+
+const getAvatarStyle = (contact) => {
+  if (!contact) return { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0', isIcon: false };
+  if (contact.type === 'admin') {
+    return {
+      bg: '#0f172a',
+      color: '#ffffff',
+      border: '#0f172a',
+      isIcon: true,
+      icon: 'admin_panel_settings'
+    };
+  }
+  const name = contact.name || '';
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const PALETTES = [
+    { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe' },
+    { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' },
+    { bg: '#faf5ff', color: '#6d28d9', border: '#ddd6fe' },
+    { bg: '#ecfeff', color: '#0e7490', border: '#a5f3fc' },
+    { bg: '#fff7ed', color: '#c2410c', border: '#fed7aa' },
+    { bg: '#fdf2f8', color: '#be185d', border: '#fbcfe8' },
+    { bg: '#f8fafc', color: '#334155', border: '#cbd5e1' },
+  ];
+  const idx = Math.abs(hash) % PALETTES.length;
+  return {
+    ...PALETTES[idx],
+    isIcon: false
+  };
+};
+
 const INIT_CONTACTS = [
-  {id:'c1', name:'Admin Office', role:'Admin', avatar:'🏢', phone:'+91 99999 00000', isPinned:true, reminder:null, lastMsg:'Update daily logs by 6 PM today.', time:'09:00 AM'},
-  {id:'c2', name:'Priya Sharma', role:'Student - Rm 102', avatar:'👩', phone:'+91 98888 77777', isPinned:false, reminder:'Check AC remote today 5:00 PM', lastMsg:'Can room 102 bathroom be cleaned at 11 AM?', time:'09:15 AM'},
-  {id:'c3', name:'Dinesh (Maint.)', role:'Staff', avatar:'🛠️', phone:'+91 97777 66666', isPinned:false, reminder:null, lastMsg:'Room 201 AC issue has been resolved.', time:'11:30 AM'},
+  {id:'c1', name:'Manager / Admin', role:'Property Admin', phone:'+91 99999 00000', isPinned:true, reminder:null, lastMsg:'Update daily logs by 6 PM today.', time:'09:00 AM', type:'admin'},
+  {id:'c2', name:'Priya Sharma', role:'Student · Room 102', phone:'+91 98888 77777', isPinned:false, reminder:'Check AC remote today 5:00 PM', lastMsg:'Can room 102 bathroom be cleaned at 11 AM?', time:'09:15 AM', type:'student', room:'102'},
+  {id:'c3', name:'Dinesh (Maint.)', role:'Staff · Electrician', phone:'+91 97777 66666', isPinned:false, reminder:null, lastMsg:'Room 201 AC issue has been resolved.', time:'11:30 AM', type:'staff'},
 ];
 
 const INIT_MESSAGES = {
@@ -695,8 +766,11 @@ export default function StaffApp(){
 
   // Cook
   const [students,setStudents]  = useState([]);
+  const [vacations, setVacations] = useState([]);
   const [showScan, setShowScan] = useState(false);
   const [showManual, setShowManual] = useState(false);
+  const [showMealQR, setShowMealQR] = useState(false);
+  const [selectedQRMeal, setSelectedQRMeal] = useState('');
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [manualSearch, setManualSearch] = useState('');
   const [activeMeal, setActiveMeal] = useState('');
@@ -761,10 +835,263 @@ export default function StaffApp(){
     Saturday: { Breakfast: 'Puri Sabji, Jalebi', Lunch: 'Dal Tadka, Rice', Snacks: 'Pakoda, Tea', Dinner: 'Aloo Gobi, Roti' },
     Sunday: { Breakfast: 'Masala Dosa, Chutney', Lunch: 'Special Thali', Snacks: 'Cake, Coffee', Dinner: 'Chicken Curry/Paneer, Roti' }
   });
+  const [foodMenuImages, setFoodMenuImages] = useState({});
+  const [foodItemImages, setFoodItemImages] = useState({});
   const [showWeeklyMenuEdit, setShowWeeklyMenuEdit] = useState(false);
   const [editWeeklyMenuDay, setEditWeeklyMenuDay] = useState('');
   const [editWeeklyMenuMeal, setEditWeeklyMenuMeal] = useState('');
-  const [editWeeklyMenuVal, setEditWeeklyMenuVal] = useState('');
+  const [editWeeklyMenuItems, setEditWeeklyMenuItems] = useState([]); // [{ id, name, image }]
+  const [cookCustomItemInput, setCookCustomItemInput] = useState('');
+  const [cookPresetSearch, setCookPresetSearch] = useState('');
+  const [cookPresetCategory, setCookPresetCategory] = useState('All');
+  const [activeCookPhotoIndex, setActiveCookPhotoIndex] = useState(null);
+  const [showCookItemPhotoPicker, setShowCookItemPhotoPicker] = useState(false);
+  const cookPhotoInputRef = useRef(null);
+  const [isProcessingCookPhoto, setIsProcessingCookPhoto] = useState(false);
+
+  // Open cook meal editor modal with parsed items
+  const openCookEditModal = (day, meal) => {
+    setEditWeeklyMenuDay(day);
+    setEditWeeklyMenuMeal(meal);
+    const raw = weeklyFoodMenu?.[day]?.[meal] || '';
+    const itemNames = raw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    const currentImages = foodItemImages?.[day]?.[meal] || {};
+    const parsed = itemNames.map(name => ({
+      id: Math.random().toString(36).substring(2, 9),
+      name,
+      image: currentImages[name] || getDishPresetImage(name) || null
+    }));
+    setEditWeeklyMenuItems(parsed);
+    setCookCustomItemInput('');
+    setCookPresetSearch('');
+    setCookPresetCategory('All');
+    setActiveCookPhotoIndex(null);
+    setShowCookItemPhotoPicker(false);
+    setShowWeeklyMenuEdit(true);
+  };
+
+  const handleCookPhotoSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || activeCookPhotoIndex === null) return;
+    setIsProcessingCookPhoto(true);
+    try {
+      const compressed = await compressImage(file, 750);
+      setEditWeeklyMenuItems(prev => prev.map((item, idx) => 
+        idx === activeCookPhotoIndex ? { ...item, image: compressed } : item
+      ));
+      setShowCookItemPhotoPicker(false);
+    } catch (err) {
+      console.error('Cook photo processing error:', err);
+    } finally {
+      setIsProcessingCookPhoto(false);
+      if (cookPhotoInputRef.current) cookPhotoInputRef.current.value = '';
+    }
+  };
+
+  const handleCookSaveMenu = async () => {
+    const namesStr = editWeeklyMenuItems.map(i => i.name.trim()).filter(Boolean).join(', ');
+    const imagesMap = {};
+    editWeeklyMenuItems.forEach(i => {
+      const cleanName = i.name.trim();
+      if (cleanName && i.image) {
+        imagesMap[cleanName] = i.image;
+      }
+    });
+
+    const newMenu = {
+      ...weeklyFoodMenu,
+      [editWeeklyMenuDay]: {
+        ...(weeklyFoodMenu[editWeeklyMenuDay] || {}),
+        [editWeeklyMenuMeal]: namesStr
+      }
+    };
+    const newItemImages = {
+      ...foodItemImages,
+      [editWeeklyMenuDay]: {
+        ...(foodItemImages[editWeeklyMenuDay] || {}),
+        [editWeeklyMenuMeal]: imagesMap
+      }
+    };
+
+    setWeeklyFoodMenu(newMenu);
+    setFoodItemImages(newItemImages);
+    setShowWeeklyMenuEdit(false);
+
+    if (user?.ownerUid) {
+      try {
+        await setDoc(doc(db, 'pg_owners', user.ownerUid), { 
+          foodMenu: newMenu,
+          foodItemImages: newItemImages
+        }, { merge: true });
+      } catch (e) {
+        console.error('Failed to update menu', e);
+      }
+    }
+  };
+
+  // Menu Edit History & Last Editor state
+  const [lastMenuEdit, setLastMenuEdit] = useState(null);
+  const [showMenuHistoryModal, setShowMenuHistoryModal] = useState(false);
+  const [menuHistoryList, setMenuHistoryList] = useState([]);
+  const [loadingMenuHistory, setLoadingMenuHistory] = useState(false);
+
+  const fetchCookMenuHistory = async () => {
+    const ownerUid = user?.ownerUid;
+    if (!ownerUid) return;
+    setLoadingMenuHistory(true);
+    try {
+      const qHistory = query(
+        collection(db, 'pg_owners', ownerUid, 'food_menu_history'),
+        orderBy('editedAt', 'desc'),
+        limit(50)
+      );
+      const snap = await getDocs(qHistory);
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setMenuHistoryList(list);
+    } catch (err) {
+      console.warn('Ordered history fetch failed, falling back to client-side sort:', err);
+      try {
+        const snap = await getDocs(collection(db, 'pg_owners', ownerUid, 'food_menu_history'));
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => new Date(b.editedAt || 0) - new Date(a.editedAt || 0));
+        setMenuHistoryList(list);
+      } catch (e2) {
+        console.error('Fallback history fetch failed:', e2);
+      }
+    } finally {
+      setLoadingMenuHistory(false);
+    }
+  };
+
+  // Open cook meal editor modal with parsed items
+  const openCookEditModal = (day, meal) => {
+    setEditWeeklyMenuDay(day);
+    setEditWeeklyMenuMeal(meal);
+    const raw = weeklyFoodMenu?.[day]?.[meal] || '';
+    const itemNames = raw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    const currentImages = foodItemImages?.[day]?.[meal] || {};
+    const parsed = itemNames.map(name => ({
+      id: Math.random().toString(36).substring(2, 9),
+      name,
+      image: currentImages[name] || getDishPresetImage(name) || null
+    }));
+    setEditWeeklyMenuItems(parsed);
+    setCookCustomItemInput('');
+    setCookPresetSearch('');
+    setCookPresetCategory('All');
+    setActiveCookPhotoIndex(null);
+    setShowCookItemPhotoPicker(false);
+    setShowWeeklyMenuEdit(true);
+  };
+
+  const handleCookPhotoSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || activeCookPhotoIndex === null) return;
+    setIsProcessingCookPhoto(true);
+    try {
+      const compressed = await compressImage(file, 750);
+      setEditWeeklyMenuItems(prev => prev.map((item, idx) => 
+        idx === activeCookPhotoIndex ? { ...item, image: compressed } : item
+      ));
+      setShowCookItemPhotoPicker(false);
+    } catch (err) {
+      console.error('Cook photo processing error:', err);
+    } finally {
+      setIsProcessingCookPhoto(false);
+      if (cookPhotoInputRef.current) cookPhotoInputRef.current.value = '';
+    }
+  };
+
+  const handleCookSaveMenu = async () => {
+    const namesStr = editWeeklyMenuItems.map(i => i.name.trim()).filter(Boolean).join(', ');
+    const imagesMap = {};
+    editWeeklyMenuItems.forEach(i => {
+      const cleanName = i.name.trim();
+      if (cleanName && i.image) {
+        imagesMap[cleanName] = i.image;
+      }
+    });
+
+    const newMenu = {
+      ...weeklyFoodMenu,
+      [editWeeklyMenuDay]: {
+        ...(weeklyFoodMenu[editWeeklyMenuDay] || {}),
+        [editWeeklyMenuMeal]: namesStr
+      }
+    };
+    const newItemImages = {
+      ...foodItemImages,
+      [editWeeklyMenuDay]: {
+        ...(foodItemImages[editWeeklyMenuDay] || {}),
+        [editWeeklyMenuMeal]: imagesMap
+      }
+    };
+
+    setWeeklyFoodMenu(newMenu);
+    setFoodItemImages(newItemImages);
+    setShowWeeklyMenuEdit(false);
+
+    if (user?.ownerUid) {
+      try {
+        const editorName = user?.name || staffName || 'Cook';
+        const roleName = staffRole || 'Cook';
+        const editTimeIso = new Date().toISOString();
+        const editRecord = {
+          editedBy: editorName,
+          editorRole: roleName,
+          editorUid: user?.uid || 'cook',
+          editedAt: editTimeIso,
+          day: editWeeklyMenuDay,
+          meal: editWeeklyMenuMeal,
+          dishesSummary: namesStr || 'Cleared',
+          itemsCount: editWeeklyMenuItems.length,
+          hasPhotos: Object.keys(imagesMap).length > 0
+        };
+
+        setLastMenuEdit(editRecord);
+
+        await setDoc(doc(db, 'pg_owners', user.ownerUid), { 
+          foodMenu: newMenu,
+          foodItemImages: newItemImages,
+          lastMenuEdit: editRecord
+        }, { merge: true });
+
+        // Save into food_menu_history audit subcollection
+        try {
+          await addDoc(collection(db, 'pg_owners', user.ownerUid, 'food_menu_history'), editRecord);
+        } catch (hErr) {
+          console.warn('Cook menu history add error:', hErr);
+        }
+
+        // Notify all active students of this PG
+        if (students && students.length > 0) {
+          students.forEach(st => {
+            addDoc(collection(db, 'users', st.id, 'notifications'), {
+              title: '🍽️ Food Menu Updated',
+              desc: `${editWeeklyMenuDay} ${editWeeklyMenuMeal} was updated by ${roleName} (${editorName}): ${namesStr || 'Updated dishes'}`,
+              type: 'food_menu',
+              action: 'FOOD_TAB',
+              unread: true,
+              createdAt: editTimeIso
+            }).catch(e => console.warn('Student menu notif error:', e));
+          });
+        }
+
+        // Notify PG Admin
+        addDoc(collection(db, 'users', user.ownerUid, 'notifications'), {
+          title: '👨‍🍳 Cook Updated Menu',
+          desc: `${editorName} (${roleName}) updated ${editWeeklyMenuDay} ${editWeeklyMenuMeal}: ${namesStr || 'Updated dishes'}`,
+          type: 'food_menu',
+          action: 'MESS_HEADCOUNT',
+          unread: true,
+          createdAt: editTimeIso
+        }).catch(e => console.warn('Admin menu notif error:', e));
+
+      } catch (e) {
+        console.error('Failed to update menu', e);
+      }
+    }
+  };
   const [selectedFoodMenuDate, setSelectedFoodMenuDate] = useState(new Date().toISOString().split('T')[0]);
   const [cookMenuTab, setCookMenuTab] = useState('date'); // date | weekly
   
@@ -921,19 +1248,43 @@ export default function StaffApp(){
 
     let cachedTenants = [];
     let cachedMeals = [];
+    let cachedVacations = [];
 
     const rebuild = () => {
+      const currentDateStr = workDate || todayStr;
       const list = cachedTenants.map(t => {
         const mealLog = cachedMeals.find(m => m.tenantId === t.id);
+        const isVacB = isStudentOnVacation(cachedVacations, t.id, currentDateStr, 'breakfast') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'breakfast');
+        const isVacL = isStudentOnVacation(cachedVacations, t.id, currentDateStr, 'lunch') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'lunch');
+        const isVacS = isStudentOnVacation(cachedVacations, t.id, currentDateStr, 'snacks') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'snacks');
+        const isVacD = isStudentOnVacation(cachedVacations, t.id, currentDateStr, 'dinner') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'dinner');
+
+        const studentVac = getStudentActiveVacation(cachedVacations, t.id, currentDateStr) || t.foodVacation || null;
+        const isFoodIncluded = t.foodIncluded !== false;
+
+        const resolveStatus = (isVac, val) => {
+          if (!isFoodIncluded) return 'selfCooking';
+          if (isVac) return 'onVacation';
+          if (val === 'not_eating') return 'notEaten';
+          if (val === 'eaten') return 'eaten';
+          if (val === 'pack') return 'pack';
+          if (val === 'extra') return 'extra';
+          return 'requested';
+        };
+
         return {
           id: t.id,
           name: t.name || 'Tenant',
           room: t.roomNo || t.room || t.subscribedPG?.roomNo || 'N/A',
+          bed: t.bedNo || t.bed || 'A',
           phone: t.phone || 'N/A',
-          statusB: mealLog?.breakfast === 'not_eating' ? 'notEaten' : mealLog?.breakfast === 'eaten' ? 'eaten' : 'requested',
-          statusL: mealLog?.lunch === 'not_eating' ? 'notEaten' : mealLog?.lunch === 'eaten' ? 'eaten' : 'requested',
-          statusS: mealLog?.snacks === 'not_eating' ? 'notEaten' : mealLog?.snacks === 'eaten' ? 'eaten' : 'requested',
-          statusD: mealLog?.dinner === 'not_eating' ? 'notEaten' : mealLog?.dinner === 'eaten' ? 'eaten' : 'requested',
+          foodIncluded: isFoodIncluded,
+          includedFoodPersons: t.includedFoodPersons || 1,
+          foodVacation: studentVac,
+          statusB: resolveStatus(isVacB, mealLog?.breakfast),
+          statusL: resolveStatus(isVacL, mealLog?.lunch),
+          statusS: resolveStatus(isVacS, mealLog?.snacks),
+          statusD: resolveStatus(isVacD, mealLog?.dinner),
         };
       });
       setStudents(list);
@@ -945,6 +1296,18 @@ export default function StaffApp(){
       cachedMeals = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       rebuild();
     });
+
+    // Real-time food vacations listener
+    const qVac = query(
+      collection(db, 'food_vacations'),
+      where('adminId', '==', adminId),
+      where('status', 'in', ['active', 'shortened'])
+    );
+    const unsubVac = onSnapshot(qVac, snap => {
+      cachedVacations = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setVacations(cachedVacations);
+      rebuild();
+    }, err => console.error('Vacation listener error in StaffApp rebuild:', err));
 
     // Real-time tenants (approved/current users of this PG)
     const qTenants = query(collection(db, 'tenants'), where('adminId', '==', adminId));
@@ -965,6 +1328,7 @@ export default function StaffApp(){
               if (!t.name || t.name === 'Tenant') t.name = u.name || u.displayName || t.name;
               if (!t.roomNo) t.roomNo = u.subscribedPG?.roomNo || u.profileData?.roomDetails?.roomNumber || '';
               if (!t.room)   t.room   = t.roomNo;
+              if (u.foodVacation) t.foodVacation = u.foodVacation;
             }
           }
         } catch (_) {}
@@ -974,8 +1338,8 @@ export default function StaffApp(){
       rebuild();
     });
 
-    return () => { unsubMeal(); unsubTenants(); };
-  }, [user?.ownerUid]);
+    return () => { unsubMeal(); unsubTenants(); if (unsubVac) unsubVac(); };
+  }, [user?.ownerUid, workDate]);
 
   // Transaction History Filters
   const [txnMonthFilter, setTxnMonthFilter] = useState('All Months');
@@ -1398,16 +1762,194 @@ export default function StaffApp(){
   const [fundReceiverUpi, setFundReceiverUpi] = useState(staffUpiId);
 
   // Chat - Individual WhatsApp style
-  const [contacts, setContacts] = useState([]);
+  const [contacts, setContacts] = useState(INIT_CONTACTS);
   const [activeContact, setActiveContact] = useState(null); // null = list view, object = chat view
-  const [chatHist, setChatHist] = useState({});
+  const [chatHist, setChatHist] = useState(INIT_MESSAGES);
   const [chatInput, setChatInput] = useState('');
+  const [chatSearch, setChatSearch] = useState('');
+  const [chatFilterTab, setChatFilterTab] = useState('all');
   const chatEndRef = useRef(null);
+
   useEffect(() => { 
     if (view === 'chat' && activeContact) {
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [chatHist, view, activeContact]);
+
+  // ─── DEDICATED REALTIME CONTACTS SYNCHRONIZATION ───
+  useEffect(() => {
+    const currentAdminId = user?.ownerUid || user?.adminId || staffProfile?.ownerUid || staffProfile?.adminId || 'primary';
+    const currentMyId = String(user?.id || user?.uid || staffProfile?.id || staffProfile?.uid || 'staff');
+
+    const adminContact = {
+      id: currentAdminId,
+      name: 'Manager / Admin',
+      role: 'Property Admin',
+      phone: '',
+      isPinned: true,
+      reminder: null,
+      lastMsg: 'Send a message',
+      time: '',
+      type: 'admin'
+    };
+
+    let tenantContacts = [];
+    let staffContacts = [];
+
+    const syncAllContacts = () => {
+      const map = new Map();
+      map.set(adminContact.id, adminContact);
+
+      tenantContacts.forEach(t => {
+        if (t.id && t.id !== currentMyId) map.set(t.id, t);
+      });
+
+      staffContacts.forEach(s => {
+        if (s.id && s.id !== currentMyId) map.set(s.id, s);
+      });
+
+      // Keep starter contacts if no external contacts loaded yet
+      if (map.size <= 1) {
+        INIT_CONTACTS.forEach(ic => {
+          if (!map.has(ic.id)) map.set(ic.id, ic);
+        });
+      }
+
+      const merged = Array.from(map.values());
+      setContacts(prev => {
+        return merged.map(m => {
+          const old = prev.find(p => p.id === m.id);
+          if (old) {
+            return {
+              ...m,
+              lastMsg: old.lastMsg || m.lastMsg,
+              time: old.time || m.time,
+              reminder: old.reminder !== undefined ? old.reminder : m.reminder,
+              isPinned: old.isPinned !== undefined ? old.isPinned : m.isPinned
+            };
+          }
+          return m;
+        });
+      });
+    };
+
+    syncAllContacts();
+
+    if (!currentAdminId) return;
+
+    // 1. Sync Tenants / Students
+    const qTenants = query(collection(db, 'tenants'), where('adminId', '==', currentAdminId));
+    const unsubTenants = onSnapshot(qTenants, (snap) => {
+      tenantContacts = snap.docs
+        .map(d => {
+          const data = d.data();
+          const tid = data.tenantId || d.id;
+          return {
+            id: tid,
+            name: data.name || data.tenantName || 'Student',
+            role: `Student · Room ${data.roomNo || data.room || 'N/A'}`,
+            phone: data.phone || data.tenantPhone || '',
+            room: data.roomNo || data.room || '',
+            time: '',
+            lastMsg: 'Send a message',
+            type: 'student',
+            isPinned: false
+          };
+        })
+        .filter(t => t.id !== currentMyId);
+      syncAllContacts();
+    }, (err) => console.warn('Tenants sync warning:', err));
+
+    // 2. Sync Staff Members
+    const qStaff = query(collection(db, 'staff_tokens'), where('ownerUid', '==', currentAdminId));
+    const unsubStaff = onSnapshot(qStaff, (snap) => {
+      staffContacts = snap.docs
+        .map(d => {
+          const data = d.data();
+          const sid = d.id;
+          return {
+            id: sid,
+            name: data.name || `Staff (${data.role || 'Member'})`,
+            role: `Staff · ${data.role || 'Colleague'}`,
+            phone: data.phone || '',
+            time: '',
+            lastMsg: 'Send a message',
+            type: 'staff',
+            isPinned: false
+          };
+        })
+        .filter(s => s.id !== currentMyId);
+      syncAllContacts();
+    }, (err) => console.warn('Staff sync warning:', err));
+
+    // 3. Sync Recent Chats summary for last message and timestamp
+    const qChats = query(collection(db, 'chats'), where('participants', 'array-contains', currentMyId));
+    const unsubChats = onSnapshot(qChats, (snap) => {
+      if (!snap.empty) {
+        const chatMap = {};
+        snap.forEach(docSnap => {
+          const cData = docSnap.data();
+          const otherParticipant = (cData.participants || []).find(p => p !== currentMyId);
+          if (otherParticipant) {
+            chatMap[otherParticipant] = {
+              lastMsg: cData.lastMessage || '',
+              time: cData.lastMessageTime ? new Date(cData.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+            };
+          }
+        });
+        setContacts(prev => prev.map(c => {
+          if (chatMap[c.id]) {
+            return {
+              ...c,
+              lastMsg: chatMap[c.id].lastMsg || c.lastMsg,
+              time: chatMap[c.id].time || c.time
+            };
+          }
+          return c;
+        }));
+      }
+    }, (err) => console.warn('Chats list listener warning:', err));
+
+    return () => {
+      unsubTenants();
+      unsubStaff();
+      unsubChats();
+    };
+  }, [user?.ownerUid, user?.adminId, (user?.id || user?.uid), staffProfile?.ownerUid]);
+
+  // ─── REALTIME MESSAGE LISTENER FOR ACTIVE CHAT ───
+  useEffect(() => {
+    const currentMyId = String(user?.id || user?.uid || staffProfile?.id || staffProfile?.uid || 'staff');
+    if (!activeContact?.id || !currentMyId) return;
+
+    const chatId = [currentMyId, String(activeContact.id)].sort().join('_');
+    const qChat = query(collection(db, 'chats', chatId, 'messages'), orderBy('timestamp', 'asc'));
+
+    const unsub = onSnapshot(qChat, (snap) => {
+      const msgs = snap.docs.map(docSnap => {
+        const d = docSnap.data({ serverTimestampBehavior: 'estimate' });
+        const ts = d.timestamp ? (d.timestamp.toMillis ? d.timestamp.toMillis() : (typeof d.timestamp === 'string' ? new Date(d.timestamp).getTime() : Date.now())) : Date.now();
+        return {
+          id: docSnap.id,
+          text: d.text,
+          rawTs: ts,
+          time: d.time || new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          me: String(d.senderId) === currentMyId
+        };
+      });
+      msgs.sort((a, b) => a.rawTs - b.rawTs);
+      setChatHist(prev => ({ ...prev, [activeContact.id]: msgs }));
+
+      if (msgs.length > 0) {
+        const last = msgs[msgs.length - 1];
+        setContacts(prev => prev.map(c => c.id === activeContact.id ? { ...c, lastMsg: last.text, time: last.time } : c));
+      }
+    }, (err) => {
+      console.warn("Active chat message sync error:", err);
+    });
+
+    return () => unsub();
+  }, [activeContact?.id, (user?.id || user?.uid), staffProfile?.id]);
 
   // Chat Reminder Modal
   const [showReminder, setShowReminder] = useState(false);
@@ -1633,19 +2175,43 @@ export default function StaffApp(){
 
     let activeTenants = [];
     let todayMeals = [];
+    let activeVacations = [];
 
     const computeStudents = () => {
+      const currentDateStr = workDate || todayStr;
       const studentsList = activeTenants.map(t => {
         const mealLog = todayMeals.find(m => m.tenantId === t.id);
+        const isVacB = isStudentOnVacation(activeVacations, t.id, currentDateStr, 'breakfast') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'breakfast');
+        const isVacL = isStudentOnVacation(activeVacations, t.id, currentDateStr, 'lunch') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'lunch');
+        const isVacS = isStudentOnVacation(activeVacations, t.id, currentDateStr, 'snacks') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'snacks');
+        const isVacD = isStudentOnVacation(activeVacations, t.id, currentDateStr, 'dinner') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'dinner');
+
+        const studentVac = getStudentActiveVacation(activeVacations, t.id, currentDateStr) || t.foodVacation || null;
+        const isFoodIncluded = t.foodIncluded !== false;
+
+        const resolveStatus = (isVac, val) => {
+          if (!isFoodIncluded) return 'selfCooking';
+          if (isVac) return 'onVacation';
+          if (val === 'not_eating') return 'notEaten';
+          if (val === 'eaten') return 'eaten';
+          if (val === 'pack') return 'pack';
+          if (val === 'extra') return 'extra';
+          return 'requested';
+        };
+
         return {
           id: t.id,
           name: t.name || 'Tenant',
           room: t.roomNo || t.room || t.subscribedPG?.roomNo || 'N/A',
+          bed: t.bedNo || t.bed || 'A',
           phone: t.phone || 'N/A',
-          statusB: mealLog?.breakfast === 'not_eating' ? 'notEaten' : mealLog?.breakfast === 'eaten' ? 'eaten' : 'requested',
-          statusL: mealLog?.lunch === 'not_eating' ? 'notEaten' : mealLog?.lunch === 'eaten' ? 'eaten' : 'requested',
-          statusS: mealLog?.snacks === 'not_eating' ? 'notEaten' : mealLog?.snacks === 'eaten' ? 'eaten' : 'requested',
-          statusD: mealLog?.dinner === 'not_eating' ? 'notEaten' : mealLog?.dinner === 'eaten' ? 'eaten' : 'requested'
+          foodIncluded: isFoodIncluded,
+          includedFoodPersons: t.includedFoodPersons || 1,
+          foodVacation: studentVac,
+          statusB: resolveStatus(isVacB, mealLog?.breakfast),
+          statusL: resolveStatus(isVacL, mealLog?.lunch),
+          statusS: resolveStatus(isVacS, mealLog?.snacks),
+          statusD: resolveStatus(isVacD, mealLog?.dinner)
         };
       });
       setStudents(studentsList);
@@ -1677,6 +2243,7 @@ export default function StaffApp(){
                 if (!t.name || t.name === 'Tenant') t.name = uData.name || uData.displayName || t.name;
                 if (!t.roomNo) t.roomNo = uData.subscribedPG?.roomNo || uData.profileData?.roomDetails?.roomNumber || '';
                 if (!t.room)   t.room   = t.roomNo;
+                if (uData.foodVacation) t.foodVacation = uData.foodVacation;
               }
             }
           } catch (e) { /* silently skip enrichment errors */ }
@@ -1697,6 +2264,17 @@ export default function StaffApp(){
       computeStudents();
     });
 
+    const qVacations = query(
+      collection(db, 'food_vacations'),
+      where('adminId', '==', adminId),
+      where('status', 'in', ['active', 'shortened'])
+    );
+    const unsubVacations = onSnapshot(qVacations, (snap) => {
+      activeVacations = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setVacations(activeVacations);
+      computeStudents();
+    }, (err) => console.error('computeStudents vacation error:', err));
+
     const unsubPG = onSnapshot(doc(db, 'pg_owners', adminId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -1705,6 +2283,20 @@ export default function StaffApp(){
         }
         if (data.foodMenu) {
           setWeeklyFoodMenu(data.foodMenu);
+        }
+        if (data.foodMenuImages) {
+          setFoodMenuImages(data.foodMenuImages);
+        } else if (data.foodImages) {
+          setFoodMenuImages(data.foodImages);
+        }
+        if (data.foodItemImages) {
+          setFoodItemImages(data.foodItemImages);
+        }
+        if (data.foodItemImages) {
+          setFoodItemImages(data.foodItemImages);
+        }
+        if (data.lastMenuEdit) {
+          setLastMenuEdit(data.lastMenuEdit);
         }
       }
     });
@@ -1741,36 +2333,7 @@ export default function StaffApp(){
     }
 
 
-    // 5. Staff-Admin Chat Sync
-    setContacts([{
-      id: adminId,
-      name: 'Manager / Admin',
-      avatar: '👑',
-      time: '',
-      lastMsg: 'Tap to chat with Admin',
-      isPinned: true
-    }]);
-
-    const chatId = [adminId, (user?.id || user?.uid)].sort().join('_');
-    const qChat = query(collection(db, 'chats', chatId, 'messages'), orderBy('timestamp', 'asc'));
-    const unsubChat = onSnapshot(qChat, (snap) => {
-      const msgs = snap.docs.map(doc => {
-        const d = doc.data({ serverTimestampBehavior: 'estimate' });
-        const ts = d.timestamp ? (d.timestamp.toMillis ? d.timestamp.toMillis() : (typeof d.timestamp === 'string' ? new Date(d.timestamp).getTime() : Date.now())) : Date.now();
-        return {
-          id: doc.id,
-          text: d.text,
-          rawTs: ts,
-          time: d.time || new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          me: d.senderId === (user.id || (user?.uid || user?.id))
-        };
-      });
-      msgs.sort((a, b) => a.rawTs - b.rawTs);
-      setChatHist({ [adminId]: msgs });
-      if (msgs.length > 0) {
-        setContacts(prev => prev.map(c => c.id === adminId ? { ...c, lastMsg: msgs[msgs.length - 1].text, time: msgs[msgs.length - 1].time } : c));
-      }
-    });
+    // (Dedicated Chat & Contact Sync effect handles all contacts and messaging)
 
     const qSalaries = query(collection(db, 'staff_salaries'), where('staffId', '==', (user?.id || user?.uid)));
     const unsubSalaries = onSnapshot(qSalaries, (snap) => {
@@ -1814,6 +2377,7 @@ export default function StaffApp(){
     return () => {
       unsubPG();
       unsubMeal();
+      if(unsubVacations) unsubVacations();
       unsubCleaning();
       unsubComplaints();
       unsubMyReqs();
@@ -1827,7 +2391,7 @@ export default function StaffApp(){
       if(unsubEnquiries) unsubEnquiries();
       if(unsubApplications) unsubApplications();
     };
-  }, [user?.ownerUid, (user?.id || user?.uid), user?.uid, fbAuthReady]);
+  }, [user?.ownerUid, (user?.id || user?.uid), user?.uid, fbAuthReady, workDate]);
 
   // Greeting
   const hr   = new Date().getHours();
@@ -2216,27 +2780,49 @@ export default function StaffApp(){
   };
 
   const sendMsg = async (e) => {
-    e.preventDefault();
-    if (!chatInput.trim() || !activeContact || !user) return;
-    const adminId = user.ownerUid;
-    const staffId = (user.id || (user?.uid || user?.id));
-    const chatId = getChatId(adminId, staffId);
-    
+    if (e && e.preventDefault) e.preventDefault();
+    if (!chatInput.trim() || !activeContact) return;
+    const text = chatInput.trim();
+    setChatInput('');
+
+    const currentAdminId = user?.ownerUid || user?.adminId || staffProfile?.ownerUid || staffProfile?.adminId || 'primary';
+    const currentMyId = String(user?.id || user?.uid || staffProfile?.id || staffProfile?.uid || 'staff');
+    const contactId = String(activeContact.id);
+    const chatId = getChatId(currentMyId, contactId);
+
     const newMsg = {
-      text: chatInput.trim(),
-      senderId: staffId,
+      text: text,
+      senderId: currentMyId,
+      senderName: staffName,
       timestamp: serverTimestamp(),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-    
-    setChatInput('');
+
+    // Immediate optimistic update
+    setChatHist(prev => ({
+      ...prev,
+      [contactId]: [
+        ...(prev[contactId] || []),
+        {
+          id: 'opt_' + Date.now(),
+          text: newMsg.text,
+          rawTs: Date.now(),
+          time: newMsg.time,
+          me: true
+        }
+      ]
+    }));
+
+    setContacts(prev => prev.map(c => c.id === contactId ? { ...c, lastMsg: text, time: newMsg.time } : c));
+
     try {
       await Promise.all([
         setDoc(doc(db, 'chats', chatId), {
-          participants: [adminId, staffId],
-          lastMessage: newMsg.text,
+          participants: [currentMyId, contactId],
+          lastMessage: text,
           lastMessageTime: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
+          adminId: currentAdminId
         }, { merge: true }),
         addDoc(collection(db, 'chats', chatId, 'messages'), newMsg)
       ]);
@@ -2493,7 +3079,7 @@ export default function StaffApp(){
       {/* ── HEADER (always visible) ──────────────────────────────────────── */}
       {view === 'home' ? (
         // Home Hero Header
-        <div style={{background: 'linear-gradient(to bottom, #fffef2, #fffdf0)', padding:'0 16px 20px', color: '#1a1500', borderBottom: '1.5px solid #e8df9a'}}>
+        <div style={{background: 'linear-gradient(to bottom, #fffef2, #fffdf0)', padding:'0 16px 20px', paddingTop:'max(0px, env(safe-area-inset-top, 0px))', color: '#1a1500', borderBottom: '1.5px solid #e8df9a'}}>
           <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', height:60, position:'relative'}}>
             <div style={{display:'flex', alignItems:'center', zIndex:10}}>
               <p style={{fontFamily:"'Hanken Grotesk',sans-serif", fontSize:24, fontWeight:900, color: '#1a1500', margin:0, letterSpacing:-.5}}>febebo</p>
@@ -2584,16 +3170,45 @@ export default function StaffApp(){
         </div>
       ) : view === 'chat' && activeContact ? (
         // Individual Chat Header
-        <div style={{display:'flex',alignItems:'center',gap:10,padding:'0 16px',height:64,background:'#fff',borderBottom: '1px solid #e2e8f0',position:'sticky',top:0,zIndex:50,boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,padding:'0 16px',height:64,background:'#fff',borderBottom: '1px solid #e2e8f0',position:'sticky',top:0,zIndex:50,boxShadow: '0 2px 10px rgba(15,23,42,0.03)'}}>
           <button onClick={() => setActiveContact(null)} style={{background:C.bg,border: '1px solid #e2e8f0',borderRadius:10,width:36,height:36,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0}}>
             <span className="material-symbols-outlined" style={{fontSize:20,color:C.sub}}>arrow_back_ios_new</span>
           </button>
-          <div style={{width:40,height:40,borderRadius: 8,background:meta.accentBg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>{activeContact.avatar}</div>
+          {(() => {
+            const av = getAvatarStyle(activeContact);
+            return (
+              <div style={{
+                width:40,
+                height:40,
+                borderRadius:'50%',
+                background: av.bg,
+                border:`1.5px solid ${av.border}`,
+                display:'flex',
+                alignItems:'center',
+                justifyContent:'center',
+                fontSize: av.isIcon ? 20 : 14,
+                fontWeight:800,
+                color: av.color,
+                flexShrink:0
+              }}>
+                {av.isIcon ? (
+                  <span className="material-symbols-outlined" style={{fontSize:20, color:av.color}}>{av.icon}</span>
+                ) : (
+                  getContactInitials(activeContact.name)
+                )}
+              </div>
+            );
+          })()}
           <div style={{flex:1, overflow:'hidden'}}>
             <p style={{margin:0,fontSize:15,fontWeight:800,color:C.text,whiteSpace:'nowrap',textOverflow:'ellipsis',overflow:'hidden'}}>{activeContact.name}</p>
             <p style={{margin:0,fontSize:11,color:C.muted}}>{activeContact.role}</p>
           </div>
-          <button onClick={openReminder} style={{background: activeContact.reminder ? '#fef3c7' : meta.accentBg, border: `1px solid ${activeContact.reminder ? '#fde68a' : meta.accent}`, borderRadius: 10, padding: '6px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: activeContact.reminder ? '#b45309' : meta.accent, fontSize: 12, fontWeight: 700, fontFamily: 'inherit'}}>
+          {activeContact.phone && (
+            <a href={`tel:${activeContact.phone}`} title={`Call ${activeContact.name}`} style={{background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2', textDecoration: 'none'}}>
+              <span className="material-symbols-outlined" style={{fontSize: 18}}>call</span>
+            </a>
+          )}
+          <button onClick={openReminder} style={{background: activeContact.reminder ? '#fef3c7' : '#f8fafc', border: `1px solid ${activeContact.reminder ? '#fde68a' : '#e2e8f0'}`, borderRadius: 10, padding: '6px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: activeContact.reminder ? '#b45309' : '#475569', fontSize: 12, fontWeight: 700, fontFamily: 'inherit'}}>
             <span className="material-symbols-outlined" style={{fontSize:16}}>{activeContact.reminder ? 'notifications_active' : 'notifications'}</span>
           </button>
         </div>
@@ -2637,13 +3252,21 @@ export default function StaffApp(){
               {id:'performance',label:'Performance',    icon:'star',                   bg:'#fff1f2', c:'#f43f5e'},
               ...(['Electrician', 'Manager'].includes(staffRole) ? [{id:'meter_reading', label:'Meter', icon:'electric_meter', bg:'#ecfeff', c:'#06b6d4'}] : []),
               {id:'requests',  label:'Requests',       icon:'approval',               bg:'#f5f3ff', c:'#8b5cf6'},
-              ...(staffRole === 'Cook' ? [{id:'foodMenu', label:'Food Menu', icon:'restaurant_menu', bg:'#ede9fe', c:'#a78bfa'}] : []),
+              ...(staffRole === 'Cook' ? [
+                {id:'foodMenu', label:'Food Menu', icon:'restaurant_menu', bg:'#ede9fe', c:'#a78bfa'},
+                {id:'menu_history', label:'Menu History', icon:'history', bg:'#fdf4ff', c:'#c026d3'},
+              ] : []),
               ...(staffRole === 'Manager' ? [
                 {id:'enquiry',    label:'Enquiry',      icon:'contact_support',        bg:'#ecfeff', c:'#0891b2'},
                 {id:'add_tenant', label:'Add Tenant',   icon:'person_add',             bg:'#f0fdf4', c:'#16a34a'},
               ] : []),
             ].map(m => (
               <button key={m.id} onClick={() => {
+                if (m.id === 'menu_history') {
+                  fetchCookMenuHistory();
+                  setShowMenuHistoryModal(true);
+                  return;
+                }
                 if (m.id === 'add_tenant') {
                   setMgr_serviceModal(true);
                   setMgr_addTenantStep(1);
@@ -2884,11 +3507,35 @@ export default function StaffApp(){
         return (
           <div style={{padding:'0 0 calc(32px + env(safe-area-inset-bottom, 0px))', display:'flex', flexDirection:'column', height:'100%'}}>
             <div style={{background:C.primary, padding:'20px 14px 14px', position:'sticky', top:0, zIndex:10, display:'flex', flexDirection:'column', gap:16}}>
-              <div style={{display:'flex', alignItems:'center', gap:10}}>
-                <button onClick={() => setView('home')} style={{background:'transparent', border:'none', padding:0, margin:0, cursor:'pointer', display:'flex', alignItems:'center'}}>
-                  <span className="material-symbols-outlined" style={{fontSize:24, color:'#000'}}>arrow_back</span>
+              <div style={{display:'flex', alignItems:'center', justifyContent: 'space-between', width: '100%'}}>
+                <div style={{display:'flex', alignItems:'center', gap:10}}>
+                  <button onClick={() => setView('home')} style={{background:'transparent', border:'none', padding:0, margin:0, cursor:'pointer', display:'flex', alignItems:'center'}}>
+                    <span className="material-symbols-outlined" style={{fontSize:24, color:'#000'}}>arrow_back</span>
+                  </button>
+                  <h2 style={{margin:0, fontSize:18, fontWeight:900, color:'#000'}}>Food Menu Timetable</h2>
+                </div>
+                <button 
+                  onClick={() => {
+                    fetchCookMenuHistory();
+                    setShowMenuHistoryModal(true);
+                  }}
+                  style={{
+                    background: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 10,
+                    padding: '6px 12px',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    color: '#6d28d9',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{fontSize:16, color: '#7c3aed'}}>history</span> History
                 </button>
-                <h2 style={{margin:0, fontSize:18, fontWeight:900, color:'#000'}}>Food Menu Timetable</h2>
               </div>
               
               <div style={{display:'flex', background:'#f1f5f9', borderRadius:12, padding:4}}>
@@ -2927,26 +3574,57 @@ export default function StaffApp(){
 
                   {/* Day's Menu */}
                   <div style={{background:'#fff', borderRadius:16, border: '1px solid #e2e8f0', padding:16, boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
-                    <h3 style={{margin:'0 0 12px', fontSize:16, fontWeight:900, color:'#000', borderBottom:'1px solid #f1f5f9', paddingBottom:8}}>{dayOfWeek}'s Menu</h3>
-                    
-                    {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(meal => (
-                      <div key={meal} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0'}}>
-                        <div style={{flex:1}}>
-                          <span style={{fontSize:11, fontWeight:800, color:C.muted, textTransform:'uppercase'}}>{meal}</span>
-                          <p style={{margin:'2px 0 0', fontSize:14, fontWeight:700, color:'#1e293b'}}>{mealsForDay?.[meal] || 'Not Set'}</p>
-                        </div>
-                        <button 
-                          onClick={() => {
-                            setEditWeeklyMenuDay(dayOfWeek);
-                            setEditWeeklyMenuMeal(meal);
-                            setEditWeeklyMenuVal(mealsForDay?.[meal] || '');
-                            setShowWeeklyMenuEdit(true);
-                          }}
-                          style={{background:C.bg, border: '1px solid #e2e8f0', borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:800, color:C.sub, cursor:'pointer', display:'flex', alignItems:'center', gap:4}}>
-                          <span className="material-symbols-outlined" style={{fontSize:14}}>edit</span> Edit
-                        </button>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', margin:'0 0 12px', borderBottom:'1px solid #f1f5f9', paddingBottom:8}}>
+                      <div>
+                        <h3 style={{margin:0, fontSize:16, fontWeight:900, color:'#000'}}>{dayOfWeek}'s Menu</h3>
+                        {lastMenuEdit && (
+                          <p style={{margin:'2px 0 0', fontSize:11, color:C.muted}}>
+                            Last edited by <span style={{fontWeight:800, color:lastMenuEdit.editorRole==='Cook'?'#16a34a':'#7c3aed'}}>{lastMenuEdit.editedBy} ({lastMenuEdit.editorRole})</span>
+                          </p>
+                        )}
                       </div>
-                    ))}
+                    </div>
+                    
+                    {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(meal => {
+                      const mealDishes = (mealsForDay?.[meal] || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+                      const dishImgs = foodItemImages?.[dayOfWeek]?.[meal] || {};
+
+                      return (
+                        <div key={meal} style={{padding:'10px 0', borderBottom:'1px solid #f8fafc'}}>
+                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:10}}>
+                            <div style={{flex:1, minWidth:0}}>
+                              <span style={{fontSize:11, fontWeight:800, color:C.muted, textTransform:'uppercase'}}>{meal}</span>
+                              <p style={{margin:'2px 0 0', fontSize:14, fontWeight:700, color:'#1e293b'}}>{mealsForDay?.[meal] || 'Not Set'}</p>
+                            </div>
+                            <button 
+                              onClick={() => openCookEditModal(dayOfWeek, meal)}
+                              style={{background:C.bg, border: '1px solid #e2e8f0', borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:800, color:C.sub, cursor:'pointer', display:'flex', alignItems:'center', gap:4, flexShrink:0}}>
+                              <span className="material-symbols-outlined" style={{fontSize:14}}>photo_camera</span> Edit
+                            </button>
+                          </div>
+
+                          {mealDishes.length > 0 && (
+                            <div style={{display:'flex', gap:8, overflowX:'auto', WebkitOverflowScrolling:'touch', marginTop:8, paddingBottom:2}}>
+                              {mealDishes.map((dish, i) => {
+                                const dImg = dishImgs[dish] || getDishPresetImage(dish);
+                                return (
+                                  <div key={i} style={{flexShrink:0, display:'flex', alignItems:'center', gap:6, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, padding:'4px 8px'}}>
+                                    {dImg ? (
+                                      <img src={dImg} alt={dish} style={{width:24, height:24, borderRadius:6, objectFit:'cover'}} />
+                                    ) : (
+                                      <div style={{width:24, height:24, borderRadius:6, background:'#e2e8f0', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                                        <span className="material-symbols-outlined" style={{fontSize:14, color:'#64748b'}}>restaurant</span>
+                                      </div>
+                                    )}
+                                    <span style={{fontSize:11, fontWeight:700, color:'#334155'}}>{dish}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -2959,24 +3637,67 @@ export default function StaffApp(){
                       <div key={dDay} style={{background:'#fff', borderRadius:16, border: '1px solid #e2e8f0', padding:16, boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
                         <h3 style={{margin:'0 0 12px', fontSize:16, fontWeight:900, color:'#166534', borderBottom:'1px solid #f1f5f9', paddingBottom:8}}>{dDay}</h3>
                         <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                          {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(meal => (
-                            <div key={meal} style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
-                              <div style={{flex:1}}>
-                                <span style={{fontSize:11, fontWeight:800, color:C.muted, textTransform:'uppercase'}}>{meal}</span>
-                                <p style={{margin:'2px 0 0', fontSize:14, fontWeight:700, color:'#334155'}}>{dMeals?.[meal] || 'Not Set'}</p>
+                          {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(meal => {
+                            const dPhoto = foodMenuImages?.[dDay]?.[meal];
+                            return (
+                              <div key={meal} style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:10}}>
+                                {dPhoto && (
+                                  <img src={dPhoto} alt={meal} style={{width:44, height:44, borderRadius:10, objectFit:'cover', border:'1px solid #e2e8f0', flexShrink:0}} />
+                                )}
+                                <div style={{flex:1, minWidth:0}}>
+                                  <div style={{display:'flex', alignItems:'center', gap:6}}>
+                                    <span style={{fontSize:11, fontWeight:800, color:C.muted, textTransform:'uppercase'}}>{meal}</span>
+                                    {dPhoto && <span style={{fontSize:10, background:'#dcfce7', color:'#166534', padding:'1px 5px', borderRadius:4, fontWeight:800}}>📷 Photo</span>}
+                                  </div>
+                                  {(() => {
+                                    const dItems = (dMeals?.[meal] || '').split(/[,;]/).map(s => s.trim()).filter(Boolean);
+                                    const dItemImgs = foodItemImages?.[dDay]?.[meal] || {};
+                                    if (dItems.length === 0) {
+                                      return <p style={{margin:'4px 0 0', fontSize:13, fontWeight:600, color:C.muted}}>Not set yet</p>;
+                                    }
+                                    return (
+                                      <div style={{display:'flex', gap:6, overflowX:'auto', WebkitOverflowScrolling:'touch', marginTop:6, paddingBottom:2}}>
+                                        {dItems.map((dish, i) => {
+                                          const dImg = dItemImgs[dish] || getDishPresetImage(dish);
+                                          return (
+                                            <div key={i} style={{flexShrink:0, display:'flex', alignItems:'center', gap:5, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, padding:'3px 7px'}}>
+                                              {dImg ? (
+                                                <img
+                                                  src={dImg}
+                                                  alt={dish}
+                                                  onError={(e) => {
+                                                    e.currentTarget.onerror = null;
+                                                    e.currentTarget.src = DEFAULT_FOOD_PLACEHOLDER;
+                                                  }}
+                                                  style={{width:22, height:22, borderRadius:5, objectFit:'cover'}}
+                                                />
+                                              ) : (
+                                                <div style={{width:22, height:22, borderRadius:5, background:'#e2e8f0', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                                                  <span className="material-symbols-outlined" style={{fontSize:13, color:'#64748b'}}>restaurant</span>
+                                                </div>
+                                              )}
+                                              <span style={{fontSize:11, fontWeight:700, color:'#334155'}}>{dish}</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                                <button 
+                                  onClick={() => {
+                                    setEditWeeklyMenuDay(dDay);
+                                    setEditWeeklyMenuMeal(meal);
+                                    setEditWeeklyMenuVal(dMeals?.[meal] || '');
+                                    setEditWeeklyMenuImage(foodMenuImages?.[dDay]?.[meal] || null);
+                                    setShowWeeklyMenuEdit(true);
+                                  }}
+                                  style={{background:'#f0fdf4', border: '1px solid #bbf7d0', borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:800, color:'#16a34a', cursor:'pointer', display:'flex', alignItems:'center', gap:4, flexShrink:0}}>
+                                  <span className="material-symbols-outlined" style={{fontSize:14}}>photo_camera</span> Edit
+                                </button>
                               </div>
-                              <button 
-                                onClick={() => {
-                                  setEditWeeklyMenuDay(dDay);
-                                  setEditWeeklyMenuMeal(meal);
-                                  setEditWeeklyMenuVal(dMeals?.[meal] || '');
-                                  setShowWeeklyMenuEdit(true);
-                                }}
-                                style={{background:'#f0fdf4', border: '1px solid #bbf7d0', borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:800, color:'#16a34a', cursor:'pointer', display:'flex', alignItems:'center', gap:4}}>
-                                <span className="material-symbols-outlined" style={{fontSize:14}}>edit</span> Edit
-                              </button>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -2985,44 +3706,7 @@ export default function StaffApp(){
               )}
             </div>
 
-            {/* Edit Modal */}
-            {showWeeklyMenuEdit && (
-              <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', flexDirection:'column', justifyContent:'flex-end'}}>
-                <div style={{background:'#fff', borderRadius:'24px 24px 0 0', padding:24, paddingBottom:'calc(24px + env(safe-area-inset-bottom, 0px))', animation:'slideUp 0.3s ease'}}>
-                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
-                    <h3 style={{margin:0, fontSize:18, fontWeight:900, color:'#000'}}>Edit {editWeeklyMenuDay} {editWeeklyMenuMeal}</h3>
-                    <span className="material-symbols-outlined" onClick={() => setShowWeeklyMenuEdit(false)} style={{cursor:'pointer', color:'#64748b'}}>close</span>
-                  </div>
-                  <input 
-                    autoFocus 
-                    type="text" 
-                    value={editWeeklyMenuVal} 
-                    onChange={e => setEditWeeklyMenuVal(e.target.value)} 
-                    style={{width:'100%', padding:14, borderRadius:12, border:'2px solid #e2e8f0', fontSize:15, fontWeight:700, outline:'none', fontFamily:'inherit', marginBottom:16}} 
-                  />
-                  <button 
-                    onClick={async () => {
-                       const newMenu = {
-                          ...weeklyFoodMenu,
-                          [editWeeklyMenuDay]: {
-                             ...weeklyFoodMenu[editWeeklyMenuDay],
-                             [editWeeklyMenuMeal]: editWeeklyMenuVal
-                          }
-                       };
-                       setWeeklyFoodMenu(newMenu);
-                       setShowWeeklyMenuEdit(false);
-                       if (user?.ownerUid) {
-                         try {
-                           await updateDoc(doc(db, 'pg_owners', user.ownerUid), { foodMenu: newMenu });
-                         } catch (e) { console.error('Failed to update menu', e); }
-                       }
-                    }}
-                    style={{width:'100%', padding:16, borderRadius:14, background:'#000', color:C.primary, fontSize:15, fontWeight:800, border:'none', cursor:'pointer', fontFamily:'inherit'}}>
-                    Save Changes
-                  </button>
-                </div>
-              </div>
-            )}
+            
           </div>
         );
       })()}
@@ -3080,15 +3764,26 @@ export default function StaffApp(){
                   </div>
                   <h3 style={{margin:'6px 0 0', fontSize:18, fontWeight:900, color:'#f8fafc'}}>Current Meal Eaten ({activeMeal})</h3>
                </div>
-               <div style={{display:'flex', alignItems:'flex-end', gap:12}}>
-                  <h1 style={{margin:0, fontSize:56, fontWeight:900, lineHeight:1, color:'#fde047'}}>
-                    {Object.keys(eatenData).filter(k => k.includes(`_${activeMeal}_eaten`)).length}
-                  </h1>
+               <div style={{display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:12}}>
+                  <div style={{display:'flex', alignItems:'baseline', gap:8}}>
+                    <h1 style={{margin:0, fontSize:56, fontWeight:900, lineHeight:1, color:'#fde047'}}>
+                      {Object.keys(eatenData).filter(k => k.includes(`_${activeMeal}_eaten`)).length}
+                    </h1>
+                    <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 600 }}>
+                      {(() => {
+                        const curMealKey = activeMeal === 'breakfast' ? 'statusB' : activeMeal === 'lunch' ? 'statusL' : activeMeal === 'snacks' ? 'statusS' : 'statusD';
+                        const onVacCount = students.filter(s => s[curMealKey] === 'onVacation').length;
+                        const selfCookingCount = students.filter(s => s[curMealKey] === 'selfCooking').length;
+                        const activeEaters = students.filter(s => s.foodIncluded !== false).length - onVacCount;
+                        return `/ ${activeEaters} active eating${onVacCount > 0 ? ` (${onVacCount} on leave)` : ''}${selfCookingCount > 0 ? ` · ${selfCookingCount} self-cooking` : ''}`;
+                      })()}
+                    </span>
+                  </div>
                </div>
 
                <div style={{display:'flex', gap:12, marginTop:8, position:'relative', zIndex:1}}>
-                  <button onClick={() => setShowScan(true)} style={{flex:1, background: '#10b981', color:'white', border:'none', padding:'12px', borderRadius:'14px', fontSize:14, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6, boxShadow:'0 4px 12px rgba(16,185,129,0.3)'}}>
-                     <span className="material-symbols-outlined" style={{fontSize:20}}>qr_code_scanner</span> Scan QR
+                  <button onClick={() => { setSelectedQRMeal(activeMeal || mealTab || 'lunch'); setShowMealQR(true); }} style={{flex:1.2, background: '#10b981', color:'white', border:'none', padding:'12px', borderRadius:'14px', fontSize:14, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6, boxShadow:'0 4px 12px rgba(16,185,129,0.3)'}}>
+                     <span className="material-symbols-outlined" style={{fontSize:20}}>qr_code_2</span> Generate QR
                   </button>
                   <button onClick={() => setShowManual(true)} style={{flex:1, background: 'rgba(255,255,255,0.1)', color:'white', border:'1px solid rgba(255,255,255,0.2)', padding:'12px', borderRadius:'14px', fontSize:14, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6}}>
                      <span className="material-symbols-outlined" style={{fontSize:20}}>list_alt</span> Select Manually
@@ -3134,13 +3829,46 @@ export default function StaffApp(){
             </div>
 
             {/* Menu Display */}
-            <div style={{background:'#fff', borderRadius:16, border: '1px solid #e2e8f0', padding:14, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-              <div>
-                <p style={{margin:0, fontSize:12, fontWeight:800, color:meta.accent, textTransform:'uppercase'}}>Today's {mealTab}</p>
-                <p style={{margin:'4px 0 0', fontSize:14, fontWeight:700, color:C.text}}>{weeklyFoodMenu?.[todayName]?.[mealTab] || 'No menu set'}</p>
-              </div>
-              <button onClick={()=>{setMenuEditVal(weeklyFoodMenu?.[todayName]?.[mealTab] || ''); setShowMenuEdit(true);}} style={{background:C.bg, border: '1px solid #e2e8f0', borderRadius:10, padding:'8px 12px', fontSize:12, fontWeight:800, color:C.sub, cursor:'pointer'}}>Edit</button>
-            </div>
+            {(() => {
+              const currentRawStr = weeklyFoodMenu?.[todayName]?.[mealTab] || '';
+              const todayDishes = currentRawStr.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+              const dishImgs = foodItemImages?.[todayName]?.[mealTab] || {};
+
+              return (
+                <div style={{background:'#fff', borderRadius:16, border: '1px solid #e2e8f0', padding:14, boxShadow:'0 2px 8px rgba(15,23,42,0.03)'}}>
+                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+                    <p style={{margin:0, fontSize:12, fontWeight:800, color:meta.accent, textTransform:'uppercase'}}>Today's {mealTab}</p>
+                    <button 
+                      onClick={() => openCookEditModal(todayName, mealTab)} 
+                      style={{background:C.bg, border: '1px solid #e2e8f0', borderRadius:10, padding:'6px 12px', fontSize:12, fontWeight:800, color:C.sub, cursor:'pointer', display:'flex', alignItems:'center', gap:4, flexShrink:0}}>
+                      <span className="material-symbols-outlined" style={{fontSize:15}}>photo_camera</span> Edit Items &amp; Photos
+                    </button>
+                  </div>
+
+                  {todayDishes.length === 0 ? (
+                    <p style={{margin:0, fontSize:13, color:C.muted, fontWeight:600}}>No menu set for today's {mealTab}</p>
+                  ) : (
+                    <div style={{display:'flex', gap:8, overflowX:'auto', WebkitOverflowScrolling:'touch', paddingBottom:2}}>
+                      {todayDishes.map((dish, i) => {
+                        const dImg = dishImgs[dish] || getDishPresetImage(dish);
+                        return (
+                          <div key={i} style={{flexShrink:0, display:'flex', alignItems:'center', gap:6, background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:10, padding:'5px 9px'}}>
+                            {dImg ? (
+                              <img src={dImg} alt={dish} style={{width:26, height:26, borderRadius:6, objectFit:'cover'}} />
+                            ) : (
+                              <div style={{width:26, height:26, borderRadius:6, background:'#e2e8f0', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                                <span className="material-symbols-outlined" style={{fontSize:15, color:'#64748b'}}>restaurant</span>
+                              </div>
+                            )}
+                            <span style={{fontSize:12, fontWeight:700, color:C.text}}>{dish}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Stat Cards & Filtered List */}
             {(() => {
@@ -3152,6 +3880,7 @@ export default function StaffApp(){
                  extra: students.filter(s=>s[mealKey]==='extra').length,
                  eaten: students.filter(s=>s[mealKey]==='eaten').length,
                  notEaten: students.filter(s=>s[mealKey]==='notEaten').length,
+                 onVacation: students.filter(s=>s[mealKey]==='onVacation').length,
                };
                
                const mult = timeFilter==='Monthly'?30:timeFilter==='Weekly'?7:1;
@@ -3161,7 +3890,8 @@ export default function StaffApp(){
                  {id:'pack', l:'To Pack', v:statsObj.pack*mult, c:'#000', bg:'#fef08a'},
                  {id:'extra', l:'Extra Plate', v:statsObj.extra*mult, c:'#000', bg:'#cffafe'},
                  {id:'eaten', l:'Eaten', v:statsObj.eaten*mult, c:'#000', bg:'#bbf7d0'},
-                 {id:'notEaten', l:'Not Eaten', v:statsObj.notEaten*mult, c:'#000', bg:'#fecaca'}
+                 {id:'notEaten', l:'Not Eaten', v:statsObj.notEaten*mult, c:'#000', bg:'#fecaca'},
+                 {id:'onVacation', l:'On Food Vacation', v:statsObj.onVacation*mult, c:'#7c3aed', bg:'#ede9fe'}
                ];
 
                return (
@@ -3183,6 +3913,56 @@ export default function StaffApp(){
                          <p style={{fontSize:11,fontWeight:800,color:'#000',margin:'4px 0 0',textTransform:'uppercase'}}>Extra Plate</p>
                        </div>
                     </div>
+
+                     {/* Dedicated On Food Vacation / Leave Stat Card */}
+                     <div
+                       onClick={() => setSelectedStat(selectedStat === 'onVacation' ? 'requested' : 'onVacation')}
+                       style={{
+                         background: selectedStat === 'onVacation' ? '#f5f3ff' : '#ffffff',
+                         border: `2px solid ${selectedStat === 'onVacation' ? '#7c3aed' : '#000'}`,
+                         borderRadius: 16,
+                         padding: '12px 16px',
+                         display: 'flex',
+                         alignItems: 'center',
+                         justifyContent: 'space-between',
+                         cursor: 'pointer',
+                         marginBottom: 12,
+                         boxShadow: selectedStat === 'onVacation' ? '0 4px 14px rgba(124,58,237,0.18)' : '0 2px 8px rgba(15,23,42,0.03)',
+                         transition: 'all 0.15s ease'
+                       }}
+                     >
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                         <div style={{
+                           width: 40,
+                           height: 40,
+                           borderRadius: 12,
+                           background: '#ede9fe',
+                           display: 'flex',
+                           alignItems: 'center',
+                           justifyContent: 'center',
+                           color: '#7c3aed',
+                           flexShrink: 0
+                         }}>
+                           <span className="material-symbols-outlined" style={{ fontSize: 24 }}>flight_takeoff</span>
+                         </div>
+                         <div>
+                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                             <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, color: '#7c3aed' }}>
+                               On Food Vacation / Leave
+                             </span>
+                             <span style={{ background: '#7c3aed', color: '#fff', fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 8 }}>
+                               Paused
+                             </span>
+                           </div>
+                           <p style={{ margin: '2px 0 0', fontSize: 13, fontWeight: 700, color: '#334155' }}>
+                             {statsObj.onVacation} student{statsObj.onVacation !== 1 ? 's' : ''} paused for {mealTab}
+                           </p>
+                         </div>
+                       </div>
+                       <div style={{ fontSize: 26, fontWeight: 900, color: '#7c3aed' }}>
+                         {statsObj.onVacation * mult}
+                       </div>
+                     </div>
 
                     <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:8, marginBottom: 16}}>
                       {[
@@ -3216,6 +3996,21 @@ export default function StaffApp(){
                                    {s[detailsKey]}
                                  </span>
                                )}
+                               {selectedStat === 'onVacation' && s.foodVacation && (
+                                 <>
+                                   <span style={{fontSize:11, fontWeight:800, color:'#7c3aed', background:'#ede9fe', padding:'4px 8px', borderRadius:8, border: '1px solid #ddd6fe'}}>
+                                     🗓️ {formatDateDisplay(s.foodVacation.startDate)} - {formatDateDisplay(s.foodVacation.endDate)}
+                                   </span>
+                                   <span style={{fontSize:11, fontWeight:700, color:'#6b21a8', background:'#f5f3ff', padding:'4px 8px', borderRadius:8}}>
+                                     🍽️ {s.foodVacation.isAllMeals ? 'All Meals' : (s.foodVacation.meals || []).map(m => m.charAt(0).toUpperCase() + m.slice(1)).join(', ')}
+                                   </span>
+                                   {s.foodVacation.reason && (
+                                     <span style={{fontSize:11, color:'#64748b', fontStyle:'italic'}}>
+                                       "{s.foodVacation.reason}"
+                                     </span>
+                                   )}
+                                 </>
+                               )}
                              </div>
                            </div>
                            
@@ -3236,9 +4031,9 @@ export default function StaffApp(){
                              
                              {/* Call Option for Students (especially Not Eaten) */}
                              <a href={`tel:${s.phone.replace(/\s+/g, '')}`} 
-                               style={{padding:'6px 10px', borderRadius:8, border: '1px solid #e2e8f0', background:'#bbf7d0', color:'#000', textDecoration:'none', fontSize:11, fontWeight:800, display:'inline-flex', alignItems:'center', gap:4, boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
-                               📞 Call
-                             </a>
+                                style={{padding:'6px 10px', borderRadius:8, border: '1px solid #e2e8f0', background:'#bbf7d0', color:'#000', textDecoration:'none', fontSize:11, fontWeight:800, display:'inline-flex', alignItems:'center', gap:4, boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
+                                📞 Call
+                              </a>
 
                              {/* Quick Action button for 'eaten' */}
                              {(selectedStat === 'requested' || selectedStat === 'notEaten') && timeFilter === 'Daily' && (
@@ -3249,6 +4044,11 @@ export default function StaffApp(){
                              )}
                              {selectedStat === 'eaten' && timeFilter === 'Daily' && (
                                 <Chip label="Eaten ✅" color="#166534" bg="#dcfce7"/>
+                             )}
+                             {selectedStat === 'onVacation' && (
+                                <span style={{padding:'6px 12px', borderRadius:8, background:'#ede9fe', color:'#7c3aed', fontSize:12, fontWeight:800, border: '1px solid #ddd6fe', display:'inline-flex', alignItems:'center', gap:4}}>
+                                  🏖️ Paused
+                                </span>
                              )}
                            </div>
                          </div>
@@ -6136,54 +6936,413 @@ export default function StaffApp(){
         </div>
       )}
 
-      {view === 'chat' && !activeContact && (
-        <div style={{padding:'16px 14px calc(96px + env(safe-area-inset-bottom, 0px))', display:'flex', flexDirection:'column', gap:10}}>
-          {contacts.map(c => (
-            <div key={c.id} onClick={() => setActiveContact(c)} style={{background:'#fff', borderRadius:14, padding:14, border:`1px solid ${C.border}`, display:'flex', alignItems:'center', gap:12, cursor:'pointer'}}>
-              <div style={{width:48, height:48, borderRadius:'50%', background:meta.accentBg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20}}>{c.avatar}</div>
-              <div style={{flex:1}}>
-                <div style={{display:'flex', justifyContent:'space-between'}}>
-                  <p style={{margin:0, fontSize:15, fontWeight:800, color:'#1e293b'}}>{c.name}</p>
-                  <span style={{fontSize:11, color:C.muted}}>{c.time}</span>
-                </div>
-                <p style={{margin:'2px 0 0', fontSize:13, color:'#64748b', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{c.lastMsg || 'Tap to chat'}</p>
-              </div>
+      {view === 'chat' && !activeContact && (() => {
+        const adminCount = contacts.filter(c => c.type === 'admin').length;
+        const studentCount = contacts.filter(c => c.type === 'student').length;
+        const staffCount = contacts.filter(c => c.type === 'staff').length;
+
+        const filtered = contacts
+          .filter(c => {
+            if (chatFilterTab === 'admin' && c.type !== 'admin') return false;
+            if (chatFilterTab === 'student' && c.type !== 'student') return false;
+            if (chatFilterTab === 'staff' && c.type !== 'staff') return false;
+            if (!chatSearch.trim()) return true;
+            const q = chatSearch.toLowerCase();
+            return (
+              (c.name || '').toLowerCase().includes(q) ||
+              (c.role || '').toLowerCase().includes(q) ||
+              (c.room || '').toLowerCase().includes(q) ||
+              (c.phone || '').includes(q) ||
+              (c.lastMsg || '').toLowerCase().includes(q)
+            );
+          })
+          .sort((a, b) => {
+            if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+            if (a.reminder && !b.reminder) return -1;
+            if (!a.reminder && b.reminder) return 1;
+            return 0;
+          });
+
+        return (
+          <div style={{padding:'14px 14px calc(100px + env(safe-area-inset-bottom, 0px))', display:'flex', flexDirection:'column', gap:12}}>
+            {/* Search Bar */}
+            <div style={{position:'relative', display:'flex', alignItems:'center'}}>
+              <span className="material-symbols-outlined" style={{position:'absolute', left:14, fontSize:20, color:'#94a3b8', pointerEvents:'none'}}>search</span>
+              <input
+                type="text"
+                placeholder="Search name, room, or role..."
+                value={chatSearch}
+                onChange={e => setChatSearch(e.target.value)}
+                style={{
+                  width:'100%',
+                  padding:'12px 38px 12px 42px',
+                  borderRadius:14,
+                  border:'1.5px solid #e2e8f0',
+                  background:'#fff',
+                  fontSize:14,
+                  fontWeight:600,
+                  color:'#1e293b',
+                  outline:'none',
+                  boxSizing:'border-box',
+                  fontFamily:'inherit',
+                  boxShadow:'0 2px 6px rgba(0,0,0,0.02)'
+                }}
+              />
+              {chatSearch && (
+                <button
+                  onClick={() => setChatSearch('')}
+                  style={{position:'absolute', right:12, background:'none', border:'none', cursor:'pointer', color:'#94a3b8', display:'flex', alignItems:'center', padding:0}}
+                >
+                  <span className="material-symbols-outlined" style={{fontSize:18}}>cancel</span>
+                </button>
+              )}
             </div>
-          ))}
-        </div>
-      )}
+
+            {/* Filter Tabs */}
+            <div style={{display:'flex', gap:8, overflowX:'auto', paddingBottom:2}}>
+              {[
+                { id: 'all', label: 'All', icon: 'chat_bubble', count: contacts.length },
+                { id: 'admin', label: 'Admin', icon: 'shield_person', count: adminCount },
+                { id: 'student', label: 'Students', icon: 'school', count: studentCount },
+                { id: 'staff', label: 'Staff', icon: 'badge', count: staffCount }
+              ].map(tab => {
+                const active = chatFilterTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setChatFilterTab(tab.id)}
+                    style={{
+                      padding:'8px 14px',
+                      borderRadius:12,
+                      border: active ? '1.5px solid #0f172a' : '1px solid #e2e8f0',
+                      background: active ? '#0f172a' : '#fff',
+                      color: active ? '#fff' : '#475569',
+                      fontSize:12.5,
+                      fontWeight:700,
+                      cursor:'pointer',
+                      display:'flex',
+                      alignItems:'center',
+                      gap:6,
+                      whiteSpace:'nowrap',
+                      transition:'all 0.15s',
+                      fontFamily:'inherit',
+                      boxShadow: active ? '0 2px 8px rgba(15,23,42,0.15)' : 'none'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{fontSize:15, color: active ? '#94a3b8' : '#64748b'}}>
+                      {tab.icon}
+                    </span>
+                    <span>{tab.label}</span>
+                    <span style={{
+                      fontSize:10.5,
+                      fontWeight:800,
+                      background: active ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                      color: active ? '#fff' : '#64748b',
+                      padding:'1px 6px',
+                      borderRadius:8
+                    }}>
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Contacts Feed */}
+            {filtered.length === 0 ? (
+              <div style={{background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:'36px 20px', textAlign:'center', marginTop:8}}>
+                <div style={{width:54, height:54, borderRadius:27, background:'#f1f5f9', display:'inline-flex', alignItems:'center', justifyContent:'center', marginBottom:12}}>
+                  <span className="material-symbols-outlined" style={{fontSize:28, color:'#94a3b8'}}>chat_bubble_outline</span>
+                </div>
+                <h4 style={{margin:0, fontSize:15, fontWeight:800, color:'#0f172a'}}>No conversations found</h4>
+                <p style={{margin:'4px 0 16px', fontSize:13, color:'#64748b'}}>
+                  {chatSearch ? `No contacts matching "${chatSearch}"` : 'No contacts in this category.'}
+                </p>
+                {(chatSearch || chatFilterTab !== 'all') && (
+                  <button
+                    onClick={() => { setChatSearch(''); setChatFilterTab('all'); }}
+                    style={{padding:'8px 16px', borderRadius:10, background:'#0891b2', color:'#fff', border:'none', fontSize:12, fontWeight:800, cursor:'pointer', fontFamily:'inherit'}}
+                  >
+                    Reset Filters
+                  </button>
+                )}
+              </div>
+            ) : (
+              filtered.map(c => {
+                const isStudent = c.type === 'student';
+                const isAdmin = c.type === 'admin';
+                const av = getAvatarStyle(c);
+
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => setActiveContact(c)}
+                    style={{
+                      background:'#fff',
+                      borderRadius:14,
+                      padding:'13px 15px',
+                      border: '1px solid #e2e8f0',
+                      borderLeft: c.isPinned ? '4px solid #0891b2' : '1px solid #e2e8f0',
+                      display:'flex',
+                      alignItems:'center',
+                      gap:12,
+                      cursor:'pointer',
+                      boxShadow:'0 1px 3px rgba(15,23,42,0.03)',
+                      transition:'all 0.15s',
+                      position:'relative'
+                    }}
+                  >
+                    {/* Avatar */}
+                    <div style={{
+                      width:44,
+                      height:44,
+                      borderRadius:'50%',
+                      background: av.bg,
+                      border: `1.5px solid ${av.border}`,
+                      display:'flex',
+                      alignItems:'center',
+                      justifyContent:'center',
+                      fontSize: av.isIcon ? 20 : 14,
+                      fontWeight:800,
+                      color: av.color,
+                      flexShrink:0,
+                      letterSpacing: av.isIcon ? 0 : 0.5
+                    }}>
+                      {av.isIcon ? (
+                        <span className="material-symbols-outlined" style={{fontSize:22, color:av.color}}>
+                          {av.icon}
+                        </span>
+                      ) : (
+                        getContactInitials(c.name)
+                      )}
+                    </div>
+
+                    {/* Middle Info */}
+                    <div style={{flex:1, minWidth:0}}>
+                      <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:3}}>
+                        <div style={{display:'flex', alignItems:'center', gap:6, minWidth:0}}>
+                          <p style={{margin:0, fontSize:15, fontWeight:700, color:'#0f172a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>
+                            {c.name}
+                          </p>
+                          {c.isPinned && (
+                            <span style={{
+                              display:'inline-flex',
+                              alignItems:'center',
+                              gap:3,
+                              fontSize:10,
+                              fontWeight:800,
+                              background:'#ecfeff',
+                              color:'#0891b2',
+                              border:'1px solid #cffafe',
+                              padding:'1px 6px',
+                              borderRadius:6
+                            }}>
+                              <span className="material-symbols-outlined" style={{fontSize:11, transform:'rotate(45deg)'}}>push_pin</span>
+                              PIN
+                            </span>
+                          )}
+                        </div>
+                        <span style={{fontSize:11, color:'#94a3b8', flexShrink:0, fontWeight:600}}>{c.time}</span>
+                      </div>
+
+                      <div style={{display:'flex', alignItems:'center', gap:6, marginBottom:4}}>
+                        <span style={{
+                          fontSize:11,
+                          fontWeight:600,
+                          padding:'2px 8px',
+                          borderRadius:6,
+                          background: isAdmin ? '#f0f9ff' : isStudent ? '#f8fafc' : '#f0fdf4',
+                          color: isAdmin ? '#0284c7' : isStudent ? '#475569' : '#15803d',
+                          border: `1px solid ${isAdmin ? '#e0f2fe' : isStudent ? '#e2e8f0' : '#dcfce7'}`,
+                          display:'inline-flex',
+                          alignItems:'center',
+                          gap:4
+                        }}>
+                          {isAdmin ? (
+                            <>
+                              <span className="material-symbols-outlined" style={{fontSize:13, color:'#0284c7'}}>verified</span>
+                              Property Admin
+                            </>
+                          ) : (
+                            c.role || (isStudent ? 'Student' : 'Staff')
+                          )}
+                        </span>
+                      </div>
+
+                      <p style={{
+                        margin:0,
+                        fontSize:12.5,
+                        color: (c.lastMsg && !c.lastMsg.startsWith('Tap to chat')) ? '#64748b' : '#94a3b8',
+                        whiteSpace:'nowrap',
+                        overflow:'hidden',
+                        textOverflow:'ellipsis'
+                      }}>
+                        {(c.lastMsg && !c.lastMsg.startsWith('Tap to chat')) ? c.lastMsg : 'Send a message'}
+                      </p>
+
+                      {c.reminder && (
+                        <div style={{display:'flex', alignItems:'center', gap:4, marginTop:4, fontSize:10.5, color:'#b45309', background:'#fffbeb', padding:'2px 6px', borderRadius:6, border:'1px solid #fef3c7', width:'fit-content'}}>
+                          <span className="material-symbols-outlined" style={{fontSize:13}}>alarm</span>
+                          <span>{c.reminder}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Icon / Call */}
+                    <div style={{display:'flex', alignItems:'center', gap:8}}>
+                      {c.phone && (
+                        <a
+                          href={`tel:${c.phone}`}
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            width:34,
+                            height:34,
+                            borderRadius:'50%',
+                            background:'#f8fafc',
+                            border:'1px solid #e2e8f0',
+                            display:'flex',
+                            alignItems:'center',
+                            justifyContent:'center',
+                            color:'#0891b2',
+                            textDecoration:'none',
+                            transition:'all 0.15s'
+                          }}
+                          title={`Call ${c.name}`}
+                        >
+                          <span className="material-symbols-outlined" style={{fontSize:16}}>call</span>
+                        </a>
+                      )}
+                      <span className="material-symbols-outlined" style={{fontSize:18, color:'#cbd5e1'}}>chevron_right</span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        );
+      })()}
 
       {view === 'chat' && activeContact && (
         /* Chat root: full remaining viewport height, flex column, no fixed positioning needed */
         <div style={{display:'flex', flexDirection:'column', height:'calc(100vh - 64px)', background:'#f8fafc', overflow:'hidden'}}>
           {/* Scrollable messages */}
-          <div style={{flex:1, minHeight:0, overflowY:'auto', padding:'16px 14px', display:'flex', flexDirection:'column', gap:12, paddingBottom:16}}>
+          <div style={{flex:1, minHeight:0, overflowY:'auto', padding:'16px 14px', display:'flex', flexDirection:'column', gap:10, paddingBottom:16}}>
+            {/* Contact header banner */}
+            <div style={{background:'#fff', borderRadius:14, padding:'10px 14px', border:'1px solid #e2e8f0', display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4}}>
+              <div style={{display:'flex', alignItems:'center', gap:10}}>
+                {(() => {
+                  const av = getAvatarStyle(activeContact);
+                  return (
+                    <div style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: '50%',
+                      background: av.bg,
+                      border: `1.5px solid ${av.border}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: av.isIcon ? 18 : 13,
+                      fontWeight: 800,
+                      color: av.color,
+                      flexShrink: 0
+                    }}>
+                      {av.isIcon ? (
+                        <span className="material-symbols-outlined" style={{fontSize: 18, color: av.color}}>{av.icon}</span>
+                      ) : (
+                        getContactInitials(activeContact.name)
+                      )}
+                    </div>
+                  );
+                })()}
+                <div>
+                  <p style={{margin:0, fontSize:13, fontWeight:800, color:'#0f172a'}}>{activeContact.name}</p>
+                  <p style={{margin:0, fontSize:11, color:'#64748b'}}>{activeContact.role || 'Member'}</p>
+                </div>
+              </div>
+              {activeContact.phone && (
+                <a href={`tel:${activeContact.phone}`} style={{background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, padding:'5px 12px', fontSize:11.5, fontWeight:700, color:'#0891b2', textDecoration:'none', display:'flex', alignItems:'center', gap:4}}>
+                  <span className="material-symbols-outlined" style={{fontSize:15}}>call</span>
+                  <span>Call</span>
+                </a>
+              )}
+            </div>
+
             {(chatHist[activeContact.id] || []).length === 0 ? (
-              <p style={{textAlign:'center', color:C.muted, fontSize:13, marginTop:20}}>Start a conversation...</p>
+              <div style={{textAlign:'center', padding:'30px 14px', color:'#64748b'}}>
+                <div style={{width:48, height:48, borderRadius:24, background:'#e0f2fe', display:'inline-flex', alignItems:'center', justifyContent:'center', marginBottom:10}}>
+                  <span className="material-symbols-outlined" style={{fontSize:24, color:'#0891b2'}}>waving_hand</span>
+                </div>
+                <h4 style={{margin:0, fontSize:15, fontWeight:800, color:'#0f172a'}}>Say hello to {activeContact.name}!</h4>
+                <p style={{margin:'4px 0 14px', fontSize:12, color:'#94a3b8'}}>Send a message or update them on your work.</p>
+                <div style={{display:'flex', gap:6, justifyContent:'center', flexWrap:'wrap'}}>
+                  {['👋 Hello!', 'Everything is done ✅', 'Please check and verify'].map(quick => (
+                    <button
+                      key={quick}
+                      onClick={() => {
+                        setChatInput(quick);
+                      }}
+                      style={{background:'#fff', border:'1px solid #e2e8f0', borderRadius:20, padding:'6px 12px', fontSize:12, fontWeight:700, color:'#334155', cursor:'pointer'}}
+                    >
+                      {quick}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : (
               (chatHist[activeContact.id] || []).map((msg, i) => (
-                <div key={i} style={{alignSelf: msg.me ? 'flex-end' : 'flex-start', maxWidth:'75%'}}>
-                  <div style={{background: msg.me ? C.primary : '#fff', color: msg.me ? '#000' : '#1e293b', padding:'10px 14px', borderRadius:16, borderTopRightRadius: msg.me?4:16, borderTopLeftRadius: msg.me?16:4, fontSize:14, fontWeight:500, boxShadow:'0 2px 8px rgba(15,23,42,0.04)'}}>
+                <div key={msg.id || i} style={{alignSelf: msg.me ? 'flex-end' : 'flex-start', maxWidth:'80%'}}>
+                  <div style={{
+                    background: msg.me ? C.primary : '#fff',
+                    color: msg.me ? '#1a1500' : '#1e293b',
+                    padding:'10px 14px',
+                    borderRadius:16,
+                    borderTopRightRadius: msg.me ? 4 : 16,
+                    borderTopLeftRadius: msg.me ? 16 : 4,
+                    fontSize:14,
+                    fontWeight:500,
+                    boxShadow:'0 2px 8px rgba(15,23,42,0.04)',
+                    border: msg.me ? 'none' : '1px solid #e2e8f0',
+                    lineHeight: 1.4,
+                    wordBreak: 'break-word'
+                  }}>
                     {msg.text}
                   </div>
-                  <p style={{margin:'4px 4px 0', fontSize:10, color:C.muted, textAlign: msg.me ? 'right' : 'left'}}>{msg.time}</p>
+                  <p style={{margin:'4px 6px 0', fontSize:10, color:C.muted, textAlign: msg.me ? 'right' : 'left', fontWeight:600}}>
+                    {msg.time}
+                  </p>
                 </div>
               ))
             )}
             <div ref={chatEndRef} />
           </div>
-          {/* Input bar: inline (not fixed) so it moves up with the keyboard */}
-          <div style={{flexShrink:0, background:'#fff', padding:'12px 16px', paddingBottom:'calc(12px + env(safe-area-inset-bottom, 16px))', borderTop:'1px solid #e2e8f0', display:'flex', gap:10, zIndex:40}}>
+          {/* Input bar: inline so it moves up with keyboard */}
+          <div style={{flexShrink:0, background:'#fff', padding:'12px 14px', paddingBottom:'calc(12px + env(safe-area-inset-bottom, 16px))', borderTop:'1px solid #e2e8f0', display:'flex', gap:8, zIndex:40}}>
             <input 
               type="text" 
-              placeholder="Type a message..." 
+              placeholder={`Message ${activeContact.name}...`} 
               value={chatInput}
               onChange={e => setChatInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && sendMsg(e)}
-              style={{flex:1, background:'#f1f5f9', border:'none', borderRadius:20, padding:'12px 16px', fontSize:14, outline:'none'}}
+              style={{flex:1, background:'#f1f5f9', border:'none', borderRadius:20, padding:'12px 16px', fontSize:14, outline:'none', fontFamily:'inherit'}}
             />
-            <button onClick={sendMsg} style={{background:C.primary, border:'none', borderRadius:'50%', width:44, height:44, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>
-              <span className="material-symbols-outlined" style={{fontSize:20, color:'#000'}}>send</span>
+            <button
+              onClick={sendMsg}
+              disabled={!chatInput.trim()}
+              style={{
+                background: chatInput.trim() ? C.primary : '#e2e8f0',
+                border:'none',
+                borderRadius:'50%',
+                width:44,
+                height:44,
+                display:'flex',
+                alignItems:'center',
+                justifyContent:'center',
+                cursor: chatInput.trim() ? 'pointer' : 'default',
+                transition:'all 0.15s'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{fontSize:20, color: chatInput.trim() ? '#1a1500' : '#94a3b8'}}>send</span>
             </button>
           </div>
         </div>
@@ -6799,6 +7958,433 @@ export default function StaffApp(){
           <button type="submit" style={{padding:14,background:meta.grad,color:'#000',border: '1px solid #e2e8f0',borderRadius:14,fontSize:14,fontWeight:800,cursor:'pointer',fontFamily:'inherit',boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>Save Menu</button>
         </form>
       </Sheet>
+
+      {/* ── COOK EDIT MENU & PER-ITEM PHOTOS MODAL ── */}
+      {showWeeklyMenuEdit && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', zIndex: 999,
+          display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'
+        }}>
+          <div style={{
+            background: '#fff',
+            borderRadius: '24px 24px 0 0',
+            padding: 22,
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+            animation: 'slideUp 0.3s ease',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            {/* Hidden Photo Input for Camera/Gallery */}
+            <input
+              type="file"
+              ref={cookPhotoInputRef}
+              accept="image/*"
+              capture="environment"
+              style={{ display: 'none' }}
+              onChange={handleCookPhotoSelect}
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 800, color: meta.accent, textTransform: 'uppercase' }}>Kitchen Menu &amp; Photos</span>
+                <h3 style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 900, color: '#000' }}>
+                  Edit {editWeeklyMenuDay} {editWeeklyMenuMeal}
+                </h3>
+              </div>
+              <span className="material-symbols-outlined" onClick={() => setShowWeeklyMenuEdit(false)} style={{ cursor: 'pointer', color: '#64748b' }}>close</span>
+            </div>
+
+            {/* Current Items List */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 800, color: '#1e293b', textTransform: 'uppercase' }}>
+                  Items in this Meal ({editWeeklyMenuItems.length})
+                </label>
+                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Tap photo to take/change</span>
+              </div>
+
+              {editWeeklyMenuItems.length === 0 ? (
+                <div style={{ padding: 14, background: '#f8fafc', borderRadius: 12, textAlign: 'center', border: '1.5px dashed #cbd5e1', color: '#64748b', fontSize: 13, fontWeight: 600 }}>
+                  No items added yet. Click dishes below to add them with photos!
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, overflowY: 'auto', paddingRight: 2 }}>
+                  {editWeeklyMenuItems.map((item, idx) => (
+                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '8px 10px' }}>
+                      {/* Dish Photo Thumbnail */}
+                      <div
+                        onClick={() => {
+                          setActiveCookPhotoIndex(idx);
+                          setShowCookItemPhotoPicker(true);
+                        }}
+                        style={{
+                          width: 44, height: 44, borderRadius: 10,
+                          backgroundImage: `url(${item.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop'})`,
+                          backgroundSize: 'cover', backgroundPosition: 'center',
+                          border: '1.5px solid #cbd5e1', cursor: 'pointer', flexShrink: 0,
+                          position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end'
+                        }}
+                      >
+                        <div style={{ background: 'rgba(15,23,42,0.7)', color: '#fff', borderRadius: 4, padding: '1px 3px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 12 }}>photo_camera</span>
+                        </div>
+                      </div>
+
+                      {/* Name input */}
+                      <input
+                        type="text"
+                        value={item.name}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEditWeeklyMenuItems(prev => prev.map((it, i) => i === idx ? { ...it, name: val } : it));
+                        }}
+                        placeholder="e.g. 4 Roti"
+                        style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, outline: 'none', fontFamily: 'inherit', background: '#fff' }}
+                      />
+
+                      {/* Photo change button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveCookPhotoIndex(idx);
+                          setShowCookItemPhotoPicker(true);
+                        }}
+                        style={{ background: '#ede9fe', color: '#7c3aed', border: 'none', borderRadius: 8, padding: '7px 9px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>photo_camera</span>
+                        Photo
+                      </button>
+
+                      {/* Delete button */}
+                      <button
+                        type="button"
+                        onClick={() => setEditWeeklyMenuItems(prev => prev.filter((_, i) => i !== idx))}
+                        style={{ background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Quick Pick Common PG Dishes */}
+            <div style={{ marginBottom: 16, background: '#f8fafc', borderRadius: 16, padding: 12, border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: '#0f172a', textTransform: 'uppercase' }}>
+                  ⚡ Quick Add Common Dishes
+                </span>
+                <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700 }}>Pre-made Photos</span>
+              </div>
+
+              {/* Categories */}
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 6, marginBottom: 8 }}>
+                {DISH_CATEGORIES.map(cat => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setCookPresetCategory(cat)}
+                    style={{
+                      padding: '4px 10px', borderRadius: 16, border: 'none',
+                      background: cookPresetCategory === cat ? '#000' : '#fff',
+                      color: cookPresetCategory === cat ? C.primary : '#64748b',
+                      fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search */}
+              <input
+                type="text"
+                placeholder="Search dish (e.g. Paneer, Roti, Dal, Poha)..."
+                value={cookPresetSearch}
+                onChange={e => setCookPresetSearch(e.target.value)}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 12, fontWeight: 600, outline: 'none', fontFamily: 'inherit', marginBottom: 8, boxSizing: 'border-box' }}
+              />
+
+              {/* Grid of Dishes */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8, maxHeight: 150, overflowY: 'auto', paddingRight: 2 }}>
+                {COMMON_PG_DISHES
+                  .filter(d => cookPresetCategory === 'All' || d.category === cookPresetCategory)
+                  .filter(d => !cookPresetSearch || d.name.toLowerCase().includes(cookPresetSearch.toLowerCase()))
+                  .map(dish => {
+                    const isAdded = editWeeklyMenuItems.some(it => it.name.toLowerCase() === dish.name.toLowerCase());
+                    return (
+                      <div
+                        key={dish.id}
+                        onClick={() => {
+                          if (isAdded) return;
+                          setEditWeeklyMenuItems(prev => [
+                            ...prev,
+                            { id: Math.random().toString(36).substring(2, 9), name: dish.name, image: dish.image }
+                          ]);
+                        }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6,
+                          background: isAdded ? '#f0fdf4' : '#fff',
+                          border: `1px solid ${isAdded ? '#86efac' : '#e2e8f0'}`,
+                          borderRadius: 10, padding: '5px 8px', cursor: isAdded ? 'default' : 'pointer'
+                        }}
+                      >
+                        <img src={dish.image} alt={dish.name} style={{ width: 30, height: 30, borderRadius: 6, objectFit: 'cover' }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 11, fontWeight: 800, color: isAdded ? '#15803d' : '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {dish.name}
+                          </p>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: isAdded ? '#16a34a' : meta.accent }}>
+                            {isAdded ? 'Added ✓' : '+ Add'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Custom Item Adder */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <input
+                type="text"
+                placeholder="Or type custom dish..."
+                value={cookCustomItemInput}
+                onChange={e => setCookCustomItemInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && cookCustomItemInput.trim()) {
+                    e.preventDefault();
+                    const name = cookCustomItemInput.trim();
+                    const presetImg = getDishPresetImage(name);
+                    setEditWeeklyMenuItems(prev => [
+                      ...prev,
+                      { id: Math.random().toString(36).substring(2, 9), name, image: presetImg || null }
+                    ]);
+                    setCookCustomItemInput('');
+                  }
+                }}
+                style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1.5px solid #cbd5e1', fontSize: 13, fontWeight: 700, outline: 'none', fontFamily: 'inherit' }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!cookCustomItemInput.trim()) return;
+                  const name = cookCustomItemInput.trim();
+                  const presetImg = getDishPresetImage(name);
+                  setEditWeeklyMenuItems(prev => [
+                    ...prev,
+                    { id: Math.random().toString(36).substring(2, 9), name, image: presetImg || null }
+                  ]);
+                  setCookCustomItemInput('');
+                }}
+                style={{ background: '#000', color: C.primary, border: 'none', borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                + Add Dish
+              </button>
+            </div>
+
+            {/* Save Button */}
+            <button
+              onClick={handleCookSaveMenu}
+              style={{
+                width: '100%', padding: 16, borderRadius: 14,
+                background: '#000', color: C.primary, fontSize: 15, fontWeight: 800,
+                border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>save</span>
+              Save {editWeeklyMenuItems.length} Dishes &amp; Photos
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── COOK MENU EDIT HISTORY MODAL ── */}
+      {showMenuHistoryModal && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.6)', zIndex: 1060,
+          display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+          alignItems: 'center'
+        }}>
+          <div style={{
+            background: '#fff',
+            borderRadius: '24px 24px 0 0',
+            width: '100%',
+            maxWidth: 480,
+            padding: 22,
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+            maxHeight: '82vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 -10px 40px rgba(0,0,0,0.2)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#ede9fe', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 22 }}>history</span>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#000' }}>Menu Edit History</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: 11, color: C.muted }}>Who edited the menu &amp; when</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowMenuHistoryModal(false)} 
+                style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {loadingMenuHistory ? (
+                <div style={{ textAlign: 'center', padding: '36px 0', color: C.muted, fontSize: 13, fontWeight: 700 }}>
+                  Loading edit logs...
+                </div>
+              ) : menuHistoryList.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 16px', color: '#94a3b8' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 40, color: '#cbd5e1' }}>history_toggle_off</span>
+                  <p style={{ margin: '8px 0 0', fontSize: 14, fontWeight: 800, color: '#475569' }}>No menu edits recorded yet</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 11, color: '#94a3b8' }}>Edits made by Admin or Cook will appear here.</p>
+                </div>
+              ) : (
+                menuHistoryList.map((entry, idx) => (
+                  <div key={entry.id || idx} style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 14,
+                    padding: 12,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{
+                        fontSize: 10,
+                        fontWeight: 900,
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        background: entry.editorRole === 'Cook' ? '#dcfce7' : '#ede9fe',
+                        color: entry.editorRole === 'Cook' ? '#166534' : '#6d28d9',
+                        textTransform: 'uppercase'
+                      }}>
+                        {entry.editorRole || 'Staff'}: {entry.editedBy || 'Unknown'}
+                      </span>
+                      <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
+                        {entry.editedAt ? new Date(entry.editedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Recently'}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 15, color: '#16a34a' }}>restaurant_menu</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>
+                        {entry.day} · {entry.meal}
+                      </span>
+                      {entry.hasPhotos && (
+                        <span style={{ fontSize: 10, background: '#ecfdf5', color: '#059669', padding: '1px 6px', borderRadius: 4, fontWeight: 800 }}>
+                          📷 Photos Attached
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.4, background: '#fff', padding: '6px 10px', borderRadius: 8, border: '1px solid #f1f5f9' }}>
+                      <span style={{ fontWeight: 700, color: '#1e293b' }}>Items: </span>
+                      {entry.dishesSummary || 'Updated'}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── COOK ITEM PHOTO PICKER DRAWER ── */}
+      {showCookItemPhotoPicker && activeCookPhotoIndex !== null && editWeeklyMenuItems[activeCookPhotoIndex] && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.65)', zIndex: 1050,
+          display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'
+        }}>
+          <div style={{
+            background: '#fff',
+            borderRadius: '24px 24px 0 0',
+            padding: 20,
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+            maxHeight: '85vh',
+            overflowY: 'auto'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div>
+                <span style={{ fontSize: 11, fontWeight: 800, color: meta.accent, textTransform: 'uppercase' }}>Dish Photo</span>
+                <h3 style={{ margin: '2px 0 0', fontSize: 17, fontWeight: 900, color: '#000' }}>
+                  Photo for "{editWeeklyMenuItems[activeCookPhotoIndex]?.name}"
+                </h3>
+              </div>
+              <span className="material-symbols-outlined" onClick={() => setShowCookItemPhotoPicker(false)} style={{ cursor: 'pointer', color: '#64748b' }}>close</span>
+            </div>
+
+            {/* Current Photo Preview */}
+            {editWeeklyMenuItems[activeCookPhotoIndex]?.image && (
+              <div style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', border: '1.5px solid #e2e8f0', marginBottom: 14, height: 110 }}>
+                <img src={editWeeklyMenuItems[activeCookPhotoIndex].image} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditWeeklyMenuItems(prev => prev.map((it, i) => i === activeCookPhotoIndex ? { ...it, image: null } : it));
+                  }}
+                  style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(239,68,68,0.9)', color: '#fff', border: 'none', borderRadius: 8, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+                >
+                  Remove Photo
+                </button>
+              </div>
+            )}
+
+            {/* Action 1: Snap photo with Camera */}
+            <button
+              type="button"
+              onClick={() => cookPhotoInputRef.current?.click()}
+              disabled={isProcessingCookPhoto}
+              style={{
+                width: '100%', padding: 14, borderRadius: 12,
+                border: '2px dashed #000', background: '#f8fafc',
+                color: '#000', fontSize: 13, fontWeight: 800,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: 8, marginBottom: 14
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 22, color: meta.accent }}>photo_camera</span>
+              {isProcessingCookPhoto ? 'Compressing photo...' : 'Snap with Camera (Back Lens) or Upload'}
+            </button>
+
+            {/* Action 2: Choose from Preset Library */}
+            <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 800, color: '#334155', textTransform: 'uppercase' }}>
+              Or Choose Pre-made Photo:
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(95px, 1fr))', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
+              {COMMON_PG_DISHES.map(dish => (
+                <div
+                  key={dish.id}
+                  onClick={() => {
+                    setEditWeeklyMenuItems(prev => prev.map((it, i) => i === activeCookPhotoIndex ? { ...it, image: dish.image } : it));
+                    setShowCookItemPhotoPicker(false);
+                  }}
+                  style={{ border: '1.5px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', cursor: 'pointer', background: '#f8fafc', textAlign: 'center' }}
+                >
+                  <img src={dish.image} alt={dish.name} style={{ width: '100%', height: 65, objectFit: 'cover' }} />
+                  <p style={{ margin: '4px 2px', fontSize: 10, fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {dish.name}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <Sheet show={showPackEdit} onClose={()=>setShowPackEdit(false)} title={selectedStat === 'extra' ? "Extra Plate Details" : "Pack Details"} sub={`For ${students.find(s=>s.id===packStudentId)?.name || 'Student'}`}>
         <form onSubmit={e=>{
@@ -7473,6 +9059,84 @@ export default function StaffApp(){
         </div>
       )}
 
+      {/* Cook Meal QR Display Modal */}
+      {showMealQR && (() => {
+        const currentM = (selectedQRMeal || activeMeal || 'lunch').toLowerCase();
+        const mLabel = currentM.charAt(0).toUpperCase() + currentM.slice(1);
+        const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+        const qrValue = `FEBEBO_MEAL|${user?.ownerUid || ''}|${currentM}|${todayStr}`;
+        const currentEatenCount = Object.keys(eatenData).filter(k => k.includes(`_${currentM}_eaten`)).length;
+        
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(8px)', padding: 16 }}>
+            <div style={{ background: 'white', borderRadius: 28, width: '100%', maxWidth: 380, padding: '24px 20px', textAlign: 'center', position: 'relative', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)' }}>
+              <button 
+                onClick={() => setShowMealQR(false)} 
+                style={{ position: 'absolute', top: 16, right: 16, background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+              </button>
+
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#ecfdf5', color: '#059669', padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                Counter QR Pass
+              </div>
+
+              <h3 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 900, color: '#0f172a' }}>{mLabel} QR Pass</h3>
+              <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b', fontWeight: 600 }}>
+                Keep this screen open for students to scan
+              </p>
+
+              {/* Meal Selector Tabs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 18, background: '#f8fafc', padding: 4, borderRadius: 14, border: '1px solid #e2e8f0' }}>
+                {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(m => {
+                  const isSel = (selectedQRMeal || activeMeal || 'lunch').toLowerCase() === m.toLowerCase();
+                  return (
+                    <button 
+                      key={m}
+                      onClick={() => setSelectedQRMeal(m.toLowerCase())}
+                      style={{
+                        padding: '8px 2px',
+                        border: 'none',
+                        borderRadius: 10,
+                        background: isSel ? '#0f172a' : 'transparent',
+                        color: isSel ? '#ffffff' : '#64748b',
+                        fontWeight: 800,
+                        fontSize: 11,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {m}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* QR Code Container with High Contrast */}
+              <div style={{ background: '#ffffff', padding: 20, borderRadius: 24, border: '2px solid #e2e8f0', display: 'inline-block', boxShadow: '0 8px 20px rgba(0,0,0,0.06)', marginBottom: 16 }}>
+                <QRCode value={qrValue} size={210} level="M" />
+              </div>
+
+              {/* Live Count Ticker directly below QR */}
+              <div style={{ background: 'linear-gradient(135deg, #1e293b, #0f172a)', color: 'white', borderRadius: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div style={{ textAlign: 'left' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Live Headcount</span>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: '#fde047' }}>{mLabel} Eaten</div>
+                </div>
+                <div style={{ fontSize: 32, fontWeight: 900, color: '#ffffff' }}>
+                  {currentEatenCount}
+                </div>
+              </div>
+
+              <p style={{ margin: 0, fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
+                Date: {todayStr} · {user?.ownerUid ? `PG ID: ${user.ownerUid.substring(0, 8)}...` : ''}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Scanner Modal */}
       {showScan && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'black', display: 'flex', flexDirection: 'column' }}>
@@ -7514,7 +9178,9 @@ export default function StaffApp(){
         const statusKey = activeMealStr === 'breakfast' ? 'statusB' : activeMealStr === 'lunch' ? 'statusL' : activeMealStr === 'snacks' ? 'statusS' : 'statusD';
         // Show all students who have NOT been confirmed eaten yet (via QR/manual)
         const notEatenStudents = students.filter(s =>
-          !eatenData[`${s.id}_${activeMealStr}_eaten`] && s[statusKey] !== 'eaten'
+          !eatenData[`${s.id}_${activeMealStr}_eaten`] && 
+          s[statusKey] !== 'eaten' &&
+          s[statusKey] !== 'onVacation'
         );
 
         // Rooms that still have pending (not-eaten) students

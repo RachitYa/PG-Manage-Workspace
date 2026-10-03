@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import DetailedReceiptModal, { CollectPaymentModal } from '../components/DetailedReceiptModal';
-import { collection, query, where, getDocs, getDoc, doc, updateDoc, addDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc, updateDoc, addDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
+import { getTodayStr, getStudentActiveVacation, formatDateDisplay } from '../utils/vacationUtils';
 
 const BASE = { backgroundColor: '#f8fafc', minHeight: '100vh', position: 'relative', paddingBottom: 80, fontFamily: "'Hanken Grotesk', sans-serif" };
 const cyan = '#0ea5e9';
@@ -146,6 +147,7 @@ function UserListView({ onBack, onAdd, onSelect, initialTab = 'Current User' }) 
   const [activeReceipt, setActiveReceipt] = useState(null);
   const [collectModalData, setCollectModalData] = useState(null);
   const [users, setUsers] = useState([]);
+  const [vacations, setVacations] = useState([]);
   const [loading, setLoading] = useState(true);
   const { user, activePgId } = useAuth();
   const [approveUser, setApproveUser] = useState(null);
@@ -241,12 +243,17 @@ function UserListView({ onBack, onAdd, onSelect, initialTab = 'Current User' }) 
     if (!user?.uid) return;
     const fetchUsers = async () => {
       try {
-        const rSnap = await getDocs(query(collection(db, 'rooms'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)));
-        setRooms(rSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const matchesPg = (itemPgId) => {
+          if (!activePgId || activePgId === 'primary') return true;
+          return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+        };
 
-        const q = query(collection(db, 'tenants'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
+        const rSnap = await getDocs(query(collection(db, 'rooms'), where('adminId', '==', user.uid)));
+        setRooms(rSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(r => matchesPg(r.pgId)));
+
+        const q = query(collection(db, 'tenants'), where('adminId', '==', user.uid));
         const snap = await getDocs(q);
-        const fetchedTenants = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const fetchedTenants = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(t => matchesPg(t.pgId));
         
         // Fetch corresponding user profiles to get real profile pictures
         const enrichedTenants = await Promise.all(fetchedTenants.map(async (t) => {
@@ -269,6 +276,7 @@ function UserListView({ onBack, onAdd, onSelect, initialTab = 'Current User' }) 
                 if (t.meterReading === undefined || t.meterReading === null || t.meterReading === '') {
                   t.meterReading = uData.subscribedPG?.meterReadingAtJoin !== undefined ? uData.subscribedPG?.meterReadingAtJoin : '';
                 }
+                if (uData.foodVacation) t.foodVacation = uData.foodVacation;
               }
             }
           } catch (e) { console.error("Error fetching user profile", e); }
@@ -284,6 +292,20 @@ function UserListView({ onBack, onAdd, onSelect, initialTab = 'Current User' }) 
     };
     fetchUsers();
   }, [user]);
+
+  // Real-time listener for food_vacations to track active pauses
+  useEffect(() => {
+    if (!user?.uid) return;
+    const qVac = query(
+      collection(db, 'food_vacations'),
+      where('adminId', '==', user.uid),
+      where('status', 'in', ['active', 'shortened'])
+    );
+    const unsub = onSnapshot(qVac, (snap) => {
+      setVacations(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Error fetching food vacations:", err));
+    return () => unsub();
+  }, [user?.uid]);
 
   const getRoomOccupancy = () => {
     return rooms.map(r => {
@@ -417,6 +439,7 @@ function UserListView({ onBack, onAdd, onSelect, initialTab = 'Current User' }) 
     { id: 'Upcoming User', label: 'Upcoming\nUser', icon: 'person_add' },
     { id: 'Current User', label: 'Current\nUser', icon: 'person' },
     { id: 'On Notice Period', label: 'On Notice\nPeriod', icon: 'person_remove' },
+    { id: 'Removed', label: 'Removed\nStudents', icon: 'person_off' },
   ];
 
   return (
@@ -426,19 +449,19 @@ function UserListView({ onBack, onAdd, onSelect, initialTab = 'Current User' }) 
         {/* Search */}
         <div style={{ position: 'relative', marginBottom: 20 }}>
           <span className="material-symbols-outlined" style={{ position: 'absolute', left: 14, top: 12, color: cyan, fontSize: 20 }}>search</span>
-          <input type="text" placeholder="Search Product" value={search} onChange={e => setSearch(e.target.value)}
+          <input type="text" placeholder="Search by name, ID or phone..." value={search} onChange={e => setSearch(e.target.value)}
             style={{ width: '100%', padding: '12px 12px 12px 42px', borderRadius: 8, border: `1px solid ${cyan}`, fontSize: 14, outline: 'none' }} />
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 24 }}>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '12px 8px', borderRadius: 12, border: tab === t.id ? `1.5px solid ${cyan}` : '1px solid #e2e8f0', background: 'white', cursor: 'pointer' }}>
-              <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(14,165,233,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span className="material-symbols-outlined" style={{ color: cyan, fontSize: 22 }}>{t.icon}</span>
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px', borderRadius: 12, border: tab === t.id ? `1.5px solid ${t.id === 'Removed' ? '#ef4444' : cyan}` : '1px solid #e2e8f0', background: 'white', cursor: 'pointer', transition: 'all 0.2s' }}>
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: t.id === 'Removed' ? (tab === t.id ? '#fee2e2' : 'rgba(239,68,68,0.1)') : (tab === t.id ? 'rgba(14,165,233,0.18)' : 'rgba(14,165,233,0.1)'), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-outlined" style={{ color: t.id === 'Removed' ? '#ef4444' : cyan, fontSize: 20 }}>{t.icon}</span>
               </div>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#334155', whiteSpace: 'pre-line', textAlign: 'center', lineHeight: 1.2 }}>{t.label}</span>
+              <span style={{ fontSize: 10.5, fontWeight: tab === t.id ? 800 : 600, color: tab === t.id ? (t.id === 'Removed' ? '#dc2626' : '#0369a1') : '#334155', whiteSpace: 'pre-line', textAlign: 'center', lineHeight: 1.2 }}>{t.label}</span>
             </button>
           ))}
         </div>
@@ -453,35 +476,73 @@ function UserListView({ onBack, onAdd, onSelect, initialTab = 'Current User' }) 
           ) : (
             (() => {
               const filteredUsers = users.filter(u => {
-                const matchesSearch = u.name?.toLowerCase().includes(search.toLowerCase());
+                const matchesSearch = (u.name || '').toLowerCase().includes(search.toLowerCase()) ||
+                                      (u.studentId || '').toLowerCase().includes(search.toLowerCase()) ||
+                                      (u.phone || '').includes(search);
                 const isCurrent = u.status === 'Approved' || u.status === 'Current User';
                 const isUpcoming = u.status === 'Pending' || u.status === 'Upcoming User' || !u.status;
                 const isNotice = u.status === 'Notice' || u.status === 'On Notice Period';
+                const isRemoved = u.status === 'Removed' || u.status === 'Moved Out' || u.status === 'kicked' || u.status === 'Left';
                 
                 if (tab === 'Current User') return isCurrent && matchesSearch;
                 if (tab === 'Upcoming User') return isUpcoming && matchesSearch;
                 if (tab === 'On Notice Period') return isNotice && matchesSearch;
+                if (tab === 'Removed') return isRemoved && matchesSearch;
                 return false;
               });
+
+              // Sort serial-wise alphabetically (A-Z)
+              filteredUsers.sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
 
               if (filteredUsers.length === 0) {
                 return (
                   <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
                     <span className="material-symbols-outlined" style={{ fontSize: 48, color: '#cbd5e1', marginBottom: 12 }}>group_off</span>
-                    <p style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>No users yet</p>
+                    <p style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{tab === 'Removed' ? 'No removed students' : 'No users yet'}</p>
                   </div>
                 );
               }
 
-              return filteredUsers.map(u => (
+              return filteredUsers.map((u, idx) => {
+                const today = getTodayStr();
+                const activeVac = getStudentActiveVacation(vacations, u.id, today) || 
+                                  getStudentActiveVacation(vacations, u.tenantId, today) ||
+                                  (u.foodVacation && (u.foodVacation.status === 'active' || u.foodVacation.status === 'shortened') && today >= u.foodVacation.startDate && today <= u.foodVacation.endDate ? u.foodVacation : null);
+
+                return (
                 <div key={u.id} onClick={() => onSelect(u)} style={{ background: 'white', borderRadius: 14, padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, border: '1px solid #f1f5f9', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                   <div style={{ display: 'flex', gap: 12, alignItems: 'center', flex: 1 }}>
-                    <img src={u.kyc?.profilePhoto || u.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=0891b2&color=fff&size=150`} alt={u.name} style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover' }} />
+                    <div style={{ position: 'relative' }}>
+                      <img src={u.kyc?.profilePhoto || u.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=0891b2&color=fff&size=150`} alt={u.name} style={{ width: 60, height: 60, borderRadius: 10, objectFit: 'cover' }} />
+                      <span style={{ position: 'absolute', top: -5, left: -5, background: tab === 'Removed' ? '#dc2626' : '#0f172a', color: 'white', borderRadius: '50%', width: 20, height: 20, fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid white' }}>{idx + 1}</span>
+                    </div>
                     <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3 }}>
-                      <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: 0 }}>{u.name}</p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: 0 }}>{u.name}</p>
+                        {activeVac && (
+                          <span style={{
+                            fontSize: 10,
+                            background: '#f5f3ff',
+                            color: '#7c3aed',
+                            border: '1px solid #ddd6fe',
+                            padding: '2px 8px',
+                            borderRadius: 6,
+                            fontWeight: 800,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3
+                          }}>
+                            🌴 On Food Pause ({formatDateDisplay(activeVac.endDate)})
+                          </span>
+                        )}
+                      </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span className="material-symbols-outlined" style={{ fontSize: 14, color: cyan }}>badge</span>
-                        <span style={{ fontSize: 12, color: '#64748b' }}>{u.studentId || 'No ID'} · Room {u.roomNo || 'TBD'}</span>
+                        <span style={{ fontSize: 12, color: '#64748b' }}>
+                          {u.studentId
+                            ? u.studentId
+                            : (u.id ? '#FB-' + String(u.id).slice(0, 8).toUpperCase() : '—')} · Room {u.roomNo || 'TBD'}
+                        </span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span className="material-symbols-outlined" style={{ fontSize: 14, color: cyan }}>call</span>
@@ -500,8 +561,20 @@ function UserListView({ onBack, onAdd, onSelect, initialTab = 'Current User' }) 
                       <p style={{ margin: 0, fontSize: 10, color: '#be123c', fontWeight: 600 }}>Days Left</p>
                     </div>
                   )}
+                  {tab === 'Removed' && (
+                    <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                      <span style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
+                        Removed
+                      </span>
+                      {u.removedAt && (
+                        <span style={{ fontSize: 10, color: '#94a3b8' }}>
+                          {new Date(u.removedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ));
+              ); });
             })()
           )}
         </div>

@@ -17,6 +17,7 @@
     "@capacitor/core": "^8.4.1",
     "@capacitor/geolocation": "^8.2.0",
     "@ionic/pwa-elements": "^3.4.0",
+    "@yudiel/react-qr-scanner": "^2.6.0",
     "firebase": "^12.16.0",
     "jimp": "^1.6.1",
     "leaflet": "^1.9.4",

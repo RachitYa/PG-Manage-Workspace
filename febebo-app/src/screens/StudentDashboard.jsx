@@ -11,6 +11,9 @@ import BottomNav from '../components/BottomNav';
 import './StudentDashboard.css';
 import './FilterModal.css';
 import StudentDetailsModal from '../components/StudentDetailsModal';
+import StudentOutstandingDuesModal from '../components/StudentOutstandingDuesModal';
+import StudentOutstandingDuesBar from '../components/StudentOutstandingDuesBar';
+import { aggregateTenantDues } from '../utils/duesUtils';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -23,6 +26,13 @@ const StudentDashboard = () => {
   const [isLocating, setIsLocating] = useState(false);
   const [isLocationAccurate, setIsLocationAccurate] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Outstanding Dues Dynamic State
+  const [customDues, setCustomDues] = useState([]);
+  const [meterBills, setMeterBills] = useState([]);
+  const [userPayments, setUserPayments] = useState([]);
+  const [showDuesModal, setShowDuesModal] = useState(false);
+  const [duesRefreshKey, setDuesRefreshKey] = useState(0);
   const [showPayModal, setShowPayModal] = useState(false);
   const [fullPaymentMode, setFullPaymentMode] = useState('Online');
   const [fullTransactionId, setFullTransactionId] = useState('');
@@ -59,6 +69,27 @@ const StudentDashboard = () => {
     }
   }, [user?.pgStatus, user?.detailsFilled]);
 
+  // Outstanding Dues Real-Time Listeners
+  useEffect(() => {
+    if (!user?.uid) return;
+    const qDues = query(collection(db, 'outstanding_dues'), where('tenantId', '==', user.uid));
+    const unsubDues = onSnapshot(qDues, (snap) => {
+      setCustomDues(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Error fetching dues:", err));
+
+    const qMeter = query(collection(db, 'meter_bills'), where('tenantId', '==', user.uid), where('status', '==', 'Unpaid'));
+    const unsubMeter = onSnapshot(qMeter, (snap) => {
+      setMeterBills(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Error fetching meter bills:", err));
+
+    const qPay = query(collection(db, 'users', user.uid, 'payments'));
+    const unsubPay = onSnapshot(qPay, (snap) => {
+      setUserPayments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Error fetching payments:", err));
+
+    return () => { unsubDues(); unsubMeter(); unsubPay(); };
+  }, [user?.uid, duesRefreshKey]);
+
   const [remainTransId, setRemainTransId] = useState('');
   const [remainReceivedBy, setRemainReceivedBy] = useState('');
   const [remainScreenshot, setRemainScreenshot] = useState(null);
@@ -80,6 +111,29 @@ const StudentDashboard = () => {
   const [kycOccupation, setKycOccupation] = useState('Student');
   const [kycCollegeCompany, setKycCollegeCompany] = useState('');
   const [kycLoading, setKycLoading] = useState(false);
+
+  // Prefill KYC form if student already has details saved
+  useEffect(() => {
+    if (!user) return;
+    const pd = user.profileData || {};
+    const kd = user.kycData || pd.kycData || {};
+    const k = user.kyc || pd.kyc || {};
+    const parents = user.parentsDetails || pd.parentsDetails || {};
+
+    if (kd.dob || user.dob || pd.dob) setKycDob(kd.dob || user.dob || pd.dob || '');
+    if (kd.permanentAddress || user.permanentAddress || pd.permanentAddress) setKycPermAddr(kd.permanentAddress || user.permanentAddress || pd.permanentAddress || '');
+    if (kd.correspondingAddress || user.correspondingAddress || pd.correspondingAddress) setKycCorrAddr(kd.correspondingAddress || user.correspondingAddress || pd.correspondingAddress || '');
+    if (kd.fatherName || parents.fatherName) setKycFatherName(kd.fatherName || parents.fatherName || '');
+    if (kd.fatherPhone || parents.fatherPhone) setKycFatherPhone(kd.fatherPhone || parents.fatherPhone || '');
+    if (kd.motherName || parents.motherName) setKycMotherName(kd.motherName || parents.motherName || '');
+    if (kd.motherPhone || parents.motherPhone) setKycMotherPhone(kd.motherPhone || parents.motherPhone || '');
+    if (kd.parentsAddress || parents.address) setKycParentsAddr(kd.parentsAddress || parents.address || '');
+    if (kd.aadharNumber || k.aadharNumber || user.aadhar) setKycAadharNum(kd.aadharNumber || k.aadharNumber || user.aadhar || '');
+    if (kd.aadharFront || k.aadharFront) setKycAadharFront(kd.aadharFront || k.aadharFront || null);
+    if (kd.aadharBack || k.aadharBack) setKycAadharBack(kd.aadharBack || k.aadharBack || null);
+    if (kd.occupationType) setKycOccupation(kd.occupationType);
+    if (kd.collegeName || kd.companyName || user.occupation?.details) setKycCollegeCompany(kd.collegeName || kd.companyName || user.occupation?.details || '');
+  }, [user, showKycModal]);
 
   const [activeFilter, setActiveFilter] = useState('All');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
@@ -169,9 +223,16 @@ const StudentDashboard = () => {
           
           let matchCity = true;
           if (user?.locationData?.type === 'manual' && pgData.location?.city) {
-            const userCity = (user.locationData.city || '').toLowerCase();
-            const pgCity = (pgData.location.city || '').toLowerCase();
-            if (!pgCity.includes(userCity)) matchCity = false;
+            const userCity = (user.locationData.city || '').toLowerCase().trim();
+            const pgCity = (pgData.location.city || '').toLowerCase().trim();
+            const ncrTerms = ['greater noida', 'noida', 'gautam buddha nagar', 'dadri'];
+            const userInNcr = ncrTerms.some(t => userCity.includes(t));
+            const pgInNcr = ncrTerms.some(t => pgCity.includes(t));
+            if (userInNcr && pgInNcr) {
+              matchCity = true;
+            } else if (!pgCity.includes(userCity) && !userCity.includes(pgCity)) {
+              matchCity = false;
+            }
           }
           if (matchCity) {
             pgs.push({ id: doc.id, distanceKm, ...pgData });
@@ -621,26 +682,45 @@ const StudentDashboard = () => {
 
           <div className="hero-greeting">
             <h1>Hi, {firstName} 👋</h1>
-            <p>Find your perfect PG nearby</p>
+            <p>{(user?.hasPG && user?.subscribedPG?.pgName) ? user.subscribedPG.pgName : "Find your perfect PG nearby"}</p>
           </div>
 
           {/* Stats strip */}
-          <div className="stats-strip">
-            <div className="stat-item">
-              <Building2 size={16} color="#dcfce7" />
-              <span><strong>{pgList.length}</strong> PGs</span>
+          {user?.hasPG && user?.subscribedPG ? (
+            <div className="stats-strip">
+              <div className="stat-item">
+                <Home size={16} color="#dcfce7" />
+                <span>Room <strong>{user?.subscribedPG?.roomNo || 'N/A'}</strong></span>
+              </div>
+              <div className="stat-divider" />
+              <div className="stat-item">
+                <Users size={16} color="#dcfce7" />
+                <span>Bed <strong>{user?.subscribedPG?.bedNo || 'N/A'}</strong></span>
+              </div>
+              <div className="stat-divider" />
+              <div className="stat-item">
+                <Building2 size={16} color="#dcfce7" />
+                <span>Status: <strong>{user?.subscribedPG?.status || user?.pgStatus || 'Pending'}</strong></span>
+              </div>
             </div>
-            <div className="stat-divider" />
-            <div className="stat-item">
-              <Navigation size={16} color="#dcfce7" />
-              <span><strong>5km</strong> Radius</span>
+          ) : (
+            <div className="stats-strip">
+              <div className="stat-item">
+                <Building2 size={16} color="#dcfce7" />
+                <span><strong>{pgList.length}</strong> PGs</span>
+              </div>
+              <div className="stat-divider" />
+              <div className="stat-item">
+                <Navigation size={16} color="#dcfce7" />
+                <span><strong>5km</strong> Radius</span>
+              </div>
+              <div className="stat-divider" />
+              <div className="stat-item">
+                <Users size={16} color="#dcfce7" />
+                <span><strong>All</strong> Types</span>
+              </div>
             </div>
-            <div className="stat-divider" />
-            <div className="stat-item">
-              <Users size={16} color="#dcfce7" />
-              <span><strong>All</strong> Types</span>
-            </div>
-          </div>
+          )}
         </div>
 
         {!user?.hasPG ? (
@@ -712,151 +792,6 @@ const StudentDashboard = () => {
                   <Home size={40} color="#cbd5e1" />
                   <p>No PGs found matching your search</p>
                 </div>
-              ) : user?.pgStatus === 'Upcoming User' ? (
-                (() => {
-                  const kycStatus = user?.subscribedPG?.kycStatus;
-                  const dueDate = user?.subscribedPG?.remainingPaymentDueDate;
-                  const isOverdue = dueDate && new Date() >= new Date(dueDate);
-                  const pv = user?.subscribedPG?.paymentVerificationPending;
-                  const remainingAmt = Number(user?.subscribedPG?.remainingAmount !== undefined ? user.subscribedPG.remainingAmount : (user?.subscribedPG?.leaseAmount ? (user.subscribedPG.leaseAmount - (user.subscribedPG.tokenPaid || 0)) : 0));
-                  const isFullPaid = user?.subscribedPG?.fullPaymentPaid || 
-                                     user?.subscribedPG?.paymentMode === 'Full Payment' || 
-                                     remainingAmt <= 0;
-
-                  const DummyDashboard = () => (
-                    <div style={{ filter: 'blur(5px)', pointerEvents: 'none', padding: '0 20px', userSelect: 'none', opacity: 0.6, marginTop: 24 }}>
-                      <div style={{ height: 90, background: 'white', borderRadius: 20, marginBottom: 20, boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }} />
-                      <div style={{ height: 24, width: '40%', background: '#e2e8f0', borderRadius: 12, marginBottom: 16 }} />
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                        {[1, 2, 3, 4, 5, 6].map(i => (
-                          <div key={i} style={{ height: 100, background: 'white', borderRadius: 16, boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }} />
-                        ))}
-                      </div>
-                    </div>
-                  );
-
-                  const renderOverlayCard = (icon, iconColor, bgGrad, title, subtitle, btnText, btnAction) => (
-                    <div style={{ position: 'relative', overflow: 'hidden' }}>
-                      <DummyDashboard />
-                      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 10 }}>
-                        <div style={{ background: 'rgba(255, 255, 255, 0.85)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', padding: '32px 24px', borderRadius: 28, boxShadow: '0 24px 48px rgba(0,0,0,0.1), 0 0 0 1px rgba(255,255,255,0.5)', textAlign: 'center', width: '100%', maxWidth: 320 }}>
-                          <div style={{ width: 68, height: 68, borderRadius: '50%', background: bgGrad, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', boxShadow: `0 8px 16px ${iconColor}40` }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 32, color: 'white' }}>{icon}</span>
-                          </div>
-                          <h3 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 800, color: '#0f172a' }}>{title}</h3>
-                          <p style={{ margin: btnText ? '0 0 24px' : '0', fontSize: 14, color: '#64748b', lineHeight: 1.5 }}>{subtitle}</p>
-                          {btnText && (
-                            <button onClick={btnAction} style={{ width: '100%', padding: '14px 20px', background: 'linear-gradient(135deg, #0891b2, #06b6d4)', color: 'white', border: 'none', borderRadius: 14, fontWeight: 800, fontSize: 15, cursor: 'pointer', boxShadow: '0 8px 16px rgba(8,145,178,0.25)', transition: 'transform 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-                              onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
-                              onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-                            >
-                              {btnText}
-                              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_forward</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-
-                  if (user?.detailsFilled || kycStatus === 'under_review') {
-                    return renderOverlayCard(
-                      'hourglass_empty', '#0284c7', 'linear-gradient(135deg, #0ea5e9, #0284c7)',
-                      'Under Review 🔍',
-                      'Your details are being reviewed by the admin. The dashboard will unlock automatically once approved.',
-                      null, null
-                    );
-                  }
-
-                  if (isFullPaid) {
-                    return renderOverlayCard(
-                      'verified_user', '#059669', 'linear-gradient(135deg, #10b981, #059669)',
-                      'Payment Completed ✅',
-                      'Your full payment has been recorded! Please fill your details to complete your admission.',
-                      'Fill Details Now',
-                      () => setShowDetailsModal(true)
-                    );
-                  }
-
-                  if (kycStatus === 'payment_approved_kyc_pending' && isOverdue) {
-                    return renderOverlayCard(
-                      'lock', '#d97706', 'linear-gradient(135deg, #f59e0b, #d97706)',
-                      'Dashboard Locked',
-                      'Your payment due date has passed. Please pay your full payment to unlock the dashboard.',
-                      'Pay Full Payment',
-                      () => setShowFullRemainModal(true)
-                    );
-                  }
-
-                  if (kycStatus === 'payment_approved_kyc_pending' && !isOverdue) {
-                    return renderOverlayCard(
-                      'verified_user', '#059669', 'linear-gradient(135deg, #10b981, #059669)',
-                      'Payment Verified ✅',
-                      'Your payment was approved! Please provide your details to finally enter the dashboard.',
-                      'Fill Details Now',
-                      () => setShowDetailsModal(true)
-                    );
-                  }
-
-                  if (kycStatus === 'partial_pending_approval') {
-                    return renderOverlayCard(
-                      'pending_actions', '#b45309', 'linear-gradient(135deg, #d97706, #b45309)',
-                      'Awaiting Approval ⏳',
-                      'Your partial payment request has been sent. Once the admin approves it, you can fill your details.',
-                      null, null
-                    );
-                  }
-
-                  if (kycStatus === 'payment_pending_approval') {
-                    return renderOverlayCard(
-                      'payments', '#0f766e', 'linear-gradient(135deg, #14b8a6, #0f766e)',
-                      'Payment Under Verification 💰',
-                      'Your payment has been submitted. The admin will verify and approve your access shortly.',
-                      null, null
-                    );
-                  }
-
-                  if (pv && remainingAmt > 0) return (
-                    <div style={{ padding: '0 20px', marginTop: '24px', marginBottom: '40px' }}>
-                      <div style={{ background: 'linear-gradient(135deg, #166534, #064e3b)', padding: '32px 24px', borderRadius: '24px', color: 'white', boxShadow: '0 12px 24px rgba(22,101,52,0.2)', marginBottom: '24px', textAlign: 'center' }}>
-                        <div style={{ width: '64px', height: '64px', background: 'rgba(255,255,255,0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}><CheckCircle size={32} color="#fff" /></div>
-                        <h2 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 12px' }}>Payment Logged ✅</h2>
-                        <p style={{ margin: '0 0 20px', fontSize: '15px', color: 'rgba(255,255,255,0.9)', lineHeight: 1.5 }}>Your token payment has been recorded. Now log your remaining payment to proceed.</p>
-                        <div style={{ background: 'rgba(255,255,255,0.15)', padding: '16px', borderRadius: '16px', backdropFilter: 'blur(10px)', textAlign: 'left', marginBottom: 20 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}><span style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 600 }}>Token Paid</span><span style={{ fontSize: 15, fontWeight: 700 }}>₹{user?.subscribedPG?.tokenPaid || 0}</span></div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed rgba(255,255,255,0.3)', paddingTop: 8 }}><span style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 600 }}>Remaining Balance</span><span style={{ fontSize: 16, fontWeight: 800, color: '#fde047' }}>₹{remainingAmt}</span></div>
-                        </div>
-                        <button onClick={() => setShowRemainingOptions(true)} style={{ width: '100%', padding: '16px', background: 'linear-gradient(135deg, #d3a429, #b8891f)', color: 'white', border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>account_balance_wallet</span>Log Remaining Payment
-                        </button>
-                      </div>
-                    </div>
-                  );
-
-                  // For add_tenant students with remaining balance: show Pay Remaining screen
-                  const isAdminAdded1 = user?.subscribedPG?.isAddTenant;
-                  if (isAdminAdded1 && remainingAmt > 0) {
-                    return renderOverlayCard(
-                      'account_balance_wallet', '#b45309', 'linear-gradient(135deg, #f59e0b, #b45309)',
-                      'Complete Your Payment 💰',
-                      `You have a remaining balance of ₹${remainingAmt.toLocaleString('en-IN')} to pay. Please pay the full remaining amount to unlock your dashboard.`,
-                      'Pay Remaining Amount',
-                      () => setShowRemainingOptions(true)
-                    );
-                  }
-
-                  if (isAdminAdded1 && !user?.detailsFilled) {
-                    return renderOverlayCard(
-                      'assignment_ind', '#0891b2', 'linear-gradient(135deg, #0ea5e9, #0891b2)',
-                      'Fill Your Details 📋',
-                      'Your payment is complete! Please fill your personal details to unlock your full dashboard.',
-                      'Fill Details Now',
-                      () => setShowDetailsModal(true)
-                    );
-                  }
-
-                  return null;
-                })()
               ) : (
                 <div className="pg-h-scroll">
                   {filteredPGs.map(pg => (
@@ -976,7 +911,7 @@ const StudentDashboard = () => {
             )}
 
           </>
-        ) : (user?.pgStatus === 'Upcoming User' && user?.subscribedPG?.status !== 'Approved') ? (
+        ) : (user?.subscribedPG?.status !== 'Approved' && user?.pgStatus !== 'Approved' && user?.pgStatus !== 'Current User') ? (
           (() => {
             const kycStatus = user?.subscribedPG?.kycStatus;
             const dueDate = user?.subscribedPG?.remainingPaymentDueDate;
@@ -986,6 +921,14 @@ const StudentDashboard = () => {
             const isFullPaid = user?.subscribedPG?.fullPaymentPaid || 
                                user?.subscribedPG?.paymentMode === 'Full Payment' || 
                                remainingAmt <= 0;
+            const isAdminAdded = Boolean(
+              user?.subscribedPG?.isAddTenant || 
+              user?.subscribedPG?.isAlreadyResident || 
+              user?.isAddTenant || 
+              user?.isAlreadyResident || 
+              user?.registeredVia === 'already_residence' || 
+              user?.registeredVia === 'add_tenant'
+            );
 
             const DummyDashboard = () => (
               <div style={{ filter: 'blur(5px)', pointerEvents: 'none', padding: '0 20px', userSelect: 'none', opacity: 0.6, marginTop: 24 }}>
@@ -1029,6 +972,27 @@ const StudentDashboard = () => {
                 'Under Review 🔍',
                 'Your details are being reviewed by the admin. The dashboard will unlock automatically once approved.',
                 null, null
+              );
+            }
+
+            // For admin-added or existing residence tenants: check remaining payment first
+            if (isAdminAdded && remainingAmt > 0) {
+              return renderOverlayCard(
+                'account_balance_wallet', '#b45309', 'linear-gradient(135deg, #f59e0b, #b45309)',
+                'Complete Your Payment 💰',
+                `You have a remaining balance of ₹${remainingAmt.toLocaleString('en-IN')} to pay. Please pay the full remaining amount to unlock your dashboard.`,
+                'Pay Remaining Amount',
+                () => setShowRemainingOptions(true)
+              );
+            }
+
+            if (isAdminAdded && !user?.detailsFilled) {
+              return renderOverlayCard(
+                'assignment_ind', '#0891b2', 'linear-gradient(135deg, #0ea5e9, #0891b2)',
+                'Fill Your Details 📋',
+                'Your payment is complete! Please fill your personal details to unlock your full dashboard.',
+                'Fill Details Now',
+                () => setShowDetailsModal(true)
               );
             }
 
@@ -1097,85 +1061,32 @@ const StudentDashboard = () => {
               </div>
             );
 
-            // For add_tenant students with remaining balance: show Pay Remaining screen
-            const isAdminAdded = user?.subscribedPG?.isAddTenant;
-            if (isAdminAdded && remainingAmt > 0) {
-              return renderOverlayCard(
-                'account_balance_wallet', '#b45309', 'linear-gradient(135deg, #f59e0b, #b45309)',
-                'Complete Your Payment 💰',
-                `You have a remaining balance of ₹${remainingAmt.toLocaleString('en-IN')} to pay. Please pay the full remaining amount to unlock your dashboard.`,
-                'Pay Remaining Amount',
-                () => setShowRemainingOptions(true)
-              );
-            }
-
-            if (isAdminAdded && !user?.detailsFilled) {
-              return renderOverlayCard(
-                'assignment_ind', '#0891b2', 'linear-gradient(135deg, #0ea5e9, #0891b2)',
-                'Fill Your Details 📋',
-                'Your payment is complete! Please fill your personal details to unlock your full dashboard.',
-                'Fill Details Now',
-                () => setShowDetailsModal(true)
-              );
-            }
-
-            // Fallback: show dashboard features only if genuinely unlocked
-            return (
-              <div style={{ padding: '0 20px', marginTop: '24px', marginBottom: '40px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>Dashboard Features</h2>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                  {dashboardItems.map((item, idx) => {
-                    const IconComponent = item.icon;
-                    return (
-                      <div 
-                        key={idx}
-                        onClick={() => navigate(item.path)}
-                        style={{
-                          backgroundColor: '#ffffff',
-                          borderRadius: '16px',
-                          padding: '16px 8px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.04)',
-                          border: '1px solid #f8fafc',
-                          cursor: 'pointer',
-                          gap: '10px',
-                          transition: 'transform 0.2s, box-shadow 0.2s',
-                        }}
-                        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.95)'}
-                        onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-                        onTouchStart={e => e.currentTarget.style.transform = 'scale(0.95)'}
-                        onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
-                      >
-                        <div style={{ 
-                          width: '42px', 
-                          height: '42px', 
-                          borderRadius: '12px', 
-                          backgroundColor: item.bg, 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                        }}>
-                          <IconComponent size={20} color={item.color} strokeWidth={2.5} />
-                        </div>
-                        <span style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b', textAlign: 'center' }}>
-                          {item.name}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+            // Fallback for pending approval
+            return renderOverlayCard(
+              'hourglass_empty', '#0284c7', 'linear-gradient(135deg, #0ea5e9, #0284c7)',
+              'Under Review 🔍',
+              'Your details are being reviewed by the admin. The dashboard will unlock automatically once approved.',
+              null, null
             );
           })()
-        ) : user?.pgStatus === 'Pending' ? (
-          <div style={{ padding: '0 20px', marginTop: '24px', marginBottom: '40px' }}>
-            {/* Pending content */}
-          </div>
         ) : (
           <div style={{ padding: '0 20px', marginTop: '24px', marginBottom: '40px' }}>
+            {/* ── UNIFIED OUTSTANDING DUES AGGREGATED BAR ── */}
+            {(() => {
+              const duesData = aggregateTenantDues({
+                tenant: user,
+                rentReceipts: userPayments,
+                meterBills: meterBills,
+                customDues: customDues
+              });
+              return (
+                <StudentOutstandingDuesBar
+                  duesData={duesData}
+                  onClick={() => setShowDuesModal(true)}
+                />
+              );
+            })()}
+
             <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#0f172a', marginBottom: '16px' }}>Dashboard Features</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
               {dashboardItems.map((item, idx) => {
@@ -1557,19 +1468,6 @@ const StudentDashboard = () => {
         </>
       )}
 
-      {/* Chat FAB */}
-      <div 
-        onClick={() => navigate('/chat')}
-        style={{
-          position: 'fixed', bottom: 110, right: 16, width: 54, height: 54,
-          borderRadius: '50%', background: 'linear-gradient(135deg, #d3a429, #b8891f)',
-          boxShadow: '0 4px 16px rgba(211,164,41,0.4)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', zIndex: 50, cursor: 'pointer'
-        }}
-      >
-        <span className="material-symbols-outlined" style={{ color: 'white', fontSize: 24 }}>chat</span>
-      </div>
-
       <BottomNav activeNav="home" />
 
       {/* Student Details Modal */}
@@ -1581,6 +1479,23 @@ const StudentDashboard = () => {
           activeContact={{ id: user.subscribedPG.adminId || user.subscribedPG.pgId, name: user.subscribedPG.pgName }}
           chatId={[user.uid, user.subscribedPG.adminId || user.subscribedPG.pgId].sort().join('_')}
           setSuccessMessage={() => {}}
+        />
+      )}
+
+      {/* ── OUTSTANDING DUES BREAKDOWN MODAL ── */}
+      {showDuesModal && (
+        <StudentOutstandingDuesModal
+          isOpen={showDuesModal}
+          onClose={() => setShowDuesModal(false)}
+          tenant={user}
+          duesData={aggregateTenantDues({
+            tenant: user,
+            rentReceipts: userPayments,
+            meterBills: meterBills,
+            customDues: customDues
+          })}
+          pgName={user?.subscribedPG?.pgName}
+          onRefresh={() => setDuesRefreshKey(p => p + 1)}
         />
       )}
     </div>

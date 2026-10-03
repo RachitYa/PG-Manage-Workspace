@@ -139,6 +139,7 @@ const ExplorePGs = () => {
       return (b.rating || 4.5) - (a.rating || 4.5);
     }
     // Default: distance
+    if (a.distanceKm === null && b.distanceKm === null) return 0;
     if (a.distanceKm === null) return 1;
     if (b.distanceKm === null) return -1;
     return a.distanceKm - b.distanceKm;

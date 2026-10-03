@@ -181,11 +181,6 @@ function AllocationView({ targetId, targetType, personData, title, onBack }) {
       <Header title={title} onBack={onBack} action={<SaveBtn onClick={saveAllocations} loading={saving} />} />
       <div style={{ padding: 16 }}>
         {personData && <PersonCard person={personData} isUser={targetType === 'tenant'} />}
-        {!personData && targetType === 'room' && (
-          <div style={{ background: 'white', padding: 16, borderRadius: 16, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-            <h2 style={{ margin: 0, fontSize: 18, color: '#0f172a' }}>{targetId}</h2>
-          </div>
-        )}
 
         {loading ? <Loader /> : (
           <div style={{ background: 'white', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>

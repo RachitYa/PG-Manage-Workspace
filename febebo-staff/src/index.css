@@ -84,16 +84,16 @@ min-height: 100vh;
   height: 100dvh;
 min-height: 100vh;
   height: 100dvh;
-overflow-x: hidden;
+  overflow-x: hidden;
   position: relative;
   background: var(--bg-main);
   font-family: var(--font-family);
-  padding-top: var(--safe-top);
-  padding-bottom: var(--safe-bottom);
+  padding-top: max(0px, env(safe-area-inset-top, 0px));
+  padding-bottom: 0;
 }
 
 /* ── Safe area padding utility ── */
-.pb-safe { padding-bottom: calc(var(--safe-bottom) + 70px); }
+.pb-safe { padding-bottom: max(96px, calc(80px + env(safe-area-inset-bottom, 0px))); }
 
 /* ── Very small phones (≤ 360px) ── */
 @media (max-width: 360px) {
