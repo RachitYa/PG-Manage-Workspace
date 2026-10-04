@@ -247,20 +247,45 @@ export default function ManageStaff() {
                   key={s.id} 
                   style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 14, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}
                 >
-                  <div 
-                    onClick={() => navigate(`/staff/${s.id}`, { state: { staff: s } })}
-                    style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6 }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <p style={{ fontWeight: 800, fontSize: 17, color: '#0f172a', margin: 0 }}>{s.name}</p>
-                      <span style={{ background: '#ecfeff', color: '#0891b2', padding: '3px 8px', borderRadius: '6px', fontSize: 11, fontWeight: '700' }}>
-                        Token: {s.token}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#475569', fontSize: 13, fontWeight: 600 }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 17, color: '#0891b2' }}>badge</span> {s.role}
-                      <span style={{ color: '#cbd5e1' }}>•</span>
-                      <span className="material-symbols-outlined" style={{ fontSize: 17, color: '#0891b2' }}>phone</span> {s.phone}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {/* Profile Picture */}
+                    {s.profileData?.profilePictureUrl ? (
+                      <img
+                        src={s.profileData.profilePictureUrl}
+                        alt={s.name}
+                        onClick={() => navigate(`/staff/${s.id}`, { state: { staff: s } })}
+                        style={{ width: 50, height: 50, borderRadius: '50%', objectFit: 'cover', border: '2px solid #e2e8f0', flexShrink: 0, cursor: 'pointer' }}
+                      />
+                    ) : (
+                      <div
+                        onClick={() => navigate(`/staff/${s.id}`, { state: { staff: s } })}
+                        style={{ width: 50, height: 50, borderRadius: '50%', background: '#ecfeff', border: '2px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#0891b2' }}>person</span>
+                      </div>
+                    )}
+                    <div
+                      onClick={() => navigate(`/staff/${s.id}`, { state: { staff: s } })}
+                      style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 0 }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <p style={{ fontWeight: 800, fontSize: 17, color: '#0f172a', margin: 0 }}>{s.name}</p>
+                        <span style={{ background: '#ecfeff', color: '#0891b2', padding: '3px 8px', borderRadius: '6px', fontSize: 11, fontWeight: '700', flexShrink: 0 }}>
+                          Token: {s.token}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#475569', fontSize: 13, fontWeight: 600 }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 17, color: '#0891b2' }}>badge</span> {s.role}
+                        <span style={{ color: '#cbd5e1' }}>•</span>
+                        <span className="material-symbols-outlined" style={{ fontSize: 17, color: '#0891b2' }}>phone</span>
+                        <a
+                          href={`tel:${s.phone}`}
+                          onClick={e => e.stopPropagation()}
+                          style={{ color: '#0891b2', fontWeight: 700, textDecoration: 'none', background: '#ecfeff', padding: '2px 8px', borderRadius: 12, border: '1px solid #a5f3fc' }}
+                        >
+                          {s.phone}
+                        </a>
+                      </div>
                     </div>
                   </div>
 
