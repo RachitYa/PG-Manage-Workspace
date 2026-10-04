@@ -459,6 +459,10 @@ export default function ManageAccount() {
             return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
           };
 
+          const now = new Date();
+          const currentMonthName = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+          const currentMonthVal = now.toISOString().slice(0, 7);
+
           // 1. Fetch Registered Tenants for this admin
           const tenantsQ = query(collection(db, 'tenants'), where('adminId', '==', user.uid));
           const tenantsSnap = await getDocs(tenantsQ);
@@ -632,10 +636,10 @@ export default function ManageAccount() {
             }
           });
 
-          // [SOURCE 3]: Admin filled amount when registering residence
+          // [SOURCE 3]: Registration / Already Resident paid records
           tenants.forEach(t => {
             const amt = Number(t.rentAmount || t.rent || 0);
-            if (amt <= 0 || isNaN(amt)) return; // Show ONLY if admin actually filled an amount > 0
+            if (amt <= 0 || isNaN(amt)) return;
 
             let dojTs = 0;
             let dojMonth = '';
@@ -647,39 +651,46 @@ export default function ManageAccount() {
               }
             }
 
-            candidatePayments.push({
-              priority: 3, // Registration fallback
-              tenant: t,
-              tenantId: t.tenantId || t.id,
-              amount: amt,
-              rentMonth: dojMonth,
-              timestamp: dojTs,
-              transactionId: '',
-              paymentMode: 'Cash / Registration',
-              receivedBy: 'Admin (Registration)',
-              senderUPI: 'Paid during admission',
-              receiverUPI: '-',
-              items: [
-                { label: 'Room Rent', amount: amt },
-                ...(Number(t.securityDeposit || 0) > 0 ? [{ label: 'Security Deposit', amount: Number(t.securityDeposit) }] : [])
-              ],
-              source: 'registration',
-              raw: {
+            const currentMonthVal = now.toISOString().slice(0, 7);
+            const paidTill = t.paidTillMonth || t.subscribedPG?.paidTillMonth;
+            const isCoveredByPaidTill = Boolean(paidTill && paidTill >= (t.dateOfJoining || currentMonthVal).slice(0, 7));
+
+            // Only synthesize admission payment if explicitly covered by paidTillMonth or already resident with no remaining balance
+            if (isCoveredByPaidTill || (t.isAlreadyResident && !t.paymentVerificationPending && Number(t.remainingAmount || 0) <= 0)) {
+              candidatePayments.push({
+                priority: 3, // Registration fallback
+                tenant: t,
                 tenantId: t.tenantId || t.id,
-                tenantName: t.name,
-                roomNo: t.roomNo,
-                rentMonth: dojMonth,
-                datePaid: t.dateOfJoining || new Date().toISOString(),
+                amount: amt,
+                rentMonth: dojMonth || currentMonthName,
+                timestamp: dojTs || Date.now(),
+                transactionId: '',
                 paymentMode: 'Cash / Registration',
                 receivedBy: 'Admin (Registration)',
                 senderUPI: 'Paid during admission',
                 receiverUPI: '-',
-                items: [{ label: 'Room Rent', amount: amt }],
-                totalAmount: amt,
-                amountPaid: amt,
-                pendingAmount: 0
-              }
-            });
+                items: [
+                  { label: 'Room Rent', amount: amt },
+                  ...(Number(t.securityDeposit || 0) > 0 ? [{ label: 'Security Deposit', amount: Number(t.securityDeposit) }] : [])
+                ],
+                source: 'registration',
+                raw: {
+                  tenantId: t.tenantId || t.id,
+                  tenantName: t.name,
+                  roomNo: t.roomNo,
+                  rentMonth: dojMonth || currentMonthName,
+                  datePaid: t.dateOfJoining || new Date().toISOString(),
+                  paymentMode: 'Cash / Registration',
+                  receivedBy: 'Admin (Registration)',
+                  senderUPI: 'Paid during admission',
+                  receiverUPI: '-',
+                  items: [{ label: 'Room Rent', amount: amt }],
+                  totalAmount: amt,
+                  amountPaid: amt,
+                  pendingAmount: 0
+                }
+              });
+            }
           });
 
           // Sort candidates by priority (receipts first, then student payments, then registration), then by timestamp descending
@@ -767,8 +778,6 @@ export default function ManageAccount() {
           });
 
           // 4. Process Upcoming and Pending dues for active registered tenants
-          const now = new Date();
-          const currentMonthName = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
           const upcoming = [];
           const pending = [];
 
@@ -788,8 +797,41 @@ export default function ManageAccount() {
 
             const tenantKey = t.tenantId || t.id;
 
+            // Check if tenant has remaining unpaid balance from admission / registration
+            const remBal = Number(t.remainingAmount || t.subscribedPG?.remainingAmount || 0);
+            if (remBal > 0) {
+              const remInitials = t.name ? t.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';
+              pending.push({
+                tenantId: tenantKey,
+                month: 'Admission Balance',
+                name: t.name || 'Unknown',
+                room: t.roomNo || t.room || 'N/A',
+                amount: remBal.toLocaleString('en-IN'),
+                rent: remBal,
+                security: 0,
+                date: `Pending Admission Balance`,
+                daysOverdue: 1,
+                initials: remInitials,
+                color: '#e11d48'
+              });
+            }
+
             // Check if tenant already has a payment for current month
-            const hasPaidThisMonth = collected.some(c => {
+            const paidTill = t.paidTillMonth || t.subscribedPG?.paidTillMonth;
+            const isPaidTillCurrent = Boolean(paidTill && paidTill >= currentMonthVal);
+
+            // Check if this is the tenant's joining month — if so, skip auto-rent
+            // (they paid at admission; the rent_receipt for this month is already in collected)
+            const joinRawVal = t.joiningDate || t.dateOfJoining || t.subscribedPG?.joiningDate || t.subscribedPG?.dateOfJoining;
+            let isJoiningMonth = false;
+            if (joinRawVal) {
+              // Use ISO slice to avoid timezone issues: "2026-10-01T..." → "2026-10"
+              const joinMonthVal = String(joinRawVal).slice(0, 7);
+              if (joinMonthVal >= currentMonthVal) isJoiningMonth = true;
+            }
+            if (isJoiningMonth) return; // First-month tenants: no pending/upcoming rent generated
+
+            const hasPaidThisMonth = isPaidTillCurrent || collected.some(c => {
               const cr = c.rawReceipt;
               const crTenantKey = cr.tenantId || cr.id;
               const isSameTenant = (crTenantKey && tenantKey && crTenantKey === tenantKey) || 
@@ -799,7 +841,8 @@ export default function ManageAccount() {
               return false;
             });
 
-            const rentAmt = Number(t.rentAmount || t.rent || t.roomRent || t.monthlyRent || t.price || t.subscribedPG?.rent || t.leaseAmount || 0);
+            // Use t.rent (monthly recurring rent) first; t.rentAmount is the full lease package (includes security etc.)
+            const rentAmt = Number(t.rent || t.roomRent || t.monthlyRent || t.subscribedPG?.rent || t.price || t.rentAmount || t.leaseAmount || 0);
             if (rentAmt <= 0) return;
             const amtStr = rentAmt.toLocaleString('en-IN');
             const initials = t.name ? t.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';

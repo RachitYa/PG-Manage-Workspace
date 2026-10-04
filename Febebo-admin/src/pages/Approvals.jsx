@@ -45,16 +45,18 @@ export default function Approvals() {
   const location = useLocation();
   const { user, activePgId } = useAuth();
   
-  const [approvalType, setApprovalType] = useState(location.state?.approvalType || location.state?.tab || 'Applications'); // 'Applications' or 'RoomChanges'
+  const [approvalType, setApprovalType] = useState(location.state?.approvalType || location.state?.tab || 'Applications'); // 'Applications' | 'RoomChanges' | 'Payments'
   const [activeTab, setActiveTab] = useState('Pending');
   
   const [roomRequests, setRoomRequests] = useState([]);
   const [pgApplications, setPgApplications] = useState([]);
+  const [paymentVerifications, setPaymentVerifications] = useState([]);
   const [availableRooms, setAvailableRooms] = useState([]);
   const [allRoomsList, setAllRoomsList] = useState([]);
   const [activeTenantsList, setActiveTenantsList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
+  const [previewImage, setPreviewImage] = useState(null);
 
   // Modal State for Allotting Application Room
   const [allotModal, setAllotModal] = useState(null);
@@ -155,7 +157,15 @@ export default function Approvals() {
       paDocs = paDocs.filter(d => d.pgId === activePgId || (activePgId === 'primary' && d.pgId === user.uid) || (!d.pgId));
       setPgApplications(paDocs);
 
-      // 3. Fetch All Rooms & Tenants for Allotment/Shift/Swap
+      // 3. Fetch Payment Verifications
+      const qPV = query(collection(db, 'payment_verifications'), where('adminId', '==', user.uid));
+      const snapPV = await getDocs(qPV);
+      let pvDocs = snapPV.docs.map(d => ({ id: d.id, ...d.data() }));
+      pvDocs = pvDocs.filter(d => d.pgId === activePgId || (activePgId === 'primary' && d.pgId === user.uid) || (!d.pgId));
+      pvDocs.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
+      setPaymentVerifications(pvDocs);
+
+      // 4. Fetch All Rooms & Tenants for Allotment/Shift/Swap
       const qRooms = query(collection(db, 'rooms'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
       const qTenants = query(collection(db, 'tenants'), where('adminId', '==', user.uid), where('pgId', '==', activePgId));
       const [snapRooms, snapTenants] = await Promise.all([getDocs(qRooms), getDocs(qTenants)]);
@@ -425,13 +435,140 @@ export default function Approvals() {
     }
   };
 
+  // ── HANDLE APPROVE PAYMENT ──
+  const handleApprovePayment = async (pv) => {
+    if (!window.confirm(`Approve payment of ₹${Number(pv.amount || 0).toLocaleString('en-IN')} for ${pv.tenantName || 'student'}?`)) return;
+    setActionLoading(`approve_payment_${pv.id}`);
+    try {
+      const amtNumber = Number(pv.amount || 0);
+      const rentMonthStr = pv.month || pv.rentMonth || new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      
+      // 1. Create official rent_receipts document (moves it to Collected)
+      await addDoc(collection(db, 'rent_receipts'), {
+        adminId: user.uid,
+        pgId: activePgId || pv.pgId || 'primary',
+        tenantId: pv.tenantId || '',
+        tenantName: pv.tenantName || '',
+        roomNo: String(pv.roomNo || '').replace('Room ', ''),
+        rentMonth: rentMonthStr,
+        datePaid: new Date().toISOString(),
+        date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+        paymentMode: pv.paymentMode || 'UPI',
+        receivedBy: pv.receivedBy || 'Admin',
+        senderUPI: pv.senderUPI || pv.transactionId || '',
+        receiverUPI: pv.receiverUPI || '',
+        transactionId: pv.transactionId || '',
+        note: pv.note || '',
+        screenshot: pv.screenshot || null,
+        items: pv.items || [{ label: pv.name || 'Fee Payment', amount: amtNumber }],
+        totalAmount: amtNumber,
+        amountPaid: amtNumber,
+        pendingAmount: 0,
+        createdAt: new Date().toISOString()
+      });
+
+      // 2. If it was an admission remaining balance payment, update tenant doc
+      if (pv.tenantId && (pv.paymentType === 'remaining_balance' || String(pv.name).toLowerCase().includes('balance'))) {
+        try {
+          const tRef = doc(db, 'tenants', pv.tenantId);
+          const tSnap = await getDoc(tRef);
+          if (tSnap.exists()) {
+            const curRem = Number(tSnap.data().remainingAmount || 0);
+            const newRem = Math.max(0, curRem - amtNumber);
+            await updateDoc(tRef, { remainingAmount: newRem });
+          }
+        } catch (e) {
+          console.error('Error updating tenant remaining balance:', e);
+        }
+      }
+
+      // 3. Update payment_verifications document
+      await updateDoc(doc(db, 'payment_verifications', pv.id), {
+        status: 'Approved',
+        verifiedAt: new Date().toISOString(),
+        verifiedBy: user.displayName || 'Admin'
+      });
+
+      // 4. Update student's personal payment record
+      if (pv.tenantId && pv.userPaymentDocId) {
+        try {
+          await updateDoc(doc(db, 'users', pv.tenantId, 'payments', pv.userPaymentDocId), {
+            status: 'Verified',
+            verifiedAt: new Date().toISOString()
+          });
+        } catch (e) {}
+      }
+
+      // 5. Notify Student
+      if (pv.tenantId) {
+        await addDoc(collection(db, 'users', pv.tenantId, 'notifications'), {
+          title: "Payment Approved! 🎉",
+          desc: `Your payment of ₹${amtNumber.toLocaleString('en-IN')} for ${pv.name || 'Fee'} was verified and approved.`,
+          type: "success",
+          action: "VISIT_ACCOUNT",
+          unread: true,
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      setPaymentVerifications(prev => prev.map(p => p.id === pv.id ? { ...p, status: 'Approved' } : p));
+      alert(`Payment of ₹${amtNumber.toLocaleString('en-IN')} approved successfully!`);
+    } catch (err) {
+      console.error("Error approving payment:", err);
+      alert("Failed to approve payment: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // ── HANDLE REJECT PAYMENT ──
+  const handleRejectPayment = async (pv) => {
+    const reason = window.prompt("Enter rejection reason (e.g. Invalid screenshot or UTR):", "Invalid payment proof or UTR");
+    if (!reason) return;
+    setActionLoading(`reject_payment_${pv.id}`);
+    try {
+      await updateDoc(doc(db, 'payment_verifications', pv.id), {
+        status: 'Rejected',
+        rejectionReason: reason,
+        rejectedAt: new Date().toISOString()
+      });
+
+      if (pv.tenantId && pv.userPaymentDocId) {
+        try {
+          await updateDoc(doc(db, 'users', pv.tenantId, 'payments', pv.userPaymentDocId), {
+            status: 'Rejected',
+            rejectionReason: reason
+          });
+        } catch (e) {}
+      }
+
+      if (pv.tenantId) {
+        await addDoc(collection(db, 'users', pv.tenantId, 'notifications'), {
+          title: "Payment Proof Rejected ⚠️",
+          desc: `Your payment of ₹${pv.amount} for ${pv.name || 'Fee'} was rejected. Reason: ${reason}`,
+          type: "error",
+          action: "VISIT_ACCOUNT",
+          unread: true,
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      setPaymentVerifications(prev => prev.map(p => p.id === pv.id ? { ...p, status: 'Rejected', rejectionReason: reason } : p));
+    } catch (err) {
+      console.error("Error rejecting payment:", err);
+      alert("Failed to reject payment: " + err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const formatDate = (raw) => {
     if (!raw) return '';
     try { return new Date(raw).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return raw; }
   };
 
   // Filter Data
-  const currentData = approvalType === 'RoomChanges' ? roomRequests : pgApplications;
+  const currentData = approvalType === 'RoomChanges' ? roomRequests : (approvalType === 'Payments' ? paymentVerifications : pgApplications);
   const pending = currentData.filter(r => (r.status === 'pending' || r.status === 'Pending'));
   const history = currentData.filter(r => (r.status !== 'pending' && r.status !== 'Pending'));
   const shown = activeTab === 'Pending' ? pending : history;
@@ -448,7 +585,7 @@ export default function Approvals() {
           <div style={{ flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: 'white' }}>Approvals Hub</h1>
             <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>
-              {approvalType === 'Applications' ? 'New Joiner Applications' : 'Room Change & Swap Requests'}
+              {approvalType === 'Applications' ? 'New Joiner Applications' : (approvalType === 'Payments' ? 'Student Fee Payment Proofs' : 'Room Change & Swap Requests')}
             </p>
           </div>
           {pending.length > 0 && (
@@ -459,21 +596,25 @@ export default function Approvals() {
           )}
         </div>
 
-        {/* TOP LEVEL TOGGLE: Applications vs Room Changes */}
+        {/* TOP LEVEL TOGGLE: Applications vs Room Changes vs Payments */}
         <div style={{ display: 'flex', background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 4, marginBottom: 12 }}>
-          {['Applications', 'RoomChanges'].map(type => (
+          {[
+            { id: 'Applications', label: 'Joiners' },
+            { id: 'Payments',     label: 'Fee Proofs' },
+            { id: 'RoomChanges',  label: 'Room Shift' }
+          ].map(t => (
             <button
-              key={type}
-              onClick={() => setApprovalType(type)}
+              key={t.id}
+              onClick={() => setApprovalType(t.id)}
               style={{
                 flex: 1, padding: '9px 0', border: 'none', borderRadius: 9,
-                background: approvalType === type ? '#0891b2' : 'transparent',
-                color: approvalType === type ? 'white' : '#94a3b8',
-                fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                background: approvalType === t.id ? '#0891b2' : 'transparent',
+                color: approvalType === t.id ? 'white' : '#94a3b8',
+                fontSize: 12, fontWeight: 700, cursor: 'pointer',
                 fontFamily: 'inherit', transition: 'all 0.2s',
               }}
             >
-              {type === 'Applications' ? 'New Joiners' : 'Room Change Requests'}
+              {t.label}
             </button>
           ))}
         </div>
@@ -511,7 +652,7 @@ export default function Approvals() {
             <span className="material-symbols-outlined" style={{ fontSize: 56, color: '#e2e8f0' }}>verified</span>
             <p style={{ color: '#94a3b8', fontSize: 15, fontWeight: 600, marginTop: 12, lineHeight: 1.5, padding: '0 24px' }}>
               {activeTab === 'Pending'
-                ? `No pending ${approvalType === 'Applications' ? 'applications' : 'room change requests'}.`
+                ? `No pending ${approvalType === 'Applications' ? 'applications' : (approvalType === 'Payments' ? 'fee payment verifications' : 'room change requests')}.`
                 : 'No history yet.'}
             </p>
           </div>
@@ -524,6 +665,88 @@ export default function Approvals() {
           const isPending = req.status === 'pending' || req.status === 'Pending';
           const isApproved = req.status === 'approved' || req.status === 'Approved';
           const isRejected = req.status === 'rejected' || req.status === 'Rejected';
+
+          if (approvalType === 'Payments') {
+            return (
+              <div key={req.id} style={{ background: 'white', borderRadius: 18, border: '1px solid #e2e8f0', marginBottom: 14, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                <div style={{ padding: 16 }}>
+                  {/* Top Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 12, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0891b2', fontWeight: 800, fontSize: 16 }}>
+                        {initials}
+                      </div>
+                      <div>
+                        <h3 style={{ margin: '0 0 2px', fontSize: 16, fontWeight: 800, color: '#0f172a' }}>{name}</h3>
+                        <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Room {req.roomNo || 'N/A'} · Submitted {formatDate(req.createdAt || req.date)}</p>
+                      </div>
+                    </div>
+                    {isApproved && <span style={{ background: '#ecfdf5', color: '#059669', padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Approved</span>}
+                    {isRejected && <span style={{ background: '#fef2f2', color: '#ef4444', padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Rejected</span>}
+                    {isPending && <span style={{ background: '#fffbeb', color: '#d97706', padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Pending Verification</span>}
+                  </div>
+
+                  {/* Payment Amount & Breakdown Banner */}
+                  <div style={{ background: '#f8fafc', border: '1px solid #f1f5f9', borderRadius: 14, padding: 14, marginBottom: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>{req.name || 'Fee Payment'}</span>
+                      <span style={{ fontSize: 18, fontWeight: 800, color: '#0891b2' }}>₹{Number(req.amount || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 12, color: '#475569', marginTop: 8, paddingTop: 8, borderTop: '1px solid #e2e8f0' }}>
+                      {req.month && <div><strong>Month:</strong> {req.month}</div>}
+                      <div><strong>Mode:</strong> {req.paymentMode || 'UPI'}</div>
+                      {req.transactionId && <div><strong>UTR:</strong> {req.transactionId}</div>}
+                      {req.receivedBy && <div><strong>Paid To:</strong> {req.receivedBy}</div>}
+                    </div>
+                    {req.note && (
+                      <p style={{ margin: '8px 0 0', fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>
+                        Note: "{req.note}"
+                      </p>
+                    )}
+                    {req.rejectionReason && (
+                      <p style={{ margin: '8px 0 0', fontSize: 12, color: '#e11d48', fontWeight: 600 }}>
+                        Rejection Reason: {req.rejectionReason}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Payment Screenshot Thumbnail */}
+                  {req.screenshot && (
+                    <div style={{ marginBottom: 14 }}>
+                      <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>Payment Proof Screenshot</p>
+                      <div 
+                        onClick={() => setPreviewImage(req.screenshot)}
+                        style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', border: '1.5px solid #e2e8f0', cursor: 'pointer', background: '#0f172a', maxHeight: 180, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <img src={req.screenshot} alt="Payment proof" style={{ width: '100%', height: '100%', objectFit: 'contain', maxHeight: 180 }} />
+                        <div style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(0,0,0,0.7)', color: 'white', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>zoom_in</span> Tap to Zoom
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions for Pending Payments */}
+                  {isPending && (
+                    <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+                      <button 
+                        onClick={() => handleRejectPayment(req)}
+                        disabled={actionLoading === `reject_payment_${req.id}`}
+                        style={{ flex: 1, padding: '12px', background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        Reject Proof
+                      </button>
+                      <button 
+                        onClick={() => handleApprovePayment(req)}
+                        disabled={actionLoading === `approve_payment_${req.id}`}
+                        style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg,#059669,#047857)', color: 'white', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, boxShadow: '0 4px 12px rgba(5,150,105,0.3)' }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>
+                        Approve & Move to Collected
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          }
 
           if (approvalType === 'RoomChanges') {
             return (
@@ -949,6 +1172,19 @@ export default function Approvals() {
                 {actionLoading === 'approving_app' ? 'Approving...' : 'Confirm & Allot Room'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {previewImage && (
+        <div 
+          onClick={() => setPreviewImage(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, backdropFilter: 'blur(4px)' }}>
+          <div style={{ position: 'relative', maxWidth: '90%', maxHeight: '90%' }} onClick={e => e.stopPropagation()}>
+            <img src={previewImage} alt="Payment Proof Full" style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: 12, objectFit: 'contain' }} />
+            <button onClick={() => setPreviewImage(null)} style={{ position: 'absolute', top: -16, right: -16, background: 'white', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+              <span className="material-symbols-outlined" style={{ color: '#0f172a' }}>close</span>
+            </button>
           </div>
         </div>
       )}

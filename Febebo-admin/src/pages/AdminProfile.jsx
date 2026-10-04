@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { doc, getDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
+import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail } from 'firebase/auth';
+import { db, auth } from '../firebase';
 
 const cyan = '#0891b2';
 const dark = '#0f172a';
@@ -23,6 +24,18 @@ export default function AdminProfile() {
 
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Password Modal State
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPw, setShowCurrentPw] = useState(false);
+  const [showNewPw, setShowNewPw] = useState(false);
+  const [pwLoading, setPwLoading] = useState(false);
+  const [pwError, setPwError] = useState('');
+  const [pwSuccess, setPwSuccess] = useState('');
+
   const [profile, setProfile] = useState({
     name: user?.name || 'Admin User',
     phone: '',
@@ -127,9 +140,88 @@ export default function AdminProfile() {
 
   const handleQuickLink = (action) => {
     if (action === 'edit') { setEditing(true); return; }
+    if (action === 'password') {
+      setPwError('');
+      setPwSuccess('');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowPasswordModal(true);
+      return;
+    }
     if (action === 'reports') { navigate('/reports'); return; }
     if (action === 'sub') { navigate('/subscription'); return; }
     if (action === 'help') { navigate('/help'); return; }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPwError('');
+    setPwSuccess('');
+
+    if (!currentPassword) {
+      return setPwError("Please enter your current password.");
+    }
+    if (!newPassword || newPassword.length < 6) {
+      return setPwError("New password must be at least 6 characters long.");
+    }
+    if (newPassword !== confirmPassword) {
+      return setPwError("New password and confirm password do not match.");
+    }
+
+    setPwLoading(true);
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser || !currentUser.email) {
+        throw new Error("No active authenticated user found. Please re-login.");
+      }
+
+      // Re-authenticate user first
+      const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
+      await reauthenticateWithCredential(currentUser, credential);
+
+      // Update password
+      await updatePassword(currentUser, newPassword);
+
+      setPwSuccess("Password successfully updated! Use your new password on your next login.");
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => {
+        setShowPasswordModal(false);
+        setPwSuccess('');
+      }, 2500);
+    } catch (err) {
+      console.error("Password update error:", err);
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setPwError("Current password is incorrect.");
+      } else if (err.code === 'auth/requires-recent-login') {
+        setPwError("For security, please log out and log back in before changing password.");
+      } else {
+        setPwError(err.message || "Failed to update password. Please try again.");
+      }
+    } finally {
+      setPwLoading(false);
+    }
+  };
+
+  const handleSendResetEmail = async () => {
+    setPwError('');
+    setPwSuccess('');
+    const emailToSend = profile.email || auth.currentUser?.email || user?.email;
+    if (!emailToSend) {
+      return setPwError("No email address found to send reset link.");
+    }
+    setPwLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, emailToSend);
+      setPwSuccess(`Password reset link has been sent to ${emailToSend}. Please check your inbox/spam folder.`);
+    } catch (err) {
+      console.error("Reset email error:", err);
+      setPwError(err.message || "Failed to send password reset email.");
+    } finally {
+      setPwLoading(false);
+    }
   };
 
   return (
@@ -283,6 +375,164 @@ export default function AdminProfile() {
           Sign Out
         </button>
       </div>
+
+      {/* Change Password Modal */}
+      {showPasswordModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(6px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#ffffff', width: '100%', maxWidth: 420, borderRadius: 24, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)', position: 'relative', animation: 'fadeIn 0.2s ease-out' }}>
+            
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ color: cyan, fontSize: 22 }}>lock</span>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: dark, fontFamily: "'Bricolage Grotesque', sans-serif" }}>Change Password</h3>
+                  <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Update credentials for {profile.email}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowPasswordModal(false); setPwError(''); setPwSuccess(''); }}
+                style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              </button>
+            </div>
+
+            {/* Error & Success Alerts */}
+            {pwError && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="material-symbols-outlined" style={{ color: '#ef4444', fontSize: 18 }}>error</span>
+                <span style={{ fontSize: 12.5, color: '#b91c1c', fontWeight: 600 }}>{pwError}</span>
+              </div>
+            )}
+
+            {pwSuccess && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="material-symbols-outlined" style={{ color: '#16a34a', fontSize: 18 }}>check_circle</span>
+                <span style={{ fontSize: 12.5, color: '#15803d', fontWeight: 600 }}>{pwSuccess}</span>
+              </div>
+            )}
+
+            {/* Password Form */}
+            <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              
+              {/* Current Password */}
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
+                  Current Password *
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showCurrentPw ? 'text' : 'password'}
+                    placeholder="Enter current password"
+                    value={currentPassword}
+                    onChange={e => setCurrentPassword(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '11px 40px 11px 14px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: 14, outline: 'none', background: '#f8fafc', color: dark, boxSizing: 'border-box' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPw(!showCurrentPw)}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex' }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{showCurrentPw ? 'visibility_off' : 'visibility'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* New Password */}
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
+                  New Password (Min 6 Characters) *
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showNewPw ? 'text' : 'password'}
+                    placeholder="Enter new password"
+                    value={newPassword}
+                    onChange={e => setNewPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    style={{ width: '100%', padding: '11px 40px 11px 14px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: 14, outline: 'none', background: '#f8fafc', color: dark, boxSizing: 'border-box' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPw(!showNewPw)}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', display: 'flex' }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{showNewPw ? 'visibility_off' : 'visibility'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Confirm Password */}
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
+                  Confirm New Password *
+                </label>
+                <input
+                  type={showNewPw ? 'text' : 'password'}
+                  placeholder="Re-enter new password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  style={{ width: '100%', padding: '11px 14px', borderRadius: 12, border: '1.5px solid #e2e8f0', fontSize: 14, outline: 'none', background: '#f8fafc', color: dark, boxSizing: 'border-box' }}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <button
+                type="submit"
+                disabled={pwLoading}
+                style={{
+                  width: '100%',
+                  padding: '13px 0',
+                  background: 'linear-gradient(135deg, #0891b2, #0e7490)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 12,
+                  fontWeight: 800,
+                  fontSize: 15,
+                  cursor: pwLoading ? 'not-allowed' : 'pointer',
+                  opacity: pwLoading ? 0.7 : 1,
+                  fontFamily: 'inherit',
+                  marginTop: 6,
+                  boxShadow: '0 4px 12px rgba(8, 145, 178, 0.25)'
+                }}
+              >
+                {pwLoading ? 'Updating Password...' : 'Update Password'}
+              </button>
+
+              <div style={{ textAlign: 'center', marginTop: 8 }}>
+                <p style={{ margin: '0 0 6px', fontSize: 12, color: '#94a3b8' }}>Forgot your current password?</p>
+                <button
+                  type="button"
+                  onClick={handleSendResetEmail}
+                  disabled={pwLoading}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: cyan,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: pwLoading ? 'not-allowed' : 'pointer',
+                    textDecoration: 'underline',
+                    padding: '4px 8px'
+                  }}
+                >
+                  ✉️ Send Reset Link to My Email
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
+

@@ -343,18 +343,71 @@ export default function DetailedReceiptModal({ receipt, onClose }) {
 export function CollectPaymentModal({ dueData, onClose, onConfirm }) {
   if (!dueData) return null;
 
-  const totalDue = typeof dueData.amount === 'string' ? parseFloat(dueData.amount.replace(/,/g, '')) : (dueData.amount || 0);
+  const totalDue = typeof dueData.amount === 'string' ? parseFloat(dueData.amount.replace(/,/g, '')) : (Number(dueData.amount) || 0);
 
-  const [rent,         setRent]         = useState(dueData?.rent         || '');
-  const [meter,        setMeter]        = useState(dueData?.meter        || '');
-  const [food,         setFood]         = useState(dueData?.food         || '');
-  const [extraPlates,  setExtraPlates]  = useState(dueData?.extraPlates  || '');
-  const [amenities,    setAmenities]    = useState(dueData?.amenities    || '');
-  const [laundry,      setLaundry]      = useState(dueData?.laundry      || '');
-  const [housekeeping, setHousekeeping] = useState(dueData?.housekeeping || '');
-  const [fine,         setFine]         = useState(dueData?.fine         || '');
-  const [security,     setSecurity]     = useState(dueData?.security     || '');
-  const [other,        setOther]        = useState(dueData?.other        || '');
+  // Parse breakdown from duesSummary items if available
+  const initialBreakdown = (() => {
+    const res = {
+      rent: '',
+      meter: '',
+      food: '',
+      extraPlates: '',
+      amenities: '',
+      laundry: '',
+      housekeeping: '',
+      fine: '',
+      security: '',
+      other: ''
+    };
+
+    const items = dueData.duesSummary?.items || dueData.items || [];
+    if (items.length > 0) {
+      items.forEach(item => {
+        const amt = Number(item.amount) || 0;
+        if (amt <= 0) return;
+        const type = String(item.type || '').toLowerCase();
+        const title = String(item.title || item.name || '').toLowerCase();
+
+        if (type === 'electricity' || title.includes('meter') || title.includes('electric')) {
+          res.meter = ((Number(res.meter) || 0) + amt).toString();
+        } else if (type === 'food_extra' || title.includes('plate') || title.includes('extra food')) {
+          res.extraPlates = ((Number(res.extraPlates) || 0) + amt).toString();
+        } else if (title.includes('food') || title.includes('mess')) {
+          res.food = ((Number(res.food) || 0) + amt).toString();
+        } else if (type === 'fine' || title.includes('fine') || title.includes('late fee')) {
+          res.fine = ((Number(res.fine) || 0) + amt).toString();
+        } else if (title.includes('security') || title.includes('deposit')) {
+          res.security = ((Number(res.security) || 0) + amt).toString();
+        } else if (title.includes('laundry')) {
+          res.laundry = ((Number(res.laundry) || 0) + amt).toString();
+        } else if (title.includes('housekeeping') || title.includes('cleaning')) {
+          res.housekeeping = ((Number(res.housekeeping) || 0) + amt).toString();
+        } else if (title.includes('amenit')) {
+          res.amenities = ((Number(res.amenities) || 0) + amt).toString();
+        } else if (type === 'rent' || title.includes('rent') || title.includes('admission')) {
+          res.rent = ((Number(res.rent) || 0) + amt).toString();
+        } else {
+          res.other = ((Number(res.other) || 0) + amt).toString();
+        }
+      });
+    } else {
+      if (totalDue > 0) {
+        res.rent = totalDue.toString();
+      }
+    }
+    return res;
+  })();
+
+  const [rent,         setRent]         = useState(initialBreakdown.rent);
+  const [meter,        setMeter]        = useState(initialBreakdown.meter);
+  const [food,         setFood]         = useState(initialBreakdown.food);
+  const [extraPlates,  setExtraPlates]  = useState(initialBreakdown.extraPlates);
+  const [amenities,    setAmenities]    = useState(initialBreakdown.amenities);
+  const [laundry,      setLaundry]      = useState(initialBreakdown.laundry);
+  const [housekeeping, setHousekeeping] = useState(initialBreakdown.housekeeping);
+  const [fine,         setFine]         = useState(initialBreakdown.fine);
+  const [security,     setSecurity]     = useState(initialBreakdown.security);
+  const [other,        setOther]        = useState(initialBreakdown.other);
 
   const [paymentMode,   setPaymentMode]   = useState('UPI');
   const [receivedBy,    setReceivedBy]    = useState('');
@@ -383,12 +436,13 @@ export function CollectPaymentModal({ dueData, onClose, onConfirm }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    const defaultMonth = dueData.month || new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
     const receiptData = {
       tenantName:  dueData.name  || '',
-      tenantId:    dueData.tenantId || '',
+      tenantId:    dueData.tenantId || dueData.id || '',
       room:        dueData.room  || '',
-      month:       dueData.month || '',
-      rentMonth:   dueData.month || '',
+      month:       defaultMonth,
+      rentMonth:   defaultMonth,
       datePaid:    new Date().toISOString(),
       date:        new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
       paymentMode,

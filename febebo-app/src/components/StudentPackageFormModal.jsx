@@ -11,6 +11,10 @@ export default function StudentPackageFormModal({ packageData, adminId, adminNam
 
   // Form State
   const [selectedSeater, setSelectedSeater] = useState(null);
+  const [leaseType, setLeaseType] = useState('bed_sharing'); // 'bed_sharing' | 'entire_room'
+  const [coResidents, setCoResidents] = useState([]);
+  const [newCoResident, setNewCoResident] = useState({ name: '', phone: '', relation: 'Roommate', aadhar: '' });
+  const [showAddCoResident, setShowAddCoResident] = useState(false);
 
   // Payment State
   const [paymentMode, setPaymentMode] = useState('Token Only');
@@ -80,16 +84,23 @@ export default function StudentPackageFormModal({ packageData, adminId, adminNam
 
       const isFull = paymentMode === 'Full Payment' || remainingAmount <= 0;
       const finalRemaining = isFull ? 0 : remainingAmount;
+      const isSinglePayerFlat = leaseType === 'entire_room';
 
       const userDocRef = doc(db, 'users', user.uid);
       await setDoc(userDocRef, {
         hasPG: true,
         pgStatus: 'Upcoming User',
+        isPrimaryPayer: isSinglePayerFlat,
+        leaseType: leaseType,
+        coResidents: coResidents,
         subscribedPG: {
           pgId: adminId,
           pgName: adminName || 'PG',
           roomNo: 'To be allotted',
           seaterLabel: `${selectedSeater.seater} Seater`,
+          isPrimaryPayer: isSinglePayerFlat,
+          leaseType: leaseType,
+          coResidents: coResidents,
           rent: currentRent,
           securityAmount: securityDeposit,
           leaseAmount: leaseAmount,
@@ -121,6 +132,9 @@ export default function StudentPackageFormModal({ packageData, adminId, adminNam
         correspondingAddress: user?.correspondingAddress || user?.kycData?.correspondingAddress || user?.profileData?.correspondingAddress || null,
         roomNo: 'To be allotted',
         seaterLabel: `${selectedSeater.seater} Seater`,
+        isPrimaryPayer: isSinglePayerFlat,
+        leaseType: leaseType,
+        coResidents: coResidents,
         rentAmount: leaseAmount,
         rent: currentRent,
         securityDeposit: securityDeposit,
@@ -137,8 +151,8 @@ export default function StudentPackageFormModal({ packageData, adminId, adminNam
         tenantName: user?.name || 'Student',
         title: isFull ? '💰 Full Payment Received' : 'New Admission Payment',
         desc: isFull 
-          ? `${user?.name || 'Student'} paid the full amount of ₹${amountPaid} for ${selectedSeater.seater} Seater. Please allot a room.` 
-          : `${user?.name || 'Student'} paid token of ₹${amountPaid} for ${selectedSeater.seater} Seater. Remaining: ₹${remainingAmount}.`,
+          ? `${user?.name || 'Student'} paid the full amount of ₹${amountPaid} for ${selectedSeater.seater} Seater${isSinglePayerFlat ? ' (Single Flat with ' + coResidents.length + ' flatmates)' : ''}. Please allot a room.` 
+          : `${user?.name || 'Student'} paid token of ₹${amountPaid} for ${selectedSeater.seater} Seater${isSinglePayerFlat ? ' (Single Flat)' : ''}. Remaining: ₹${remainingAmount}.`,
         type: isFull ? 'full_remaining_payment' : 'token_payment',
         action: 'VIEW_TENANTS',
         unread: true,
@@ -184,6 +198,9 @@ export default function StudentPackageFormModal({ packageData, adminId, adminNam
           seater: selectedSeater.seater,
           rent: currentRent,
           security: securityDeposit,
+          isPrimaryPayer: isSinglePayerFlat,
+          leaseType: leaseType,
+          coResidents: coResidents,
           paymentMode,
           amountPaid: Number(amountPaid),
           remainingAmount,
@@ -234,10 +251,16 @@ export default function StudentPackageFormModal({ packageData, adminId, adminNam
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {rentsList.map((r, idx) => {
                 const isSelected = selectedSeater?.seater === r.seater;
+                const isFlatName = String(r.seater || '').toLowerCase().includes('flat') || String(r.seater || '').toLowerCase().includes('bhk');
                 return (
                   <div 
                     key={idx} 
-                    onClick={() => setSelectedSeater(r)}
+                    onClick={() => {
+                      setSelectedSeater(r);
+                      if (isFlatName) {
+                        setLeaseType('entire_room');
+                      }
+                    }}
                     style={{ 
                       border: isSelected ? '1.5px solid #10b981' : '1px solid #e2e8f0', 
                       background: isSelected ? '#f0fdf4' : '#ffffff',
@@ -258,9 +281,16 @@ export default function StudentPackageFormModal({ packageData, adminId, adminNam
                         border: isSelected ? '6px solid #10b981' : '1.5px solid #cbd5e1', 
                         background: 'white', boxSizing: 'border-box', transition: 'all 0.2s' 
                       }} />
-                      <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: isSelected ? '#064e3b' : '#334155' }}>
-                        {r.seater} Seater
-                      </h4>
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: isSelected ? '#064e3b' : '#334155' }}>
+                          {r.seater} Seater
+                        </h4>
+                        {isFlatName && (
+                          <span style={{ fontSize: 10, fontWeight: 700, background: '#ede9fe', color: '#6d28d9', padding: '1px 6px', borderRadius: 4, display: 'inline-block', marginTop: 2 }}>
+                            Flat / Apartment
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontWeight: 800, color: isSelected ? '#10b981' : '#475569', fontSize: 17, letterSpacing: '-0.3px' }}>
@@ -274,6 +304,154 @@ export default function StudentPackageFormModal({ packageData, adminId, adminNam
                 )
               })}
             </div>
+
+            {selectedSeater && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* Occupancy Model Switcher */}
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6, textTransform: 'uppercase' }}>
+                    Occupancy Model
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setLeaseType('bed_sharing')}
+                      style={{
+                        padding: '10px',
+                        borderRadius: 10,
+                        border: `1.5px solid ${leaseType === 'bed_sharing' ? '#10b981' : '#e2e8f0'}`,
+                        background: leaseType === 'bed_sharing' ? '#f0fdf4' : 'white',
+                        color: leaseType === 'bed_sharing' ? '#065f46' : '#64748b',
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🛏️ Individual Bed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLeaseType('entire_room')}
+                      style={{
+                        padding: '10px',
+                        borderRadius: 10,
+                        border: `1.5px solid ${leaseType === 'entire_room' ? '#7c3aed' : '#e2e8f0'}`,
+                        background: leaseType === 'entire_room' ? '#f5f3ff' : 'white',
+                        color: leaseType === 'entire_room' ? '#6d28d9' : '#64748b',
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🏢 Entire Flat (Single Payer)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Flatmates / Co-Residents Section */}
+                {leaseType === 'entire_room' && (
+                  <div style={{ background: '#faf5ff', border: '1.5px dashed #c084fc', borderRadius: 14, padding: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase' }}>
+                          👥 Flatmates / Co-Residents ({coResidents.length})
+                        </h4>
+                        <p style={{ margin: '2px 0 0', fontSize: 11, color: '#7e22ce' }}>
+                          You are the primary billing payer. Add other persons living with you:
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCoResident(true)}
+                        style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: 8, padding: '6px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                      >
+                        + Add
+                      </button>
+                    </div>
+
+                    {coResidents.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                        {coResidents.map((cr, idx) => (
+                          <div key={idx} style={{ background: 'white', border: '1px solid #e9d5ff', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{cr.name}</p>
+                              <p style={{ margin: 0, fontSize: 11, color: '#64748b' }}>{cr.relation || 'Roommate'}{cr.phone ? ` · ${cr.phone}` : ''}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setCoResidents(prev => prev.filter((_, i) => i !== idx))}
+                              style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', padding: 4 }}
+                            >
+                              <span style={{ fontSize: 16, lineHeight: 1 }}>✕</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {showAddCoResident && (
+                      <div style={{ background: 'white', border: '1px solid #c084fc', borderRadius: 12, padding: 12 }}>
+                        <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#6d28d9' }}>Add Flatmate Details</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <input
+                            type="text"
+                            placeholder="Flatmate Full Name *"
+                            value={newCoResident.name}
+                            onChange={e => setNewCoResident(p => ({ ...p, name: e.target.value }))}
+                            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none' }}
+                          />
+                          <input
+                            type="tel"
+                            maxLength={10}
+                            placeholder="Mobile Number (Optional)"
+                            value={newCoResident.phone}
+                            onChange={e => setNewCoResident(p => ({ ...p, phone: e.target.value }))}
+                            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none' }}
+                          />
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <input
+                              type="text"
+                              placeholder="Relation (e.g. Friend, Roommate)"
+                              value={newCoResident.relation}
+                              onChange={e => setNewCoResident(p => ({ ...p, relation: e.target.value }))}
+                              style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', flex: 1 }}
+                            />
+                            <input
+                              type="text"
+                              placeholder="Aadhaar / ID (Optional)"
+                              value={newCoResident.aadhar}
+                              onChange={e => setNewCoResident(p => ({ ...p, aadhar: e.target.value }))}
+                              style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, outline: 'none', flex: 1 }}
+                            />
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                            <button
+                              type="button"
+                              onClick={() => setShowAddCoResident(false)}
+                              style={{ flex: 1, padding: '8px', background: '#f1f5f9', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!newCoResident.name.trim()) return alert('Please enter flatmate name');
+                                setCoResidents(prev => [...prev, { ...newCoResident }]);
+                                setNewCoResident({ name: '', phone: '', relation: 'Roommate', aadhar: '' });
+                                setShowAddCoResident(false);
+                              }}
+                              style={{ flex: 1, padding: '8px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <button 
               onClick={() => setStep(2)} 

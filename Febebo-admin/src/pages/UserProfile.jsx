@@ -5,6 +5,7 @@ import DetailedReceiptModal, { CollectPaymentModal } from '../components/Detaile
 import OutstandingDuesModal from '../components/OutstandingDuesModal';
 import OutstandingDuesBar from '../components/OutstandingDuesBar';
 import { aggregateTenantDues } from '../utils/duesUtils';
+import { shiftTenantToRoom } from '../utils/roomAllocationUtils';
 import { collection, query, orderBy, onSnapshot, where, updateDoc, doc, writeBatch, addDoc, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
@@ -1199,6 +1200,56 @@ function UserDetailsView({ user, onBack, onReceipt, onHistory, onMoveOut, onColl
   const [newCoResident, setNewCoResident] = useState({ name: '', phone: '', relation: 'Roommate', aadhar: '' });
   const [isSavingCoResident, setIsSavingCoResident] = useState(false);
 
+  // Room Allotment / Shift State
+  const [showAllotRoomModal, setShowAllotRoomModal] = useState(false);
+  const [availableRooms, setAvailableRooms] = useState([]);
+  const [selectedAllotRoom, setSelectedAllotRoom] = useState('');
+  const [selectedAllotBed, setSelectedAllotBed] = useState('1');
+  const [isSavingRoomAllot, setIsSavingRoomAllot] = useState(false);
+
+  const fetchAvailableRooms = async () => {
+    if (!authUser?.uid) return;
+    try {
+      const qR = query(collection(db, 'rooms'), where('adminId', '==', authUser.uid));
+      const snap = await getDocs(qR);
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAvailableRooms(list);
+      if (list.length > 0 && !selectedAllotRoom) {
+        setSelectedAllotRoom(list[0].roomNo || list[0].name || '');
+      }
+    } catch (e) {
+      console.error('Error fetching rooms for allotment:', e);
+    }
+  };
+
+  const handleSaveRoomAllot = async () => {
+    if (!selectedAllotRoom) {
+      alert('Please select a room');
+      return;
+    }
+    const uid = user.tenantId || user.id || user.uid;
+    setIsSavingRoomAllot(true);
+    try {
+      await shiftTenantToRoom({
+        tenantId: uid,
+        tenantName: profile.name,
+        fromRoomNo: profile.roomNo,
+        toRoomNo: selectedAllotRoom,
+        toBedNo: selectedAllotBed,
+        adminId: authUser.uid,
+        pgId: activePgId || 'primary',
+        adminName: authUser?.displayName || authUser?.name || 'Admin'
+      });
+      setShowAllotRoomModal(false);
+      alert(`Successfully allotted Room ${selectedAllotRoom} (Bed ${selectedAllotBed}) to ${profile.name}!`);
+    } catch (err) {
+      console.error('Error allotting room:', err);
+      alert('Failed to allot room: ' + err.message);
+    } finally {
+      setIsSavingRoomAllot(false);
+    }
+  };
+
   const handleSaveCoResident = async () => {
     if (!newCoResident.name.trim()) return;
     setIsSavingCoResident(true);
@@ -1469,7 +1520,7 @@ function UserDetailsView({ user, onBack, onReceipt, onHistory, onMoveOut, onColl
         </Accordion>
 
         <Accordion title="Room Details" icon="meeting_room" defaultOpen={true}>
-          <InfoRow label="Room Number" value={`Room ${profile.roomNo}`} />
+          <InfoRow label="Room Number" value={profile.roomNo === 'To be allotted' || !profile.roomNo || profile.roomNo === '-' ? '⚠️ To be allotted' : `Room ${profile.roomNo}`} />
           {profile.leaseType === 'entire_room' ? (
             <>
               <InfoRow label="Lease Model" value="🏢 Entire Flat / Single Payer" />
@@ -1477,15 +1528,37 @@ function UserDetailsView({ user, onBack, onReceipt, onHistory, onMoveOut, onColl
             </>
           ) : (
             <>
-              <InfoRow label="Bed Number" value={`Bed ${profile.bedNo}`} />
+              <InfoRow label="Bed Number" value={profile.bedNo ? `Bed ${profile.bedNo}` : '—'} />
               <InfoRow label="Mess / Food" value={profile.foodIncluded ? '🍽️ Included' : '🚫 Excluded (Self-Cooking)'} />
             </>
           )}
-          <div style={{ marginTop: 12 }}>
-            <button onClick={() => setSubView('room')} style={{ width: '100%', padding: 10, background: 'rgba(14,165,233,0.08)', border: `1px solid ${cyan}`, color: cyan, borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>meeting_room</span>
-              View Room Details
-            </button>
+          <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+            {(!profile.roomNo || profile.roomNo === 'To be allotted' || profile.roomNo === '-') ? (
+              <button 
+                onClick={() => { fetchAvailableRooms(); setShowAllotRoomModal(true); }} 
+                style={{ flex: 1, padding: '12px 16px', background: 'linear-gradient(135deg, #0891b2, #0e7490)', color: 'white', borderRadius: 12, fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 12px rgba(8,145,178,0.2)' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>key</span>
+                Allot Room & Bed
+              </button>
+            ) : (
+              <>
+                <button 
+                  onClick={() => { fetchAvailableRooms(); setShowAllotRoomModal(true); }} 
+                  style={{ flex: 1, padding: 10, background: 'rgba(14,165,233,0.08)', border: `1px solid ${cyan}`, color: cyan, borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>swap_horiz</span>
+                  Shift / Change Room
+                </button>
+                <button 
+                  onClick={() => setSubView('room')} 
+                  style={{ flex: 1, padding: 10, background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#334155', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>meeting_room</span>
+                  View Room
+                </button>
+              </>
+            )}
           </div>
         </Accordion>
 
@@ -1918,6 +1991,100 @@ function UserDetailsView({ user, onBack, onReceipt, onHistory, onMoveOut, onColl
                 style={{ flex: 1, padding: 12, borderRadius: 10, background: cyan, color: 'white', fontWeight: 800, fontSize: 13, border: 'none', cursor: (!newCoResident.name.trim() || isSavingCoResident) ? 'not-allowed' : 'pointer', opacity: (!newCoResident.name.trim() || isSavingCoResident) ? 0.6 : 1 }}
               >
                 {isSavingCoResident ? 'Saving...' : 'Add Roommate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ALLOT / SHIFT ROOM MODAL ── */}
+      {showAllotRoomModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }} onClick={() => !isSavingRoomAllot && setShowAllotRoomModal(false)} />
+          <div style={{ position: 'relative', background: 'white', width: '100%', maxWidth: 420, borderRadius: 20, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)', zIndex: 1001, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
+                  {(!profile.roomNo || profile.roomNo === 'To be allotted' || profile.roomNo === '-') ? '🔑 Allot Room & Bed' : '🔄 Shift / Change Room'}
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>Assign room to <b>{profile.name}</b></p>
+              </div>
+              <button onClick={() => setShowAllotRoomModal(false)} style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>close</span>
+              </button>
+            </div>
+
+            {availableRooms.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '30px 10px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 40, color: '#cbd5e1' }}>meeting_room</span>
+                <p style={{ color: '#64748b', fontSize: 14, margin: '8px 0' }}>No rooms found. Please add rooms in "Seats & Rooms" first.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 20 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Select Room *</label>
+                  <select 
+                    value={selectedAllotRoom} 
+                    onChange={e => setSelectedAllotRoom(e.target.value)}
+                    style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '1.5px solid #cbd5e1', fontSize: 14, fontWeight: 600, color: '#0f172a', background: 'white', outline: 'none' }}
+                  >
+                    <option value="">-- Choose Room --</option>
+                    {availableRooms.map(r => (
+                      <option key={r.id} value={r.roomNo || r.name}>
+                        Room {r.roomNo || r.name} — {r.roomType || 'Standard'} ({r.beds || 1} Beds) {r.price ? `· ₹${r.price}/mo` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Select Bed Number *</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {['1', '2', '3', '4', '5', '6'].map(b => (
+                      <button
+                        key={b}
+                        type="button"
+                        onClick={() => setSelectedAllotBed(b)}
+                        style={{
+                          flex: 1, padding: '10px 0', borderRadius: 8,
+                          border: selectedAllotBed === b ? `2px solid ${cyan}` : '1.5px solid #e2e8f0',
+                          background: selectedAllotBed === b ? '#ecfeff' : '#f8fafc',
+                          color: selectedAllotBed === b ? '#0891b2' : '#64748b',
+                          fontWeight: 700, fontSize: 14, cursor: 'pointer'
+                        }}
+                      >
+                        Bed {b}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#0891b2', fontWeight: 700, fontSize: 12, marginBottom: 4 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>info</span>
+                    Immediate Sync
+                  </div>
+                  <p style={{ margin: 0, fontSize: 12, color: '#64748b', lineHeight: 1.4 }}>
+                    Allotting will update this resident's profile and synchronize real-time room occupancy and mess headcounts.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button 
+                onClick={() => setShowAllotRoomModal(false)}
+                disabled={isSavingRoomAllot}
+                style={{ flex: 1, padding: 12, borderRadius: 10, background: '#f1f5f9', color: '#475569', fontWeight: 700, fontSize: 13, border: 'none', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSaveRoomAllot}
+                disabled={isSavingRoomAllot || !selectedAllotRoom}
+                style={{ flex: 1, padding: 12, borderRadius: 10, background: 'linear-gradient(135deg, #0891b2, #0e7490)', color: 'white', fontWeight: 800, fontSize: 13, border: 'none', cursor: (!selectedAllotRoom || isSavingRoomAllot) ? 'not-allowed' : 'pointer', opacity: (!selectedAllotRoom || isSavingRoomAllot) ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              >
+                {isSavingRoomAllot ? 'Saving...' : 'Confirm Allotment'}
               </button>
             </div>
           </div>

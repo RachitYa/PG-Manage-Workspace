@@ -284,58 +284,99 @@ export const aggregateTenantDues = ({
   });
 
   // 3. Auto-calculate overdue monthly rent if not already paid and not recorded in customDues
-  const rentAmt = Number(tenant.rentAmount || tenant.rent || tenant.roomRent || tenant.monthlyRent || tenant.subscribedPG?.rent || 0);
+  const rentAmt = Number(tenant.rent || tenant.roomRent || tenant.monthlyRent || tenant.subscribedPG?.rent || tenant.rentAmount || 0);
   if (rentAmt > 0) {
     const now = new Date();
     const currentMonthName = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-    
-    // Check if tenant paid for current month in rentReceipts
-    const hasPaidCurrentMonth = rentReceipts.some(r => {
-      const rTenantId = r.tenantId || r.userId || r.uid;
-      const isMatch = (rTenantId && rTenantId === tenantId) || 
-                      (r.tenantName && r.tenantName.trim().toLowerCase() === tenantName.trim().toLowerCase());
-      if (!isMatch) return false;
-      const rMonth = String(r.rentMonth || r.month || '').trim().toLowerCase();
-      return rMonth === currentMonthName.toLowerCase();
-    });
+    const currentMonthVal = now.toISOString().slice(0, 7); // e.g. "2026-10"
+    const paidTill = tenant.paidTillMonth || tenant.subscribedPG?.paidTillMonth;
+    const isPaidTillCurrent = Boolean(paidTill && paidTill >= currentMonthVal);
 
-    if (!hasPaidCurrentMonth && !recordedRentMonths.has(currentMonthName.toLowerCase())) {
-      // Determine due date from joining date
-      const joinRaw = tenant.joiningDate || tenant.dateOfJoining || tenant.subscribedPG?.joiningDate || tenant.createdAt;
-      let dojDate = 1;
-      if (joinRaw) {
-        const parsed = new Date(joinRaw);
-        if (!isNaN(parsed.getTime())) dojDate = parsed.getDate();
+    // Check if tenant has remaining unpaid balance from admission / registration
+    const remainingAdmission = Number(tenant.remainingAmount || tenant.subscribedPG?.remainingAmount || 0);
+    if (remainingAdmission > 0 && !recordedRentMonths.has('admission_remaining') && !recordedRentMonths.has('admission')) {
+      const joinDueDate = tenant.dateOfJoining || tenant.joiningDate || tenant.subscribedPG?.dateOfJoining || tenant.subscribedPG?.joiningDate || todayStr;
+      const joinAgeInfo = getDueAgeInfo(joinDueDate, todayStr);
+      allItems.push({
+        id: `admission_remaining_${tenantId}`,
+        source: 'admission_balance',
+        type: 'rent',
+        title: `Remaining Admission Balance`,
+        description: `Pending balance from admission / registration`,
+        amount: remainingAdmission,
+        originalDueDate: joinDueDate,
+        dueDate: joinDueDate,
+        daysOverdue: joinAgeInfo.daysOverdue,
+        origDaysOverdue: joinAgeInfo.daysOverdue,
+        isOverdue: joinAgeInfo.isOverdue,
+        status: joinAgeInfo.isOverdue ? 'overdue' : 'pending',
+        createdAt: new Date().toISOString(),
+        rentMonth: 'Admission',
+        payLaterRequest: null,
+        payLaterApproval: null
+      });
+    }
+
+    // Determine joining date and whether the tenant joined during or after the current month
+    const joinRaw = tenant.joiningDate || tenant.dateOfJoining || tenant.subscribedPG?.joiningDate || tenant.subscribedPG?.dateOfJoining || tenant.createdAt;
+    let dojDate = 1;
+    let isJoiningOrFutureMonth = false;
+
+    if (joinRaw) {
+      const parsedJoin = new Date(joinRaw);
+      if (!isNaN(parsedJoin.getTime())) {
+        dojDate = parsedJoin.getDate();
+        // Use ISO string slice (YYYY-MM) for timezone-safe month comparison
+        const joinMonthVal = parsedJoin.toISOString().slice(0, 7);
+        // If joining month is current month or future, first month was settled upon admission
+        if (joinMonthVal >= currentMonthVal) {
+          isJoiningOrFutureMonth = true;
+        }
       }
-      
-      const currentYear = now.getFullYear();
-      const currentMonth = now.getMonth();
-      const lastDayOfCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-      const dueDay = Math.min(dojDate, lastDayOfCurrentMonth);
-      const dueDateObj = new Date(currentYear, currentMonth, dueDay);
-      const dueDateStr = dueDateObj.toISOString().split('T')[0];
+    }
 
-      const ageInfo = getDueAgeInfo(dueDateStr, todayStr);
+    // If tenant joined in previous months, check if current month's recurring rent is due
+    if (!isJoiningOrFutureMonth) {
+      // Check if tenant paid for current month in rentReceipts
+      const hasPaidCurrentMonth = isPaidTillCurrent || rentReceipts.some(r => {
+        const rTenantId = r.tenantId || r.userId || r.uid;
+        const isMatch = (rTenantId && rTenantId === tenantId) || 
+                        (r.tenantName && r.tenantName.trim().toLowerCase() === tenantName.trim().toLowerCase());
+        if (!isMatch) return false;
+        const rMonth = String(r.rentMonth || r.month || '').trim().toLowerCase();
+        return rMonth === currentMonthName.toLowerCase();
+      });
 
-      if (ageInfo.isOverdue || dueDateStr <= todayStr) {
-        allItems.push({
-          id: `rent_auto_${currentMonthName.replace(/\s+/g, '_')}`,
-          source: 'auto_rent',
-          type: 'rent',
-          title: `Monthly Rent — ${currentMonthName}`,
-          description: `Room ${tenant.roomNo || 'TBD'} · Due on day ${dojDate} of each month`,
-          amount: rentAmt,
-          originalDueDate: dueDateStr,
-          dueDate: dueDateStr,
-          daysOverdue: ageInfo.daysOverdue,
-          origDaysOverdue: ageInfo.daysOverdue,
-          isOverdue: ageInfo.isOverdue,
-          status: ageInfo.isOverdue ? 'overdue' : 'pending',
-          createdAt: new Date().toISOString(),
-          rentMonth: currentMonthName,
-          payLaterRequest: null,
-          payLaterApproval: null
-        });
+      if (!hasPaidCurrentMonth && !recordedRentMonths.has(currentMonthName.toLowerCase())) {
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
+        const lastDayOfCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+        const dueDay = Math.min(dojDate, lastDayOfCurrentMonth);
+        const dueDateObj = new Date(currentYear, currentMonth, dueDay);
+        const dueDateStr = dueDateObj.toISOString().split('T')[0];
+
+        const ageInfo = getDueAgeInfo(dueDateStr, todayStr);
+
+        if (ageInfo.isOverdue || dueDateStr <= todayStr) {
+          allItems.push({
+            id: `rent_auto_${currentMonthName.replace(/\s+/g, '_')}`,
+            source: 'auto_rent',
+            type: 'rent',
+            title: `Monthly Rent — ${currentMonthName}`,
+            description: `Room ${tenant.roomNo || 'TBD'} · Due on day ${dojDate} of each month`,
+            amount: rentAmt,
+            originalDueDate: dueDateStr,
+            dueDate: dueDateStr,
+            daysOverdue: ageInfo.daysOverdue,
+            origDaysOverdue: ageInfo.daysOverdue,
+            isOverdue: ageInfo.isOverdue,
+            status: ageInfo.isOverdue ? 'overdue' : 'pending',
+            createdAt: new Date().toISOString(),
+            rentMonth: currentMonthName,
+            payLaterRequest: null,
+            payLaterApproval: null
+          });
+        }
       }
     }
   }

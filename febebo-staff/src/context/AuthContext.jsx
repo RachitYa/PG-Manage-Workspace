@@ -7,23 +7,59 @@ export const AuthProvider = ({ children }) => {
     const savedUser = localStorage.getItem('febebo_user');
     return savedUser ? JSON.parse(savedUser) : null;
   });
+  const [activePgId, setActivePgId] = useState(() => {
+    return localStorage.getItem('febebo_staff_active_pg') || 'primary';
+  });
+  const [assignedProperties, setAssignedProperties] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user && !user.ownerUid) {
-      // Self-heal: fetch ownerUid from staff_tokens if missing
+    if (user && user.id) {
+      // Fetch latest assigned properties and ownerUid from staff_tokens
       import('firebase/firestore').then(({ getDoc, doc, getFirestore }) => {
         const tempDb = getFirestore();
         getDoc(doc(tempDb, 'staff_tokens', user.id)).then(d => {
-          if (d.exists() && d.data().ownerUid) {
-            const updated = { ...user, ownerUid: d.data().ownerUid };
+          if (d.exists()) {
+            const data = d.data();
+            const assignedIds = Array.isArray(data.assignedPgs) && data.assignedPgs.length > 0 
+              ? data.assignedPgs 
+              : [data.pgId || 'primary'];
+            const assignedNames = Array.isArray(data.assignedPgNames) && data.assignedPgNames.length > 0 
+              ? data.assignedPgNames 
+              : [data.pgName || 'Primary PG'];
+            
+            const props = assignedIds.map((id, idx) => ({
+              id,
+              name: assignedNames[idx] || (id === 'primary' ? 'Primary PG' : `PG ${id.substring(0, 6)}`)
+            }));
+
+            setAssignedProperties(props);
+
+            // Default activePgId if current one not in assigned
+            if (!assignedIds.includes(activePgId)) {
+              const defaultId = assignedIds[0] || 'primary';
+              setActivePgId(defaultId);
+              localStorage.setItem('febebo_staff_active_pg', defaultId);
+            }
+
+            const updated = { 
+              ...user, 
+              ownerUid: data.ownerUid || user.ownerUid,
+              assignedPgs: assignedIds,
+              assignedPgNames: assignedNames
+            };
             setUser(updated);
             localStorage.setItem('febebo_user', JSON.stringify(updated));
           }
         });
       });
     }
-  }, [user]);
+  }, [user?.id]);
+
+  const switchPg = (newPgId) => {
+    setActivePgId(newPgId);
+    localStorage.setItem('febebo_staff_active_pg', newPgId);
+  };
 
   useEffect(() => {
     setLoading(false);
@@ -32,6 +68,9 @@ export const AuthProvider = ({ children }) => {
   const login = (userData) => {
     setUser(userData);
     localStorage.setItem('febebo_user', JSON.stringify(userData));
+    const initialPg = userData.pgId || (Array.isArray(userData.assignedPgs) ? userData.assignedPgs[0] : 'primary');
+    setActivePgId(initialPg);
+    localStorage.setItem('febebo_staff_active_pg', initialPg);
   };
 
   const completeProfile = async (profileData) => {
@@ -91,7 +130,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, completeProfile, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, completeProfile, loading, activePgId, switchPg, assignedProperties }}>
       {!loading && children}
     </AuthContext.Provider>
   );

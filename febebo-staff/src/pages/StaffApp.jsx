@@ -667,7 +667,8 @@ const ShiftTimer = ({ clockIn, clockInExact, clocked, resting, lastRestStart, to
 
 export default function StaffApp(){
 
-    const {user,logout} = useAuth();
+  const { user, logout, activePgId, switchPg, assignedProperties } = useAuth();
+  const [showStaffPgSwitcher, setShowStaffPgSwitcher] = useState(false);
   const [staffProfile, setStaffProfile] = useState(user);
   const [fbAuthReady, setFbAuthReady] = useState(false);
   useEffect(() => {
@@ -3001,9 +3002,33 @@ export default function StaffApp(){
         // Home Hero Header
         <div style={{background: 'linear-gradient(to bottom, #fffef2, #fffdf0)', padding:'0 16px 20px', paddingTop:'max(0px, env(safe-area-inset-top, 0px))', color: '#1a1500', borderBottom: '1.5px solid #e8df9a'}}>
           <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', height:60, position:'relative'}}>
-            <div style={{display:'flex', alignItems:'center', zIndex:10}}>
+            <div style={{display:'flex', alignItems:'center', gap:10, zIndex:10}}>
               <p style={{fontFamily:"'Hanken Grotesk',sans-serif", fontSize:24, fontWeight:900, color: '#1a1500', margin:0, letterSpacing:-.5}}>febebo</p>
+              
+              {/* Multi-PG Switcher Pill */}
+              {assignedProperties && assignedProperties.length > 0 && (
+                <div 
+                  onClick={() => {
+                    if (assignedProperties.length > 1) setShowStaffPgSwitcher(true);
+                  }}
+                  style={{
+                    display:'flex', alignItems:'center', gap:5,
+                    background: '#ffffff', border: '1.5px solid #e8df9a',
+                    borderRadius: 20, padding: '4px 10px', cursor: assignedProperties.length > 1 ? 'pointer' : 'default',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{fontSize:15, color: '#ca8a04'}}>domain</span>
+                  <span style={{fontSize:11.5, fontWeight:800, color:'#1a1500', maxWidth:110, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                    {assignedProperties.find(p => p.id === activePgId)?.name || 'Primary PG'}
+                  </span>
+                  {assignedProperties.length > 1 && (
+                    <span className="material-symbols-outlined" style={{fontSize:15, color: '#ca8a04'}}>expand_more</span>
+                  )}
+                </div>
+              )}
             </div>
+
             <button onClick={()=>setView('profile_view')} style={{background: '#fefce8', border: '1.5px solid #e8df9a', borderRadius:50, width:44, height:44, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative', zIndex:10, overflow:'hidden', padding:0}}>
               {profilePic ? (
                 <img src={profilePic} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} />
@@ -9232,6 +9257,123 @@ export default function StaffApp(){
           </div>
         );
       })()}
+
+      {/* Staff Property Switcher Modal */}
+      {showStaffPgSwitcher && (
+        <div
+          onClick={() => setShowStaffPgSwitcher(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 99999,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            padding: '0',
+            animation: 'fadeIn 0.2s ease-out'
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#ffffff',
+              width: '100%',
+              maxWidth: '480px',
+              borderTopLeftRadius: '28px',
+              borderTopRightRadius: '28px',
+              padding: '24px 20px 36px',
+              boxShadow: '0 -10px 40px rgba(0,0,0,0.2)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#0f172a' }}>Switch Property</h3>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>Select a PG location to view duties & stats</p>
+              </div>
+              <button
+                onClick={() => setShowStaffPgSwitcher(false)}
+                style={{
+                  border: 'none',
+                  background: '#f1f5f9',
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#475569'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '8px' }}>
+              {assignedProperties.map((prop) => {
+                const isSelected = (activePgId || user?.pgId) === prop.id;
+                return (
+                  <button
+                    key={prop.id}
+                    onClick={() => {
+                      switchPg(prop.id);
+                      setShowStaffPgSwitcher(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '16px',
+                      borderRadius: '16px',
+                      border: isSelected ? '2px solid #0891b2' : '1px solid #e2e8f0',
+                      background: isSelected ? '#ecfeff' : '#f8fafc',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div
+                        style={{
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: '12px',
+                          background: isSelected ? '#0891b2' : '#e2e8f0',
+                          color: isSelected ? '#ffffff' : '#64748b',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>apartment</span>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '15px', fontWeight: 800, color: isSelected ? '#0e7490' : '#1e293b' }}>
+                          {prop.name}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>
+                          PG ID: {prop.id}
+                        </div>
+                      </div>
+                    </div>
+                    {isSelected && (
+                      <span className="material-symbols-outlined" style={{ color: '#0891b2', fontSize: '24px', fontWeight: 'bold' }}>
+                        check_circle
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

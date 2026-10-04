@@ -3,8 +3,10 @@ import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import DetailedReceiptModal, { CollectPaymentModal } from '../components/DetailedReceiptModal';
-import { collection, query, where, getDocs, doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, updateDoc, onSnapshot, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { aggregateTenantDues, formatDateDisplay, BILL_TYPES } from '../utils/duesUtils';
+import { fetchAllAdminPgs } from '../utils/pgUtils';
 
 export default function AdminDashboard() {
   const { logout } = useAuth();
@@ -20,6 +22,7 @@ export default function AdminDashboard() {
   const [duesSheet, setDuesSheet] = useState(null); // selected dues person
   const [activeReceipt, setActiveReceipt] = useState(null);
   const [collectModalData, setCollectModalData] = useState(null);
+  const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
   const [pendingNotifsCount, setPendingNotifsCount] = useState(0);
   const [visitorCount, setVisitorCount] = useState(0);
   const [vendorCount, setVendorCount] = useState(0);
@@ -63,7 +66,8 @@ export default function AdminDashboard() {
           qAdmin, qOwner, qProfile,
           qReceipts, qStaff, qAttendance, qVisitorsInside,
           qVisitorsPending, qLeavePending, qComplaints,
-          qEnquiries, qApplications
+          qEnquiries, qApplications,
+          qCustomDues, qMeterBills
         ] = await Promise.all([
           safeGetDocs(query(collection(db, 'notifications'), where('adminId', '==', user.uid), where('resolved', '==', false)), 'notifications'),
           safeGetDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid)), 'tenants'),
@@ -72,7 +76,7 @@ export default function AdminDashboard() {
           safeGetDoc(doc(db, 'admins', user.uid), 'admins'),
           safeGetDoc(activePgId === 'primary' ? doc(db, 'pg_owners', user.uid) : doc(db, 'pg_owners', activePgId), 'pg_owners'),
           safeGetDoc(doc(db, 'pg_profiles', user.uid), 'pg_profiles'),
-          safeGetDocs(query(collection(db, 'rent_receipts'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('rentMonth', '==', currentMonthName)), 'rent_receipts'),
+          safeGetDocs(query(collection(db, 'rent_receipts'), where('adminId', '==', user.uid)), 'rent_receipts'),
           safeGetDocs(query(collection(db, 'staff_tokens'), where('ownerUid', '==', user.uid), where('pgId', '==', activePgId)), 'staff_tokens'),
           safeGetDocs(query(collection(db, 'staff_attendance'), where('ownerUid', '==', user.uid), where('pgId', '==', activePgId), where('date', '==', todayStr), where('status', '==', 'Present')), 'staff_attendance'),
           safeGetDocs(query(collection(db, 'visitors'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('status', '==', 'Inside')), 'visitors (Inside)'),
@@ -80,7 +84,9 @@ export default function AdminDashboard() {
           safeGetDocs(query(collection(db, 'leave_requests'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('status', '==', 'Pending')), 'leave_requests'),
           safeGetDocs(query(collection(db, 'complaints'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)), 'complaints'),
           safeGetDocs(query(collection(db, 'enquiries'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)), 'enquiries'),
-          safeGetDocs(query(collection(db, 'pg_applications'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('status', '==', 'Pending')), 'pg_applications')
+          safeGetDocs(query(collection(db, 'pg_applications'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('status', '==', 'Pending')), 'pg_applications'),
+          safeGetDocs(query(collection(db, 'outstanding_dues'), where('adminId', '==', user.uid)), 'outstanding_dues'),
+          safeGetDocs(query(collection(db, 'electricity_meter_bills'), where('adminId', '==', user.uid)), 'electricity_meter_bills')
         ]);
 
         const complaintsPendingCount = qComplaints.docs.filter(d => d.data().status === 'Pending' || d.data().status === 'Active').length;
@@ -130,44 +136,48 @@ export default function AdminDashboard() {
         const pdTotalSeats = Number(ownerData.propertyDetails?.totalSeats || profileData.propertyDetails?.totalSeats || 0);
         const totalSeats = Math.max(pdTotalSeats, definedCapacity);
 
-        // --- Calculate Pending Dues ---
-        const receipts = qReceipts.docs.map(d => ({ ...d.data(), id: d.id }));
+        // --- Calculate Outstanding & Pending Dues ---
+        const receipts = qReceipts.docs.map(d => ({ ...d.data(), id: d.id })).filter(d => matchesPg(d.pgId));
+        const customDuesList = qCustomDues.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => matchesPg(d.pgId));
+        const meterBillsList = qMeterBills.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => matchesPg(d.pgId));
+
         let pendingDuesCount = 0;
         let totalDueAmount = 0;
         const duesData = [];
 
-        tenants.filter(t => t.status === 'Approved' || t.status === 'Current User').forEach(t => {
-          if (!t.dateOfJoining) return;
-          
-          const doj = new Date(t.dateOfJoining);
-          // First month is paid at joining. No dues until 1 month after joining.
-          const oneMonthAfterJoin = new Date(doj.getFullYear(), doj.getMonth() + 1, doj.getDate());
-          if (now < oneMonthAfterJoin) return;
+        tenants.filter(t => t.status === 'Approved' || t.status === 'Current User' || t.status === 'Notice' || t.status === 'On Notice Period').forEach(t => {
+          const tenantDues = aggregateTenantDues({
+            tenant: t,
+            rentReceipts: receipts,
+            meterBills: meterBillsList,
+            customDues: customDuesList,
+            todayStr
+          });
 
-          const hasPaidThisMonth = receipts.some(r => r.tenantId === t.tenantId && r.rentMonth === currentMonthName);
-          if (hasPaidThisMonth) return;
-
-          let dueDate = new Date(now.getFullYear(), now.getMonth(), doj.getDate());
-          const timeDiff = dueDate.getTime() - now.getTime();
-          const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
-
-          if (daysDiff < 0) {
+          if (tenantDues.totalOutstanding > 0) {
             pendingDuesCount++;
-            totalDueAmount += Number(t.rentAmount) || 0;
+            totalDueAmount += tenantDues.totalOutstanding;
+            
+            const primaryItem = tenantDues.items[0];
+            const dueLabel = primaryItem?.isOverdue
+              ? `Overdue (${primaryItem.daysOverdue}d)`
+              : `Due: ${formatDateDisplay(primaryItem?.dueDate)}`;
+
             duesData.push({
               id: t.id,
               name: t.name || 'Unknown',
-              room: t.roomNo || '-',
-              amount: t.rentAmount ? t.rentAmount.toLocaleString() : '0',
+              room: t.roomNo || t.room || '-',
+              amount: tenantDues.totalOutstanding.toLocaleString('en-IN'),
               rent: t.rentAmount || 0,
               security: t.securityDeposit || 0,
-              due: `Was Due: ${dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+              due: dueLabel,
               initials: (t.name || 'U').substring(0, 2).toUpperCase(),
-              color: '#0891b2',
-              img: null,
-              phone: t.phone || '',
-              joinDate: t.dateOfJoining || '-',
+              color: primaryItem?.isOverdue ? '#e11d48' : '#0891b2',
+              img: t.photoUrl || t.profilePic || t.kyc?.profilePhoto || t.image || null,
+              phone: t.phone || t.contactNo || '',
+              joinDate: t.dateOfJoining || t.joiningDate || '-',
               plan: t.plan || '-',
+              duesSummary: tenantDues,
               payHistory: []
             });
           }
@@ -211,7 +221,7 @@ export default function AdminDashboard() {
     );
 
     return () => { unsubEnq(); unsubNotifs(); };
-  }, [user]);
+  }, [user, activePgId, dashboardRefreshKey]);
 
 
   useEffect(() => {
@@ -239,30 +249,16 @@ export default function AdminDashboard() {
     return () => unsub();
   }, [user]);
 
-  // ── Fetch all PGs for this admin (primary + sub-collection) ──
+  // ── Fetch all PGs for this admin (exhaustive multi-schema discovery) ──
   useEffect(() => {
     if (!user?.uid) return;
     const fetchPgs = async () => {
-      const pgs = [];
-      // Primary PG (from pg_owners/{uid})
       try {
-        const primarySnap = await getDoc(doc(db, 'pg_owners', user.uid));
-        if (primarySnap.exists()) {
-          const d = primarySnap.data();
-          pgs.push({ id: 'primary', pgName: d.pgName || 'My PG', pgType: d.pgType || '', status: d.status || 'Active', location: d.location?.city || '' });
-        }
-      } catch (e) { /* offline */ }
-      // Additional PGs (from top-level pg_owners collection)
-      try {
-        const subSnap = await getDocs(query(collection(db, 'pg_owners'), where('adminId', '==', user.uid)));
-        subSnap.docs.forEach(d => {
-          // Avoid pushing the primary PG twice if it somehow has adminId
-          if (d.id === user.uid) return;
-          const data = d.data();
-          pgs.push({ id: d.id, pgName: data.pgName || 'PG', pgType: data.pgType || '', status: data.status || 'Pending', location: data.location?.city || '' });
-        });
-      } catch (e) { /* offline */ }
-      setPgList(pgs);
+        const pgs = await fetchAllAdminPgs(user);
+        setPgList(pgs);
+      } catch (e) {
+        console.warn('Error fetching multi-PG list:', e);
+      }
     };
     fetchPgs();
   }, [user]);
@@ -439,18 +435,64 @@ export default function AdminDashboard() {
 
             <div style={{ padding: '16px 20px' }}>
               {/* Due Amount Banner */}
-              <div style={{ background: 'linear-gradient(135deg, #e11d48, #be123c)', borderRadius: 16, padding: '18px 20px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ background: 'linear-gradient(135deg, #e11d48, #be123c)', borderRadius: 16, padding: '18px 20px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 600, margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 1 }}>Outstanding Due</p>
                   <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 32, fontWeight: 800, color: 'white', margin: 0 }}>₹{duesSheet.amount}</p>
-                  <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, margin: '4px 0 0' }}>Due by {duesSheet.due}</p>
+                  <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, margin: '4px 0 0', fontWeight: 600 }}>Due by {duesSheet.due}</p>
                 </div>
                 <span className="material-symbols-outlined" style={{ fontSize: 48, color: 'rgba(255,255,255,0.15)' }}>payments</span>
               </div>
 
+              {/* Itemized Due Breakdown — What is this due for? */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 15, color: '#0f172a', margin: 0 }}>
+                    What this Due is For ({duesSheet.duesSummary?.items?.length || 1})
+                  </p>
+                  <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Itemized Breakdown</span>
+                </div>
+
+                {duesSheet.duesSummary?.items && duesSheet.duesSummary.items.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {duesSheet.duesSummary.items.map((item, idx) => {
+                      const typeMeta = BILL_TYPES[item.type] || BILL_TYPES.custom || { label: 'Charge', icon: 'receipt_long', color: '#0284c7', bg: '#e0f2fe' };
+                      const isOver = item.isOverdue || item.status === 'overdue';
+                      return (
+                        <div key={idx} style={{ background: '#f8fafc', border: `1.5px solid ${isOver ? '#fecdd3' : '#e2e8f0'}`, borderRadius: 14, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ width: 38, height: 38, borderRadius: 10, background: isOver ? '#fff1f2' : (typeMeta.bg || '#f1f5f9'), display: 'flex', alignItems: 'center', justifyContent: 'center', color: isOver ? '#e11d48' : (typeMeta.color || '#0284c7') }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>{typeMeta.icon || 'receipt_long'}</span>
+                            </div>
+                            <div>
+                              <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: '0 0 2px' }}>{item.title}</p>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                {item.description && <span style={{ fontSize: 12, color: '#64748b' }}>{item.description} · </span>}
+                                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: isOver ? '#fee2e2' : '#e0f2fe', color: isOver ? '#be123c' : '#0369a1' }}>
+                                  {isOver ? `Overdue (${item.daysOverdue}d)` : `Due: ${formatDateDisplay(item.dueDate)}`}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right', flexShrink: 0, paddingLeft: 10 }}>
+                            <p style={{ fontSize: 16, fontWeight: 800, color: isOver ? '#be123c' : '#0f172a', margin: 0, fontFamily: "'JetBrains Mono', monospace" }}>
+                              ₹{Number(item.amount || 0).toLocaleString('en-IN')}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14, padding: '14px', textAlign: 'center' }}>
+                    <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>Standard Monthly Rent / Balance</p>
+                  </div>
+                )}
+              </div>
+
               {/* Action Buttons */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 24 }}>
-                <button onClick={() => setCollectModalData(duesSheet)} style={{ background: '#0891b2', color: 'white', border: 'none', borderRadius: 12, padding: '13px 0', fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <button onClick={() => setCollectModalData(duesSheet)} style={{ background: '#0891b2', color: 'white', border: 'none', borderRadius: 12, padding: '13px 0', fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, boxShadow: '0 2px 8px rgba(8,145,178,0.25)' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 18 }}>check_circle</span>
                   Mark as Paid
                 </button>
@@ -684,8 +726,10 @@ export default function AdminDashboard() {
             }}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', padding: '12px 16px', borderRadius: 12, border: '1px solid #fee2e2', cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
-                  ⚠️
+                <div style={{ width: 36, height: 36, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#e11d48', color: 'white', fontWeight: 700, fontSize: 14 }}>
+                  {d.img
+                    ? <img src={d.img} alt={d.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : (d.initials || (d.name || 'U').substring(0, 2).toUpperCase())}
                 </div>
                 <div>
                   <p style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', margin: '0 0 2px' }}>{d.name}</p>
@@ -863,19 +907,79 @@ export default function AdminDashboard() {
         <CollectPaymentModal
           dueData={collectModalData}
           onClose={() => setCollectModalData(null)}
-          onConfirm={(newReceipt) => {
-            setCollectModalData(null);
-            if (duesSheet) {
-              setDuesSheet(prev => ({
-                ...prev,
-                amount: newReceipt.pendingAmount,
-                payHistory: [
-                  { month: newReceipt.month, date: newReceipt.date, amount: newReceipt.totalAmount, mode: newReceipt.paymentMode, status: 'Paid' },
-                  ...prev.payHistory
-                ]
-              }));
+          onConfirm={async (newReceipt) => {
+            if (user?.uid && collectModalData) {
+              try {
+                const tenantId = collectModalData.tenantId || collectModalData.id;
+                const receiptPayload = {
+                  adminId: user.uid,
+                  pgId: activePgId || collectModalData.pgId || 'primary',
+                  tenantId: tenantId || '',
+                  tenantName: collectModalData.name || '',
+                  roomNo: String(collectModalData.room || '').replace('Room ', ''),
+                  rentMonth: newReceipt.rentMonth || newReceipt.month || new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+                  datePaid: new Date().toISOString(),
+                  date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                  paymentMode: newReceipt.paymentMode || 'UPI',
+                  receivedBy: newReceipt.receivedBy || 'Admin',
+                  senderUPI: newReceipt.senderUPI || '',
+                  receiverUPI: newReceipt.receiverUPI || '',
+                  transactionId: newReceipt.transactionId || '',
+                  note: newReceipt.note || '',
+                  items: newReceipt.items || [],
+                  totalAmount: Number(newReceipt.totalAmount || 0),
+                  amountPaid: Number(newReceipt.totalAmount || 0),
+                  pendingAmount: Number(newReceipt.pendingAmount || 0),
+                  createdAt: new Date().toISOString()
+                };
+
+                await addDoc(collection(db, 'rent_receipts'), receiptPayload);
+
+                // If admission balance was paid, update tenant remainingAmount
+                if (tenantId) {
+                  try {
+                    const tRef = doc(db, 'tenants', tenantId);
+                    const tSnap = await getDoc(tRef);
+                    if (tSnap.exists()) {
+                      const curRem = Number(tSnap.data().remainingAmount || 0);
+                      if (curRem > 0) {
+                        const newRem = Math.max(0, curRem - Number(newReceipt.totalAmount || 0));
+                        await updateDoc(tRef, { remainingAmount: newRem });
+                      }
+                    }
+                  } catch (err) {
+                    console.error("Error updating tenant remainingAmount:", err);
+                  }
+                }
+
+                // If dues were custom dues or meter bills, mark them as paid in Firestore
+                if (collectModalData.duesSummary?.items) {
+                  for (const it of collectModalData.duesSummary.items) {
+                    if (it.source === 'custom_due' && it.docId) {
+                      try {
+                        await updateDoc(doc(db, 'outstanding_dues', it.docId), { status: 'Paid', isPaid: true, paidAt: new Date().toISOString() });
+                      } catch (e) {}
+                    }
+                    if (it.source === 'meter_bill' && it.docId) {
+                      try {
+                        await updateDoc(doc(db, 'electricity_meter_bills', it.docId), { status: 'Paid', isPaid: true, paidAt: new Date().toISOString() });
+                      } catch (e) {}
+                    }
+                  }
+                }
+
+                setCollectModalData(null);
+                setDuesSheet(null);
+                setActiveReceipt(receiptPayload);
+                setDashboardRefreshKey(prev => prev + 1);
+              } catch (e) {
+                console.error("Error saving payment receipt:", e);
+                alert("Failed to save payment: " + e.message);
+              }
+            } else {
+              setCollectModalData(null);
+              setActiveReceipt(newReceipt);
             }
-            setActiveReceipt(newReceipt);
           }}
         />
       )}

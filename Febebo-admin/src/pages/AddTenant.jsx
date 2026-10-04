@@ -445,10 +445,16 @@ export default function AddTenant() {
                       key={room.id}
                       onClick={() => {
                         const defaultBed = vacantBeds[0] || 'A';
+                        const isFlat = room.leaseType === 'entire_room' ||
+                          String(room.roomType || '').toLowerCase().includes('flat') ||
+                          String(room.seaterLabel || '').toLowerCase().includes('flat') ||
+                          String(room.seaterType || '').toLowerCase().includes('flat');
+
                         setFormData(prev => ({ 
                           ...prev, 
                           selectedRoomId: room.id,
                           selectedBed: prev.selectedRoomId === room.id ? (prev.selectedBed || defaultBed) : defaultBed,
+                          leaseType: isFlat ? 'entire_room' : (prev.leaseType || 'bed_sharing'),
                           rent: String(room.price || 0),
                           securityDeposit: String((room.price || 0) * 2)
                         }));

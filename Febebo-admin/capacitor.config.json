@@ -2,6 +2,10 @@
   "appId": "com.febebo.admin",
   "appName": "Febebo Admin",
   "webDir": "dist",
+  "server": {
+    "url": "https://cables-stayed-top-eur.trycloudflare.com",
+    "cleartext": true
+  },
   "plugins": {
     "FirebaseAuthentication": {
       "skipNativeAuth": false,

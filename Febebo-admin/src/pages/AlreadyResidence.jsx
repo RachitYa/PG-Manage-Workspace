@@ -79,6 +79,8 @@ export default function AlreadyResidence() {
     password: '',
     selectedRoomId: '',
     selectedBed: '',
+    leaseType: 'bed_sharing', // 'bed_sharing' | 'entire_room'
+    coResidents: [],
     amenities: [],
     amenityImages: {},
     inventory: {},
@@ -89,6 +91,9 @@ export default function AlreadyResidence() {
     joiningDate: new Date().toISOString().split('T')[0],
     remainingAmount: ''
   });
+
+  const [newCoResident, setNewCoResident] = useState({ name: '', phone: '', relation: 'Roommate', aadhar: '', bed: '' });
+  const [showAddCoResident, setShowAddCoResident] = useState(false);
 
   const [customAmenities, setCustomAmenities] = useState([]);
   const [customInventory, setCustomInventory] = useState([]);
@@ -198,6 +203,8 @@ export default function AlreadyResidence() {
       await updateProfile(newUser, { displayName: formData.name });
       
       const joinIso = formData.joiningDate ? new Date(formData.joiningDate).toISOString() : new Date().toISOString();
+      const isSinglePayerFlat = formData.leaseType === 'entire_room';
+      const coResidentsList = formData.coResidents || [];
 
       // Save to users collection as Upcoming User (requires approval & onboarding)
       await setDoc(doc(db, 'users', newUser.uid), {
@@ -211,6 +218,9 @@ export default function AlreadyResidence() {
         detailsFilled: false,
         registeredVia: 'already_residence',
         isAlreadyResident: true,
+        isPrimaryPayer: isSinglePayerFlat,
+        leaseType: formData.leaseType || 'bed_sharing',
+        coResidents: coResidentsList,
         location: pgLocation,
         createdAt: serverTimestamp(),
         amenities: formData.amenities,
@@ -223,6 +233,9 @@ export default function AlreadyResidence() {
           roomNo: selectedRoom ? selectedRoom.roomNo : '',
           roomId: selectedRoom ? selectedRoom.id : '',
           bedNo: formData.selectedBed || '',
+          isPrimaryPayer: isSinglePayerFlat,
+          leaseType: formData.leaseType || 'bed_sharing',
+          coResidents: coResidentsList,
           rent: Number(formData.rent) || 0,
           securityAmount: Number(formData.securityDeposit) || 0,
           leaseAmount: (Number(formData.rent) || 0) + (Number(formData.securityDeposit) || 0),
@@ -264,6 +277,9 @@ export default function AlreadyResidence() {
         phone: formData.phone,
         roomNo: selectedRoom ? selectedRoom.roomNo : '',
         bedNo: formData.selectedBed || '',
+        isPrimaryPayer: isSinglePayerFlat,
+        leaseType: formData.leaseType || 'bed_sharing',
+        coResidents: coResidentsList,
         meterReading: Number(formData.meterReading) || 0,
         rentAmount: Number(formData.rent) || 0,
         securityDeposit: Number(formData.securityDeposit) || 0,
@@ -386,10 +402,17 @@ export default function AlreadyResidence() {
                   value={formData.selectedRoomId}
                   onChange={(e) => {
                     const selectedRoom = rooms.find(r => r.id === e.target.value);
+                    const isFlat = selectedRoom && (
+                      selectedRoom.leaseType === 'entire_room' ||
+                      String(selectedRoom.roomType || '').toLowerCase().includes('flat') ||
+                      String(selectedRoom.seaterLabel || '').toLowerCase().includes('flat') ||
+                      String(selectedRoom.seaterType || '').toLowerCase().includes('flat')
+                    );
                     setFormData(prev => ({
                       ...prev,
                       selectedRoomId: e.target.value,
-                      selectedBed: '',
+                      selectedBed: isFlat ? 'A' : '',
+                      leaseType: isFlat ? 'entire_room' : 'bed_sharing',
                       rent: selectedRoom ? String(selectedRoom.price || 0) : ''
                     }));
                   }}
@@ -403,9 +426,10 @@ export default function AlreadyResidence() {
                   }).map(r => {
                     const roomTenantsCount = tenants.filter(t => t.roomNo === r.roomNo).length;
                     const vacantSeats = Math.max(0, (Number(r.beds) || 1) - roomTenantsCount);
+                    const isFlat = r.leaseType === 'entire_room' || String(r.roomType || '').toLowerCase().includes('flat');
                     return (
                       <option key={r.id} value={r.id}>
-                        Room {r.roomNo} ({vacantSeats} Seats Available)
+                        Room {r.roomNo} {isFlat ? '🏢 [Flat]' : ''} ({vacantSeats} Seats Available)
                       </option>
                     );
                   })}
@@ -434,35 +458,237 @@ export default function AlreadyResidence() {
               });
               
               const vacantBeds = allBeds.filter(b => !normalizedOccupied.includes(b));
+              const isFlat = formData.leaseType === 'entire_room';
               
               return (
-                <div style={styles.inputGroup}>
-                  <label style={styles.label}>Assign Bed <span style={{ color: '#ef4444' }}>*</span></label>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                    {(vacantBeds.length > 0 ? vacantBeds : ['A']).map(b => (
+                <>
+                  {/* Occupancy / Lease Model */}
+                  <div style={styles.inputGroup}>
+                    <label style={styles.label}>Occupancy Model / Lease Type</label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <button
-                        key={b}
                         type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, selectedBed: b }))}
+                        onClick={() => setFormData(p => ({ ...p, leaseType: 'bed_sharing' }))}
                         style={{
-                          padding: '8px 16px',
-                          borderRadius: 8,
-                          border: formData.selectedBed === b ? '2px solid #0891b2' : '1px solid #cbd5e1',
-                          background: formData.selectedBed === b ? '#0891b2' : '#ffffff',
-                          color: formData.selectedBed === b ? '#ffffff' : '#334155',
+                          padding: '12px',
+                          borderRadius: 12,
+                          border: `1.5px solid ${formData.leaseType === 'bed_sharing' ? '#0891b2' : '#e2e8f0'}`,
+                          background: formData.leaseType === 'bed_sharing' ? '#ecfeff' : 'white',
+                          color: formData.leaseType === 'bed_sharing' ? '#0e7490' : '#475569',
                           fontWeight: 700,
                           fontSize: 13,
-                          cursor: 'pointer'
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 4
                         }}
                       >
-                        Bed {b}
+                        <span className="material-symbols-outlined" style={{ fontSize: 20 }}>bed</span>
+                        <span>Individual Bed</span>
                       </button>
-                    ))}
+                      <button
+                        type="button"
+                        onClick={() => setFormData(p => ({ ...p, leaseType: 'entire_room', selectedBed: p.selectedBed || 'A' }))}
+                        style={{
+                          padding: '12px',
+                          borderRadius: 12,
+                          border: `1.5px solid ${formData.leaseType === 'entire_room' ? '#7c3aed' : '#e2e8f0'}`,
+                          background: formData.leaseType === 'entire_room' ? '#f5f3ff' : 'white',
+                          color: formData.leaseType === 'entire_room' ? '#6d28d9' : '#475569',
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 20 }}>home_work</span>
+                        <span>Entire Flat (Single Payer)</span>
+                      </button>
+                    </div>
                   </div>
-                  {vacantBeds.length === 0 && (
-                    <p style={{ margin: '4px 0 0', fontSize: 11, color: '#ef4444' }}>All beds are occupied in this room.</p>
+
+                  {/* Bed Assignment for Primary Tenant */}
+                  <div style={styles.inputGroup}>
+                    <label style={styles.label}>
+                      {isFlat ? 'Primary Resident Bed' : 'Assign Bed'} <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                      {(vacantBeds.length > 0 ? vacantBeds : ['A']).map(b => (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, selectedBed: b }))}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: 8,
+                            border: formData.selectedBed === b ? '2px solid #0891b2' : '1px solid #cbd5e1',
+                            background: formData.selectedBed === b ? '#0891b2' : '#ffffff',
+                            color: formData.selectedBed === b ? '#ffffff' : '#334155',
+                            fontWeight: 700,
+                            fontSize: 13,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Bed {b}
+                        </button>
+                      ))}
+                    </div>
+                    {vacantBeds.length === 0 && (
+                      <p style={{ margin: '4px 0 0', fontSize: 11, color: '#ef4444' }}>All beds are occupied in this room.</p>
+                    )}
+                  </div>
+
+                  {/* 👥 FLAT OCCUPANTS / CO-RESIDENTS SECTION */}
+                  {isFlat && (
+                    <div style={{ marginBottom: 20, background: '#faf5ff', border: '1.5px dashed #c084fc', borderRadius: 14, padding: 14 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase' }}>
+                            👥 Flatmates / Co-Residents ({formData.coResidents.length})
+                          </h4>
+                          <p style={{ margin: '2px 0 0', fontSize: 11, color: '#7e22ce' }}>
+                            {formData.name || 'Primary Resident'} is the single billing payer. Add the other people living in this flat:
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowAddCoResident(true)}
+                          style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                          Add Flatmate
+                        </button>
+                      </div>
+
+                      {/* List of Added Co-Residents */}
+                      {formData.coResidents.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                          {formData.coResidents.map((cr, idx) => (
+                            <div key={idx} style={{ background: 'white', border: '1px solid #e9d5ff', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{cr.name}</p>
+                                  {cr.bed && (
+                                    <span style={{ fontSize: 10, fontWeight: 700, background: '#ede9fe', color: '#6d28d9', padding: '1px 6px', borderRadius: 4 }}>
+                                      Bed {cr.bed}
+                                    </span>
+                                  )}
+                                </div>
+                                <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                                  {cr.relation || 'Flatmate'}{cr.phone ? ` · ${cr.phone}` : ''}{cr.aadhar ? ` · ID: ${cr.aadhar}` : ''}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setFormData(p => ({ ...p, coResidents: p.coResidents.filter((_, i) => i !== idx) }))}
+                                style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', display: 'flex', padding: 4 }}
+                                title="Remove flatmate"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Inline Add Flatmate Form */}
+                      {showAddCoResident && (
+                        <div style={{ background: 'white', border: '1px solid #c084fc', borderRadius: 12, padding: 14, marginTop: 8 }}>
+                          <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: '#6d28d9' }}>Enter Flatmate Details</p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <input
+                              type="text"
+                              placeholder="Flatmate Full Name *"
+                              value={newCoResident.name}
+                              onChange={e => setNewCoResident(p => ({ ...p, name: e.target.value }))}
+                              style={{ ...styles.input, padding: '8px 12px', fontSize: 13 }}
+                            />
+                            <input
+                              type="tel"
+                              placeholder="Mobile Number *"
+                              maxLength={10}
+                              value={newCoResident.phone}
+                              onChange={e => setNewCoResident(p => ({ ...p, phone: e.target.value }))}
+                              style={{ ...styles.input, padding: '8px 12px', fontSize: 13 }}
+                            />
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <input
+                                type="text"
+                                placeholder="Relation (e.g. Roommate, Friend, Family)"
+                                value={newCoResident.relation}
+                                onChange={e => setNewCoResident(p => ({ ...p, relation: e.target.value }))}
+                                style={{ ...styles.input, padding: '8px 12px', fontSize: 13, flex: 1 }}
+                              />
+                              <input
+                                type="text"
+                                placeholder="Aadhaar / ID No (Optional)"
+                                value={newCoResident.aadhar}
+                                onChange={e => setNewCoResident(p => ({ ...p, aadhar: e.target.value }))}
+                                style={{ ...styles.input, padding: '8px 12px', fontSize: 13, flex: 1 }}
+                              />
+                            </div>
+                            {/* Bed assignment for flatmate */}
+                            <div>
+                              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4 }}>
+                                Assign Flatmate Bed (Optional):
+                              </label>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                {allBeds.filter(b => b !== formData.selectedBed).map(b => (
+                                  <button
+                                    key={b}
+                                    type="button"
+                                    onClick={() => setNewCoResident(p => ({ ...p, bed: p.bed === b ? '' : b }))}
+                                    style={{
+                                      padding: '4px 10px',
+                                      borderRadius: 6,
+                                      border: newCoResident.bed === b ? '1.5px solid #7c3aed' : '1px solid #cbd5e1',
+                                      background: newCoResident.bed === b ? '#7c3aed' : '#f8fafc',
+                                      color: newCoResident.bed === b ? '#fff' : '#334155',
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    Bed {b}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowAddCoResident(false);
+                                  setNewCoResident({ name: '', phone: '', relation: 'Roommate', aadhar: '', bed: '' });
+                                }}
+                                style={{ flex: 1, padding: '8px', background: '#f1f5f9', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!newCoResident.name.trim()) return alert('Please enter flatmate full name');
+                                  if (!newCoResident.phone.trim() || newCoResident.phone.length < 10) return alert('Please enter a valid 10-digit mobile number for the flatmate');
+                                  setFormData(p => ({ ...p, coResidents: [...p.coResidents, { ...newCoResident }] }));
+                                  setNewCoResident({ name: '', phone: '', relation: 'Roommate', aadhar: '', bed: '' });
+                                  setShowAddCoResident(false);
+                                }}
+                                style={{ flex: 1, padding: '8px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                              >
+                                Add Flatmate
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
-                </div>
+                </>
               );
             })()}
 

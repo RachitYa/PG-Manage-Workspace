@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import ReviewDetailsModal from '../components/ReviewDetailsModal';
 import { buildPgLookupMap, resolveDocPgInfo, PG_COLOR_PALETTES } from '../utils/pgColorUtils';
+import { fetchAllAdminPgs } from '../utils/pgUtils';
 
 const cyan = '#0891b2';
 
@@ -78,39 +79,12 @@ export default function RequestBox() {
     const fetchAllData = async () => {
       setLoading(true);
       try {
-        // 1. Fetch all PGs owned by this admin
-        const pgs = [];
+        // 1. Fetch all PGs owned by this admin (exhaustive multi-schema discovery)
+        let pgs = [];
         try {
-          const primarySnap = await getDoc(doc(db, 'pg_owners', user.uid));
-          if (primarySnap.exists()) {
-            const d = primarySnap.data();
-            pgs.push({ 
-              id: 'primary', 
-              pgName: d.pgName || 'Main PG', 
-              pgType: d.pgType || '', 
-              status: d.status || 'Active', 
-              location: d.location?.city || '' 
-            });
-          }
+          pgs = await fetchAllAdminPgs(user);
         } catch (e) {
-          console.warn('Error fetching primary PG:', e);
-        }
-
-        try {
-          const subSnap = await getDocs(query(collection(db, 'pg_owners'), where('adminId', '==', user.uid)));
-          subSnap.docs.forEach(d => {
-            if (d.id === user.uid) return;
-            const data = d.data();
-            pgs.push({ 
-              id: d.id, 
-              pgName: data.pgName || 'Branch PG', 
-              pgType: data.pgType || '', 
-              status: data.status || 'Active', 
-              location: data.location?.city || '' 
-            });
-          });
-        } catch (e) {
-          console.warn('Error fetching sub PGs:', e);
+          console.warn('Error fetching PGs in RequestBox:', e);
         }
 
         if (pgs.length === 0) {

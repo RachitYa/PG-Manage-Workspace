@@ -24,6 +24,8 @@ ios/build/
 *.apk
 *.aab
 *.ipa
+cloudflared.exe
+*.exe
 
 # Environment variables
 .env

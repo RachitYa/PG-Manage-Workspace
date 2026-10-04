@@ -2,6 +2,10 @@
   "appId": "com.febebo.student",
   "appName": "Febebo Student",
   "webDir": "dist",
+  "server": {
+    "url": "https://etc-techno-passive-advised.trycloudflare.com",
+    "cleartext": true
+  },
   "plugins": {
     "FirebaseAuthentication": {
       "skipNativeAuth": false,

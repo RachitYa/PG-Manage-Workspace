@@ -229,13 +229,17 @@ const Account = () => {
     setShowRentModal(true);
   };
 
+  const [paymentMonth, setPaymentMonth] = useState(new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }));
+  const [transactionId, setTransactionId] = useState('');
+  const [paymentNote, setPaymentNote] = useState('');
+
   const submitRent = async (e) => {
     e.preventDefault();
     if (rentMode === 'Online' && !rentScreenshot) {
       return alert("Please upload a payment screenshot.");
     }
     if (!rentReceivedBy) {
-      return alert("Please enter who received the payment.");
+      return alert("Please enter who received the payment (or UPI ID).");
     }
     setIsSubmittingRent(true);
     try {
@@ -247,15 +251,21 @@ const Account = () => {
       const isMeter = paymentTypeOption === 'Meter';
       const actualAmt = isMeter ? meterBills.reduce((acc, b) => acc + (b.totalAmount || 0), 0) : Number(rentAmount);
       
+      const titleName = isMeter ? 'Meter Bill Payment' : (paymentTypeOption === 'Balance' ? 'Admission Balance Payment' : `Monthly Rent — ${paymentMonth}`);
+
       const paymentObj = {
         amount: actualAmt,
         date: new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }),
-        name: isMeter ? 'Meter Bill Payment' : 'Monthly Rent Payment',
+        name: titleName,
+        month: paymentMonth,
+        rentMonth: paymentMonth,
         paymentMode: rentMode,
-        paymentType: isMeter ? 'meter_bill' : 'monthly_rent',
+        paymentType: isMeter ? 'meter_bill' : (paymentTypeOption === 'Balance' ? 'remaining_balance' : 'monthly_rent'),
         pgName: user?.subscribedPG?.pgName || 'PG',
         receivedBy: rentReceivedBy,
-        status: isMeter ? 'Paid' : 'Pending Verification',
+        transactionId: transactionId || '',
+        note: paymentNote || '',
+        status: 'Pending Verification',
         type: 'Debit',
         createdAt: new Date().toISOString()
       };
@@ -263,36 +273,32 @@ const Account = () => {
 
       // Add to user's payments
       const docRef = await addDoc(collection(db, 'users', user.uid, 'payments'), paymentObj);
-      if (isMeter) {
-        for (const mb of meterBills) {
-          await updateDoc(doc(db, 'meter_bills', mb.docId), {
-            status: 'Paid',
-            paymentId: docRef.id
-          });
-        }
-      }
 
-      // Add to rent_receipts for admin
-      if (user?.subscribedPG?.pgId) {
-        await addDoc(collection(db, 'rent_receipts'), {
+      // Add to payment_verifications for Admin/Manager approval
+      const targetAdminId = user?.subscribedPG?.adminId || user?.subscribedPG?.pgId;
+      if (targetAdminId) {
+        await addDoc(collection(db, 'payment_verifications'), {
           ...paymentObj,
-          adminId: user.subscribedPG.adminId || user.subscribedPG.pgId,
-          pgId: user.subscribedPG.adminId ? user.subscribedPG.pgId : 'primary',
+          adminId: targetAdminId,
+          pgId: user?.subscribedPG?.pgId || 'primary',
           tenantId: user.uid,
-          tenantName: user.name || 'Student',
-          roomNo: user?.subscribedPG?.roomNo || 'Unknown'
+          tenantName: user.name || user.displayName || 'Student',
+          roomNo: user?.subscribedPG?.roomNo || user.roomNo || 'N/A',
+          phone: user.phone || user.phoneNumber || '',
+          userPaymentDocId: docRef.id,
+          status: 'Pending'
         });
 
         // Notify Admin
         await addDoc(collection(db, 'notifications'), {
-          adminId: user.subscribedPG.adminId || user.subscribedPG.pgId,
-          pgId: user.subscribedPG.adminId ? user.subscribedPG.pgId : 'primary',
+          adminId: targetAdminId,
+          pgId: user?.subscribedPG?.pgId || 'primary',
           tenantId: user.uid,
           tenantName: user.name || 'Student',
-          title: '💸 Monthly Rent Received',
-          desc: `${user.name || 'A student'} has submitted a monthly rent payment of ₹${rentAmount} via ${rentMode}.`,
-          type: 'monthly_rent',
-          action: 'VIEW_TRANSACTIONS',
+          title: '💸 Payment Proof Submitted',
+          desc: `${user.name || 'Student'} (Room ${user?.subscribedPG?.roomNo || 'N/A'}) submitted ₹${actualAmt.toLocaleString('en-IN')} for ${titleName}. Tap to verify.`,
+          type: 'payment_approval',
+          action: 'VIEW_APPROVALS',
           unread: true,
           createdAt: new Date().toISOString(),
           resolved: false,
@@ -306,6 +312,8 @@ const Account = () => {
         setRentSuccess(false);
         setRentScreenshot(null);
         setRentReceivedBy('');
+        setTransactionId('');
+        setPaymentNote('');
       }, 2500);
 
     } catch (err) {
@@ -419,50 +427,69 @@ const Account = () => {
             ) : (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#0f172a' }}>Pay Monthly Rent</h2>
+                  <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#0f172a' }}>Pay Fees & Submit Proof</h2>
                   <button onClick={() => setShowRentModal(false)} style={{ background: '#f1f5f9', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <X size={18} color="#475569" />
                   </button>
                 </div>
                 
-                <form onSubmit={submitRent} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <form onSubmit={submitRent} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Payment For</label>
-                    <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-                      <button type="button" onClick={() => setPaymentTypeOption('Rent')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: `1px solid ${paymentTypeOption === 'Rent' ? '#818cf8' : '#e2e8f0'}`, background: paymentTypeOption === 'Rent' ? '#e0e7ff' : '#f8fafc', color: paymentTypeOption === 'Rent' ? '#4f46e5' : '#64748b', fontWeight: '600' }}>Monthly Rent</button>
-                      <button type="button" onClick={() => setPaymentTypeOption('Meter')} disabled={meterBills.length === 0} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: `1px solid ${paymentTypeOption === 'Meter' ? '#818cf8' : '#e2e8f0'}`, background: paymentTypeOption === 'Meter' ? '#e0e7ff' : '#f8fafc', color: paymentTypeOption === 'Meter' ? '#4f46e5' : '#64748b', fontWeight: '600', opacity: meterBills.length === 0 ? 0.5 : 1 }}>Meter Bill</button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button type="button" onClick={() => { setPaymentTypeOption('Rent'); setRentAmount(baseRent); }} style={{ flex: 1, padding: '10px 6px', borderRadius: '10px', border: `1.5px solid ${paymentTypeOption === 'Rent' ? '#0891b2' : '#e2e8f0'}`, background: paymentTypeOption === 'Rent' ? '#ecfeff' : '#f8fafc', color: paymentTypeOption === 'Rent' ? '#0891b2' : '#64748b', fontWeight: '700', fontSize: '12px' }}>Monthly Rent</button>
+                      <button type="button" onClick={() => setPaymentTypeOption('Meter')} disabled={meterBills.length === 0} style={{ flex: 1, padding: '10px 6px', borderRadius: '10px', border: `1.5px solid ${paymentTypeOption === 'Meter' ? '#0891b2' : '#e2e8f0'}`, background: paymentTypeOption === 'Meter' ? '#ecfeff' : '#f8fafc', color: paymentTypeOption === 'Meter' ? '#0891b2' : '#64748b', fontWeight: '700', fontSize: '12px', opacity: meterBills.length === 0 ? 0.5 : 1 }}>Meter Bill</button>
+                      <button type="button" onClick={() => { setPaymentTypeOption('Balance'); setRentAmount(''); }} style={{ flex: 1, padding: '10px 6px', borderRadius: '10px', border: `1.5px solid ${paymentTypeOption === 'Balance' ? '#0891b2' : '#e2e8f0'}`, background: paymentTypeOption === 'Balance' ? '#ecfeff' : '#f8fafc', color: paymentTypeOption === 'Balance' ? '#0891b2' : '#64748b', fontWeight: '700', fontSize: '12px' }}>Admission Bal</button>
                     </div>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>{paymentTypeOption === 'Rent' ? 'Rent Amount' : 'Meter Bill Amount'}</label>
-                    <input type="number" value={paymentTypeOption === 'Rent' ? rentAmount : meterBills.reduce((acc, b) => acc + (b.totalAmount || 0), 0)} readOnly style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#64748b', fontSize: '16px', fontWeight: '600', outline: 'none' }} />
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Month</label>
+                      <input type="text" value={paymentMonth} onChange={e => setPaymentMonth(e.target.value)} required placeholder="e.g. October 2026" style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1.5px solid #e2e8f0', fontSize: '14px', fontWeight: '600', outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Amount (₹)</label>
+                      <input type="number" value={paymentTypeOption === 'Meter' ? meterBills.reduce((acc, b) => acc + (b.totalAmount || 0), 0) : rentAmount} onChange={e => setRentAmount(e.target.value)} required readOnly={paymentTypeOption === 'Meter'} placeholder="Amount" style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1.5px solid #e2e8f0', fontSize: '14px', fontWeight: '700', outline: 'none', boxSizing: 'border-box', color: '#0f172a' }} />
+                    </div>
                   </div>
                   
                   <div>
                     <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Payment Mode</label>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      <button type="button" onClick={() => setRentMode('Online')} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: `2px solid ${rentMode === 'Online' ? '#3b82f6' : '#e2e8f0'}`, background: rentMode === 'Online' ? '#eff6ff' : 'white', color: rentMode === 'Online' ? '#1d4ed8' : '#64748b', fontWeight: '700', fontSize: '15px' }}>Online</button>
-                      <button type="button" onClick={() => setRentMode('Cash')} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: `2px solid ${rentMode === 'Cash' ? '#16a34a' : '#e2e8f0'}`, background: rentMode === 'Cash' ? '#f0fdf4' : 'white', color: rentMode === 'Cash' ? '#15803d' : '#64748b', fontWeight: '700', fontSize: '15px' }}>Cash</button>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <button type="button" onClick={() => setRentMode('Online')} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: `2px solid ${rentMode === 'Online' ? '#0891b2' : '#e2e8f0'}`, background: rentMode === 'Online' ? '#ecfeff' : 'white', color: rentMode === 'Online' ? '#0891b2' : '#64748b', fontWeight: '700', fontSize: '13px' }}>UPI / Online</button>
+                      <button type="button" onClick={() => setRentMode('Cash')} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: `2px solid ${rentMode === 'Cash' ? '#16a34a' : '#e2e8f0'}`, background: rentMode === 'Cash' ? '#f0fdf4' : 'white', color: rentMode === 'Cash' ? '#15803d' : '#64748b', fontWeight: '700', fontSize: '13px' }}>Cash</button>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Transaction ID / UTR</label>
+                      <input type="text" placeholder="e.g. 328901..." value={transactionId} onChange={e => setTransactionId(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1.5px solid #e2e8f0', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Paid To / Receiver</label>
+                      <input type="text" placeholder="Admin / Manager" value={rentReceivedBy} onChange={e => setRentReceivedBy(e.target.value)} required style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1.5px solid #e2e8f0', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} />
                     </div>
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Received By</label>
-                    <input type="text" placeholder="Name of Admin/Staff" value={rentReceivedBy} onChange={e => setRentReceivedBy(e.target.value)} required style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '15px', outline: 'none' }} />
+                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Remarks / Note (Optional)</label>
+                    <input type="text" placeholder="Any extra detail..." value={paymentNote} onChange={e => setPaymentNote(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1.5px solid #e2e8f0', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }} />
                   </div>
 
                   {rentMode === 'Online' && (
                     <div>
-                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Payment Screenshot</label>
-                      <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', border: '2px dashed #cbd5e1', borderRadius: '16px', background: '#f8fafc', cursor: 'pointer' }}>
+                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '700', color: '#475569', marginBottom: '6px' }}>Payment Proof / Screenshot <span style={{ color: '#e11d48' }}>*</span></label>
+                      <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '18px', border: '2px dashed #0891b2', borderRadius: '14px', background: '#ecfeff', cursor: 'pointer' }}>
                         {rentScreenshot ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontWeight: '600' }}>
-                            <CheckCircle2 size={20} /> Screenshot Selected
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0891b2', fontWeight: '700', fontSize: '14px' }}>
+                            <CheckCircle2 size={20} /> Screenshot Attached
                           </div>
                         ) : (
                           <>
-                            <Upload size={24} color="#94a3b8" style={{ marginBottom: '8px' }} />
-                            <span style={{ fontSize: '14px', color: '#64748b', fontWeight: '500' }}>Tap to upload screenshot</span>
+                            <Upload size={24} color="#0891b2" style={{ marginBottom: '6px' }} />
+                            <span style={{ fontSize: '13px', color: '#0891b2', fontWeight: '700' }}>Tap to upload payment screenshot</span>
                           </>
                         )}
                         <input type="file" accept="image/*" onChange={e => setRentScreenshot(e.target.files[0])} style={{ display: 'none' }} />
@@ -470,8 +497,8 @@ const Account = () => {
                     </div>
                   )}
 
-                  <button type="submit" disabled={isSubmittingRent} style={{ marginTop: '8px', width: '100%', padding: '16px', background: '#0f172a', color: 'white', border: 'none', borderRadius: '14px', fontSize: '16px', fontWeight: '800', opacity: isSubmittingRent ? 0.7 : 1 }}>
-                    {isSubmittingRent ? 'Submitting...' : 'Submit Payment'}
+                  <button type="submit" disabled={isSubmittingRent} style={{ marginTop: '6px', width: '100%', padding: '14px', background: 'linear-gradient(135deg, #0891b2, #0e7490)', color: 'white', border: 'none', borderRadius: '14px', fontSize: '15px', fontWeight: '800', cursor: 'pointer', boxShadow: '0 4px 12px rgba(8,145,178,0.3)', opacity: isSubmittingRent ? 0.7 : 1 }}>
+                    {isSubmittingRent ? 'Submitting Proof...' : 'Submit for Verification'}
                   </button>
                 </form>
               </>
