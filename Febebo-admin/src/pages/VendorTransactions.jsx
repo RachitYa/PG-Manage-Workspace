@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { collection, addDoc, getDocs, query, where, updateDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import { useAuth } from '../context/AuthContext';
+import { fetchAllAdminPgs } from '../utils/pgUtils';
 
 // ─── Category-specific item lists (alphabetical) ──────────────────────────────
 const CATEGORY_ITEMS = {
@@ -111,9 +113,13 @@ function PaymentModal({ title, totalAmt, defaultToWhom, defaultReceiverUPI, onCo
 }
 
 // ─── New Checklist Purchase Modal ─────────────────────────────────────────────
-function PurchaseModal({ vendor, onClose, onSave }) {
+function PurchaseModal({ vendor, pgList = [], defaultPgId = 'primary', onClose, onSave }) {
   const baseItems = (CATEGORY_ITEMS[vendor.category] || []).slice().sort();
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedPgId, setSelectedPgId] = useState(() => {
+    if (defaultPgId && defaultPgId !== 'all') return defaultPgId;
+    return pgList[0]?.id || 'primary';
+  });
   // selected: { [itemName]: { qty, unit, rate } }
   const [selected, setSelected] = useState({});
   const [customItems, setCustomItems] = useState([]);
@@ -160,7 +166,9 @@ function PurchaseModal({ vendor, onClose, onSave }) {
       item: name, qty: v.qty, unit: v.unit, rate: parseFloat(v.rate),
       price: parseFloat(v.qty) * parseFloat(v.rate),
     }));
-    onSave({ date, items, vendorId: vendor.id, payInfo });
+    const matchedPg = pgList.find(p => p.id === selectedPgId);
+    const pgName = matchedPg?.pgName || (selectedPgId === 'primary' ? 'Primary PG' : 'PG Property');
+    onSave({ date, items, vendorId: vendor.id, payInfo, pgId: selectedPgId, pgName });
     onClose();
   };
 
@@ -182,9 +190,27 @@ function PurchaseModal({ vendor, onClose, onSave }) {
             </button>
           </div>
 
+          {/* PG Property Selector */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 5 }}>Delivery For Property (PG)</label>
+            <select
+              value={selectedPgId}
+              onChange={e => setSelectedPgId(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 14, fontFamily: 'inherit', outline: 'none', background: 'white', color: '#0f172a', fontWeight: 600 }}
+            >
+              {pgList.length > 0 ? (
+                pgList.map(p => (
+                  <option key={p.id} value={p.id}>🏢 {p.pgName || 'PG Property'}</option>
+                ))
+              ) : (
+                <option value="primary">🏢 Primary PG</option>
+              )}
+            </select>
+          </div>
+
           {/* Date */}
           <div style={{ marginBottom: 14 }}>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 5 }}>Date</label>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 5 }}>Delivery Date</label>
             <input type="date" value={date} onChange={e => setDate(e.target.value)}
               style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', color: '#0f172a' }} />
           </div>
@@ -287,6 +313,12 @@ function PurchaseModal({ vendor, onClose, onSave }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function VendorTransactions() {
   const navigate = useNavigate();
+  const { user, activePgId } = useAuth();
+  const [pgList, setPgList] = useState([]);
+  const [selectedPgFilter, setSelectedPgFilter] = useState('all');
+  const [deleteVendorModal, setDeleteVendorModal] = useState(null); // { vendor, pending }
+  const [isDeletingVendor, setIsDeletingVendor] = useState(false);
+
   const [vendorsList, setVendorsList] = useState([]);
   const [vendorTransactions, setVendorTransactions] = useState([]);
   const [toastMsg, setToastMsg] = useState(null);
@@ -317,9 +349,13 @@ export default function VendorTransactions() {
   // Staff requisitions fetched from Firestore
   const [staffRequests, setStaffRequests] = useState([]);
 
-  // Fetch Vendors and Transactions
+  // Fetch Vendors, Transactions, and Admin PGs
   useEffect(() => {
     if (auth.currentUser) {
+      fetchAllAdminPgs(auth.currentUser).then(pgs => {
+        setPgList(pgs);
+      }).catch(err => console.error("Error fetching PGs:", err));
+
       const fetchData = async () => {
         try {
           const qVendors = query(collection(db, 'vendors'), where('adminId', '==', auth.currentUser.uid));
@@ -351,6 +387,52 @@ export default function VendorTransactions() {
       fetchData();
     }
   }, []);
+
+  const getVendorPending = (vendorId) => {
+    let pending = 0;
+    const vTxns = vendorTransactions.filter(t => t.vendorId === vendorId);
+    vTxns.forEach(txn => {
+      if (txn.isClearing) {
+        pending = Math.max(0, pending - (parseFloat(txn.clearedAmount) || 0));
+      } else {
+        const totalNewPrice = txn.items ? txn.items.reduce((s, it) => s + (parseFloat(it.price) || 0), 0) : 0;
+        const paidNow = txn.payInfo?.amtNow ? parseFloat(txn.payInfo.amtNow) : 0;
+        pending += (totalNewPrice - paidNow);
+      }
+    });
+    return Math.round(pending);
+  };
+
+  const handleDeleteVendorClick = (vendor) => {
+    const pending = getVendorPending(vendor.id);
+    setDeleteVendorModal({ vendor, pending });
+  };
+
+  const handleConfirmDeleteVendor = async () => {
+    if (!deleteVendorModal?.vendor || deleteVendorModal.pending > 0) return;
+    const vId = deleteVendorModal.vendor.id;
+    const vName = deleteVendorModal.vendor.name;
+    setIsDeletingVendor(true);
+    try {
+      await deleteDoc(doc(db, 'vendors', vId));
+      const txnsToDelete = vendorTransactions.filter(t => t.vendorId === vId);
+      for (const t of txnsToDelete) {
+        if (t.id) {
+          await deleteDoc(doc(db, 'vendor_transactions', t.id)).catch(err => console.warn(err));
+        }
+      }
+      setVendorsList(prev => prev.filter(v => v.id !== vId));
+      setVendorTransactions(prev => prev.filter(t => t.vendorId !== vId));
+      setSelectedVendor(null);
+      setDeleteVendorModal(null);
+      showToast(`Vendor "${vName}" deleted successfully!`, 'success');
+    } catch (err) {
+      console.error("Error deleting vendor:", err);
+      showToast("Failed to delete vendor", "error");
+    } finally {
+      setIsDeletingVendor(false);
+    }
+  };
 
   const handleAddVendorSubmit = async () => {
     if (!newVendor.name || !newVendor.store || !newVendor.category || !newVendor.amount) return alert('Name, Store, Category, and Total Amount are required!');
@@ -415,21 +497,35 @@ export default function VendorTransactions() {
     currentVendorData = { months: {} };
     let txns = vendorTransactions.filter(t => t.vendorId === selectedVendor.id);
     
+    // Filter by property if property filter is selected
+    if (selectedPgFilter && selectedPgFilter !== 'all') {
+      txns = txns.filter(t => (t.pgId || 'primary') === selectedPgFilter);
+    }
+
     // Process chronologically to calculate global running pending properly
     txns.sort((a,b) => new Date(a.date) - new Date(b.date));
     
-    txns.forEach(txn => {
+    txns.forEach((txn, txnIdx) => {
       const d = new Date(txn.date);
       const monthName = d.toLocaleString('en-IN', { month: 'long', year: 'numeric' });
-      const dateString = txn.isClearing ? `${d.getDate()} ${monthName} (Cleared-${new Date(txn.createdAt).getTime()})` : `${d.getDate()} ${monthName}`;
+      const pgTag = txn.pgName || 'Primary PG';
+      const dateString = txn.isClearing 
+        ? `${d.getDate()} ${monthName} (Cleared-${new Date(txn.createdAt || Date.now()).getTime()})` 
+        : `${d.getDate()} ${monthName} · ${pgTag} · #${txn.id ? txn.id.slice(-4) : (txnIdx + 1)}`;
       
       if (!currentVendorData.months[monthName]) {
-        currentVendorData.months[monthName] = { totalAmount: 0, paidAmount: 0, days: {} };
+        currentVendorData.months[monthName] = { totalAmount: 0, paidAmount: 0, pendingAmount: 0, days: {} };
       }
       const monthData = currentVendorData.months[monthName];
       
       if (!monthData.days[dateString]) {
-        monthData.days[dateString] = { amount: 0, mode: 'Cash', status: 'Paid', items: [], senderUPI: '', receiverUPI: '', toWhom: '' };
+        monthData.days[dateString] = { 
+          amount: 0, mode: 'Cash', status: 'Paid', items: [], 
+          senderUPI: '', receiverUPI: '', toWhom: '', 
+          pgId: txn.pgId || 'primary', pgName: pgTag, 
+          dateFormatted: `${d.getDate()} ${monthName}`,
+          rawDate: txn.date
+        };
       }
       const dayData = monthData.days[dateString];
       
@@ -466,6 +562,7 @@ export default function VendorTransactions() {
         monthData.totalAmount += totalNewPrice;
         monthData.paidAmount += paidNow;
       }
+      monthData.pendingAmount = Math.max(0, monthData.totalAmount - monthData.paidAmount);
     });
 
     // Filtering out months if fromDate/toDate is set, AFTER computing running totals
@@ -493,7 +590,8 @@ export default function VendorTransactions() {
         .map(m => ({
           month: m,
           amount: currentVendorData.months[m].totalAmount,
-          paid: currentVendorData.months[m].paidAmount
+          paid: currentVendorData.months[m].paidAmount,
+          pending: currentVendorData.months[m].pendingAmount || 0
         }))
     : [];
   
@@ -501,7 +599,7 @@ export default function VendorTransactions() {
   const total = totalPurchasedAmount;
   const totalPending = runningPending;
 
-  const onSavePurchase = async ({ date, items, vendorId, payInfo }) => {
+  const onSavePurchase = async ({ date, items, vendorId, payInfo, pgId, pgName }) => {
     try {
       const newTxn = {
         adminId: auth.currentUser.uid,
@@ -509,6 +607,8 @@ export default function VendorTransactions() {
         date,
         items,
         payInfo,
+        pgId: pgId || activePgId || 'primary',
+        pgName: pgName || 'PG Property',
         createdAt: new Date().toISOString()
       };
       const docRef = await addDoc(collection(db, 'vendor_transactions'), newTxn);
@@ -522,6 +622,8 @@ export default function VendorTransactions() {
   const onClearPending = async (payInfo) => {
     if (!selectedVendor || !payInfo.month) return;
     try {
+      const targetPgId = (selectedPgFilter && selectedPgFilter !== 'all') ? selectedPgFilter : (activePgId || 'primary');
+      const targetPgName = pgList.find(p => p.id === targetPgId)?.pgName || 'Primary PG';
       const newTxn = {
         adminId: auth.currentUser.uid,
         vendorId: selectedVendor.id,
@@ -529,6 +631,8 @@ export default function VendorTransactions() {
         isClearing: true,
         clearedAmount: payInfo.amtNow,
         payInfo,
+        pgId: targetPgId,
+        pgName: targetPgName,
         createdAt: new Date().toISOString()
       };
       const docRef = await addDoc(collection(db, 'vendor_transactions'), newTxn);
@@ -538,6 +642,74 @@ export default function VendorTransactions() {
       console.error('Error clearing pending:', e);
       alert('Failed to clear pending amount');
     }
+  };
+
+  const renderDeleteVendorModal = () => {
+    if (!deleteVendorModal) return null;
+    const hasDues = deleteVendorModal.pending > 0;
+
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, backdropFilter: 'blur(3px)' }}
+        onClick={e => { if (e.target === e.currentTarget && !isDeletingVendor) setDeleteVendorModal(null); }}>
+        <div style={{ background: 'white', width: '100%', maxWidth: 400, borderRadius: 20, padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+          {hasDues ? (
+            <>
+              <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#fee2e2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 28 }}>block</span>
+              </div>
+              <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', textAlign: 'center', margin: '0 0 8px' }}>Cannot Delete Vendor</h3>
+              <p style={{ fontSize: 14, color: '#475569', textAlign: 'center', margin: '0 0 16px', lineHeight: 1.5 }}>
+                <b>{deleteVendorModal.vendor.name}</b> has an outstanding pending balance of <b style={{ color: '#ef4444' }}>₹{deleteVendorModal.pending.toLocaleString('en-IN')}</b>.
+              </p>
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 12px', marginBottom: 20 }}>
+                <p style={{ fontSize: 12, color: '#b45309', margin: 0, fontWeight: 600, textAlign: 'center' }}>
+                  ⚠️ You must clear all pending dues before this vendor can be deleted.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setDeleteVendorModal(null)}
+                  style={{ flex: 1, padding: 12, background: '#f1f5f9', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, color: '#475569', cursor: 'pointer' }}>
+                  Close
+                </button>
+                <button onClick={() => {
+                  const v = deleteVendorModal.vendor;
+                  setDeleteVendorModal(null);
+                  setPendingModal({ vendor: v, month: selectedMonth || 'Pending Balance' });
+                }}
+                  style={{ flex: 1, padding: 12, background: '#0891b2', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, color: 'white', cursor: 'pointer' }}>
+                  Clear Dues Now
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#fff1f2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 28 }}>delete_forever</span>
+              </div>
+              <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', textAlign: 'center', margin: '0 0 8px' }}>Delete Vendor?</h3>
+              <p style={{ fontSize: 14, color: '#475569', textAlign: 'center', margin: '0 0 16px', lineHeight: 1.5 }}>
+                Are you sure you want to delete <b>{deleteVendorModal.vendor.name}</b> ({deleteVendorModal.vendor.store})?
+              </p>
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 12px', marginBottom: 20 }}>
+                <p style={{ fontSize: 12, color: '#166534', margin: 0, fontWeight: 600, textAlign: 'center' }}>
+                  ✓ All dues cleared (₹0 Pending). All past transaction history for this vendor will be removed.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button disabled={isDeletingVendor} onClick={() => setDeleteVendorModal(null)}
+                  style={{ flex: 1, padding: 12, background: '#f1f5f9', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, color: '#475569', cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button disabled={isDeletingVendor} onClick={handleConfirmDeleteVendor}
+                  style={{ flex: 1, padding: 12, background: '#ef4444', border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700, color: 'white', cursor: 'pointer', opacity: isDeletingVendor ? 0.7 : 1 }}>
+                  {isDeletingVendor ? 'Deleting...' : 'Yes, Delete'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
   };
 
   // ── Detail View 4: Item Analytics ──
@@ -693,8 +865,13 @@ export default function VendorTransactions() {
           </div>
 
           {/* Items */}
-          <div style={{ background: '#0891b2', padding: '10px 16px', borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
-            <p style={{ margin: 0, color: 'white', fontSize: 14, fontWeight: 700 }}>{selectedDate}</p>
+          <div style={{ background: '#0891b2', padding: '10px 16px', borderTopLeftRadius: 16, borderTopRightRadius: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <p style={{ margin: 0, color: 'white', fontSize: 14, fontWeight: 700 }}>{dayData.dateFormatted || selectedDate}</p>
+            {dayData.pgName && (
+              <span style={{ background: 'white', color: '#0891b2', fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 12 }}>
+                🏢 {dayData.pgName}
+              </span>
+            )}
           </div>
           <div style={{ background: 'white', borderBottomLeftRadius: 16, borderBottomRightRadius: 16, border: '1px solid #e2e8f0', borderTop: 'none', padding: 16 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -775,7 +952,14 @@ export default function VendorTransactions() {
                     <span className="material-symbols-outlined" style={{ color: '#0891b2', fontSize: 18 }}>receipt_long</span>
                   </div>
                   <div>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: '0 0 3px' }}>{txn.date}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3, flexWrap: 'wrap' }}>
+                      <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>{txn.dateFormatted || txn.date}</p>
+                      {txn.pgName && (
+                        <span style={{ fontSize: 10, background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                          🏢 {txn.pgName}
+                        </span>
+                      )}
+                    </div>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#64748b' }}>payments</span>
                       <span style={{ fontSize: 12, color: '#64748b' }}>{txn.mode}</span>
@@ -813,22 +997,67 @@ export default function VendorTransactions() {
     return (
       <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#f1f5f9', fontFamily: "'Hanken Grotesk',sans-serif", paddingBottom: 32 }}>
         <div style={{ background: 'white', borderBottom: '1px solid #e2e8f0', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 10 , paddingTop: 'calc(44px + env(safe-area-inset-top, 0px))'}}>
-          <button onClick={() => setSelectedVendor(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', display: 'flex' }}>
+          <button onClick={() => { setSelectedVendor(null); setSelectedPgFilter('all'); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', display: 'flex' }}>
             <span className="material-symbols-outlined">arrow_back</span>
           </button>
-          <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 18, color: '#0f172a', margin: 0, flex: 1, textAlign: 'center' }}>Monthly Payment List</p>
-          <button onClick={() => setShowAnalytics(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', display: 'flex' }}>
+          <div style={{ flex: 1, textAlign: 'center' }}>
+            <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 17, color: '#0f172a', margin: 0 }}>{selectedVendor.name}</p>
+            <p style={{ fontSize: 11, color: '#64748b', margin: 0, fontWeight: 600 }}>{selectedVendor.category} · {selectedVendor.store}</p>
+          </div>
+          <button onClick={() => setShowAnalytics(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0891b2', display: 'flex' }} title="Analytics">
             <span className="material-symbols-outlined">analytics</span>
+          </button>
+          <button onClick={() => handleDeleteVendorClick(selectedVendor)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', display: 'flex' }} title="Delete Vendor">
+            <span className="material-symbols-outlined">delete</span>
           </button>
         </div>
 
         <div style={{ padding: 16 }}>
-          {/* Fully replaced section: Clean full-width Add Items action button */}
+          {/* Property Filter Tabs */}
+          {pgList.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <p style={{ fontSize: 11, fontWeight: 800, color: '#64748b', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Filter By Property
+              </p>
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, msOverflowStyle: 'none', scrollbarWidth: 'none' }}>
+                <button
+                  onClick={() => setSelectedPgFilter('all')}
+                  style={{
+                    whiteSpace: 'nowrap', padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                    border: selectedPgFilter === 'all' ? 'none' : '1px solid #cbd5e1',
+                    background: selectedPgFilter === 'all' ? '#0891b2' : 'white',
+                    color: selectedPgFilter === 'all' ? 'white' : '#475569'
+                  }}
+                >
+                  All Properties ({pgList.length})
+                </button>
+                {pgList.map(p => {
+                  const isSelected = selectedPgFilter === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => setSelectedPgFilter(p.id)}
+                      style={{
+                        whiteSpace: 'nowrap', padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        border: isSelected ? 'none' : '1px solid #cbd5e1',
+                        background: isSelected ? '#0891b2' : 'white',
+                        color: isSelected ? 'white' : '#475569'
+                      }}
+                    >
+                      🏢 {p.pgName || 'PG Property'}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Action button */}
           <div style={{ background: 'linear-gradient(135deg,#0891b2,#0e7490)', borderRadius: 16, padding: '16px 20px', marginBottom: 16, boxShadow: '0 4px 14px rgba(8,145,178,0.3)' }}>
             <button onClick={() => setPurchaseModalVendor(selectedVendor)}
               style={{ width: '100%', padding: '14px', background: 'white', border: 'none', borderRadius: 12, color: '#0891b2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontWeight: 800, fontSize: 16, fontFamily: 'inherit', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 22 }}>add_shopping_cart</span>
-              Add Items
+              Add Items / Log Delivery
             </button>
           </div>
 
@@ -897,11 +1126,28 @@ export default function VendorTransactions() {
               </div>
             ))}
           </div>
+
+          {/* Delete Vendor Button */}
+          <div style={{ marginTop: 24 }}>
+            <button
+              onClick={() => handleDeleteVendorClick(selectedVendor)}
+              style={{ width: '100%', padding: '14px', background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 12, color: '#ef4444', fontSize: 14, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+              Delete Vendor
+            </button>
+          </div>
         </div>
 
         {/* Purchase Modal */}
         {purchaseModalVendor && (
-          <PurchaseModal vendor={purchaseModalVendor} onClose={() => setPurchaseModalVendor(null)} onSave={onSavePurchase} />
+          <PurchaseModal
+            vendor={purchaseModalVendor}
+            pgList={pgList}
+            defaultPgId={selectedPgFilter !== 'all' ? selectedPgFilter : (activePgId || 'primary')}
+            onClose={() => setPurchaseModalVendor(null)}
+            onSave={onSavePurchase}
+          />
         )}
 
         {/* Clear Pending Modal */}
@@ -915,6 +1161,8 @@ export default function VendorTransactions() {
             onClose={() => setPendingModal(null)}
           />
         )}
+
+        {renderDeleteVendorModal()}
       </div>
     );
   }
@@ -1148,6 +1396,8 @@ export default function VendorTransactions() {
           </div>
         </div>
       )}
+
+      {renderDeleteVendorModal()}
 
       {toastMsg && (
         <div style={{
