@@ -2,6 +2,11 @@
   "appId": "com.febebo.admin",
   "appName": "Febebo Admin",
   "webDir": "dist",
+  "server": {
+    "hostname": "localhost",
+    "androidScheme": "https",
+    "cleartext": false
+  },
   "plugins": {
     "FirebaseAuthentication": {
       "skipNativeAuth": false,

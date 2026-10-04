@@ -1,5 +1,10 @@
 {
   "appId": "com.febebo.staff.app",
   "appName": "Febebo Staff",
-  "webDir": "dist"
+  "webDir": "dist",
+  "server": {
+    "hostname": "localhost",
+    "androidScheme": "https",
+    "cleartext": false
+  }
 }

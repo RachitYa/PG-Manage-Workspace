@@ -2,6 +2,11 @@
   "appId": "com.febebo.student",
   "appName": "Febebo Student",
   "webDir": "dist",
+  "server": {
+    "hostname": "localhost",
+    "androidScheme": "https",
+    "cleartext": false
+  },
   "plugins": {
     "FirebaseAuthentication": {
       "skipNativeAuth": false,
