@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { collection, addDoc, getDocs, query, where, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, onSnapshot, query, where, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { fetchAllAdminPgs } from '../utils/pgUtils';
 
@@ -356,35 +356,36 @@ export default function VendorTransactions() {
         setPgList(pgs);
       }).catch(err => console.error("Error fetching PGs:", err));
 
-      const fetchData = async () => {
-        try {
-          const qVendors = query(collection(db, 'vendors'), where('adminId', '==', auth.currentUser.uid));
-          const snapVendors = await getDocs(qVendors);
-          const vData = snapVendors.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          
-          const cats = new Set(['Groceries', 'Laundry', 'Vegetables', 'Dairy', 'Water']);
-          vData.forEach(v => { if (v.category) cats.add(v.category); });
-          setCategories(Array.from(cats));
-          
-          setVendorsList(vData);
+      const qVendors = query(collection(db, 'vendors'), where('adminId', '==', auth.currentUser.uid));
+      const unsubVendors = onSnapshot(qVendors, (snapVendors) => {
+        const vData = snapVendors.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const cats = new Set(['Groceries', 'Laundry', 'Vegetables', 'Dairy', 'Water']);
+        vData.forEach(v => { if (v.category) cats.add(v.category); });
+        setCategories(Array.from(cats));
+        setVendorsList(vData);
+        setLoading(false);
+      }, (e) => {
+        console.error('Error listening to vendors:', e);
+        setLoading(false);
+      });
 
-          const qTxns = query(collection(db, 'vendor_transactions'), where('adminId', '==', auth.currentUser.uid));
-          const snapTxns = await getDocs(qTxns);
-          const tData = snapTxns.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setVendorTransactions(tData);
+      const qTxns = query(collection(db, 'vendor_transactions'), where('adminId', '==', auth.currentUser.uid));
+      const unsubTxns = onSnapshot(qTxns, (snapTxns) => {
+        const tData = snapTxns.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setVendorTransactions(tData);
+      }, (e) => console.error('Error listening to vendor_transactions:', e));
 
-          const qReqs = query(collection(db, 'staff_requisitions'), where('adminId', '==', auth.currentUser.uid), where('status', '==', 'Pending Rate'));
-          const snapReqs = await getDocs(qReqs);
-          const rData = snapReqs.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setStaffRequests(rData);
+      const qReqs = query(collection(db, 'staff_requisitions'), where('adminId', '==', auth.currentUser.uid), where('status', '==', 'Pending Rate'));
+      const unsubReqs = onSnapshot(qReqs, (snapReqs) => {
+        const rData = snapReqs.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setStaffRequests(rData);
+      }, (e) => console.error('Error listening to staff_requisitions:', e));
 
-        } catch (e) {
-          console.error('Error fetching vendor data:', e);
-        } finally {
-          setLoading(false);
-        }
+      return () => {
+        unsubVendors();
+        unsubTxns();
+        unsubReqs();
       };
-      fetchData();
     }
   }, []);
 
@@ -524,10 +525,18 @@ export default function VendorTransactions() {
           senderUPI: '', receiverUPI: '', toWhom: '', 
           pgId: txn.pgId || 'primary', pgName: pgTag, 
           dateFormatted: `${d.getDate()} ${monthName}`,
-          rawDate: txn.date
+          rawDate: txn.date,
+          isCookPurchase: txn.isCookPurchase || false,
+          staffName: txn.staffName || '',
+          paymentSource: txn.paymentSource || ''
         };
       }
       const dayData = monthData.days[dateString];
+      if (txn.isCookPurchase) {
+        dayData.isCookPurchase = true;
+        dayData.staffName = txn.staffName || dayData.staffName;
+        dayData.paymentSource = txn.paymentSource || dayData.paymentSource;
+      }
       
       if (txn.isClearing) {
         const cAmt = parseFloat(txn.clearedAmount) || 0;
@@ -546,7 +555,7 @@ export default function VendorTransactions() {
         const totalNewPrice = txn.items ? txn.items.reduce((s, it) => s + (parseFloat(it.price) || 0), 0) : 0;
         dayData.items.push(...(txn.items || []));
         dayData.amount += totalNewPrice;
-        dayData.mode = txn.payInfo?.method || 'Cash';
+        dayData.mode = txn.payInfo?.method || (txn.paymentSource === 'petty_cash' ? 'Petty Cash' : 'Cash');
         dayData.senderUPI = txn.payInfo?.senderUPI || '';
         dayData.receiverUPI = txn.payInfo?.receiverUPI || '';
         dayData.toWhom = txn.payInfo?.toWhom || '';
@@ -862,6 +871,15 @@ export default function VendorTransactions() {
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{dayData.toWhom || selectedVendor?.name || '—'}</span>
               </div>
             )}
+            {dayData.isCookPurchase && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 16 }}>👨‍🍳</span>
+                <div>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: '#6d28d9', display: 'block' }}>Purchased by Cook: {dayData.staffName || 'Cook'}</span>
+                  <span style={{ fontSize: 11, color: '#7c3aed' }}>Payment Source: {dayData.paymentSource === 'petty_cash' ? 'Staff Petty Cash Fund' : (dayData.mode || 'Cash')}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Items */}
@@ -957,6 +975,11 @@ export default function VendorTransactions() {
                       {txn.pgName && (
                         <span style={{ fontSize: 10, background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
                           🏢 {txn.pgName}
+                        </span>
+                      )}
+                      {txn.isCookPurchase && (
+                        <span style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', padding: '1px 6px', borderRadius: 4, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          👨‍🍳 Cook: {txn.staffName || 'Staff'} {txn.paymentSource === 'petty_cash' ? '· Petty Cash' : ''}
                         </span>
                       )}
                     </div>

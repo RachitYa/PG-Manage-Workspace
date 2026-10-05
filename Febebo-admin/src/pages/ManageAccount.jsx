@@ -1197,6 +1197,7 @@ export default function ManageAccount() {
       // 7. Vendor Transactions & PG Maintenance (Expense)
       vendorDocs.forEach(v => {
         if (!matchesPgItem(v.pgId)) return;
+        if (v.paymentSource === 'petty_cash' || v.isPettyCashPaid || v.payInfo?.method === 'Petty Cash') return;
         let amt = 0;
         if (v.type === 'payment_out') {
           amt = Number(v.amount || 0);

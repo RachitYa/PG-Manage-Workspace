@@ -9,6 +9,37 @@ import QRCode from 'react-qr-code';
 import { isStudentOnVacation, getStudentActiveVacation, formatDateDisplay, isMealPausedOnDate, ALL_MEALS } from '../utils/vacationUtils';
 import { COMMON_PG_DISHES, DISH_CATEGORIES, getDishPresetImage, DEFAULT_FOOD_PLACEHOLDER } from '../data/commonFoodDishes';
 
+// ─── Indian Kitchen Items Dataset ─────────────────────────────────────────────
+const INDIAN_KITCHEN_ITEMS = {
+  'Vegetables & Fresh (सब्जियां)': [
+    'Potato (Aloo)', 'Onion (Pyaaz)', 'Tomato (Tamatar)', 'Green Chilli (Hari Mirch)',
+    'Ginger (Adrak)', 'Garlic (Lehsun)', 'Coriander (Hara Dhaniya)', 'Spinach (Palak)',
+    'Cauliflower (Gobhi)', 'Cabbage (Patta Gobhi)', 'Green Peas (Matar)', 'Carrot (Gajar)',
+    'Lady Finger (Bhindi)', 'Bottle Gourd (Lauki)', 'Bitter Gourd (Karela)',
+    'Capsicum (Shimla Mirch)', 'Brinjal (Baingan)', 'Green Beans (Beans)', 'Lemon (Nimbu)', 'Cucumber (Kheera)'
+  ],
+  'Groceries & Grains (राशन)': [
+    'Wheat Flour (Atta)', 'Rice (Basmati)', 'Rice (Regular)', 'Dal Toor (Arhar)',
+    'Dal Moong (Yellow)', 'Dal Moong (Chilka)', 'Dal Chana', 'Dal Urad',
+    'Rajma', 'Chole (Kabuli Chana)', 'Besan (Gram Flour)', 'Poha', 'Sooji (Rava)',
+    'Cooking Oil (Mustard)', 'Cooking Oil (Sunflower / Refined)', 'Desi Ghee',
+    'Sugar (Cheeni)', 'Tea Leaves (Chai Patti)', 'Coffee Powder', 'Salt (Namak)',
+    'Turmeric Powder (Haldi)', 'Red Chilli Powder (Lal Mirch)', 'Coriander Powder (Dhaniya)',
+    'Garam Masala', 'Cumin Seeds (Jeera)', 'Mustard Seeds (Rai)', 'Hing (Asafoetida)',
+    'Kasuri Methi', 'Papad', 'Pickle (Achaar)', 'Vermicelli (Sevaiya)'
+  ],
+  'Dairy & Bakery (डेयरी)': [
+    'Milk (Full Cream)', 'Milk (Toned)', 'Curd (Dahi)', 'Paneer',
+    'Butter (Makkhan)', 'Buttermilk (Chaas)', 'Bread (White / Brown)',
+    'Eggs (Ande)', 'Rusk / Toast', 'Cheese'
+  ],
+  'Kitchen Gas & Supplies (गैस व सामग्री)': [
+    'Commercial LPG Gas Cylinder (19kg)', 'Domestic LPG Cylinder (14.2kg)',
+    'Dishwash Bar / Liquid', 'Kitchen Scrub / Sponge', 'Garbage Bags (Dustbin)',
+    'Aluminium Foil & Napkins', 'Matchbox'
+  ]
+};
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -1376,6 +1407,248 @@ export default function StaffApp(){
   const [payMethod, setPayMethod] = useState('UPI'); 
   const [paySenderUpi, setPaySenderUpi] = useState('');
   const [pmTab, setPmTab] = useState('requisitions'); // requisitions | vendors
+
+  // ── Cook Kitchen Vendor & Purchases System ─────────────────────────────
+  const [cookVendorTab, setCookVendorTab] = useState('new'); // 'new' | 'history'
+  const [adminVendors, setAdminVendors] = useState([]);
+  const [cookPurchaseHistory, setCookPurchaseHistory] = useState([]);
+  const [kitchenSearchQuery, setKitchenSearchQuery] = useState('');
+  const [kitchenActiveCategory, setKitchenActiveCategory] = useState('All');
+  const [selectedKitchenItems, setSelectedKitchenItems] = useState({}); // { [name]: { qty, unit, rate } }
+  const [customKitchenItems, setCustomKitchenItems] = useState([]);
+  const [showCustomKitchenItemModal, setShowCustomKitchenItemModal] = useState(false);
+  const [newCustomKitchenName, setNewCustomKitchenName] = useState('');
+
+  // Checkout Sheet State
+  const [showCookCheckoutModal, setShowCookCheckoutModal] = useState(false);
+  const [cookPurchaseDate, setCookPurchaseDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [cookSelectedVendorId, setCookSelectedVendorId] = useState('');
+  const [cookManualVendorName, setCookManualVendorName] = useState('');
+  const [cookManualVendorPhone, setCookManualVendorPhone] = useState('');
+  const [cookManualVendorUpi, setCookManualVendorUpi] = useState('');
+  const [cookPaymentSource, setCookPaymentSource] = useState('petty_cash'); // 'petty_cash' | 'cash' | 'upi'
+  const [cookPaidAmount, setCookPaidAmount] = useState('');
+  const [cookPurchaseNote, setCookPurchaseNote] = useState('');
+  const [isSubmittingCookPurchase, setIsSubmittingCookPurchase] = useState(false);
+
+  // Live Firestore listener for Admin Vendors & Cook Purchases
+  useEffect(() => {
+    const adminUid = staffProfile?.ownerUid || user?.ownerUid;
+    if (!adminUid) return;
+
+    // Listen to registered vendors
+    const qVendors = query(collection(db, 'vendors'), where('adminId', '==', adminUid));
+    const unsubVendors = onSnapshot(qVendors, (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAdminVendors(list);
+      setVendors(list);
+    }, (err) => console.warn('Vendors listen error:', err));
+
+    // Listen to purchases made by cook
+    const qPurchases = query(
+      collection(db, 'vendor_transactions'),
+      where('adminId', '==', adminUid),
+      where('isCookPurchase', '==', true)
+    );
+    const unsubPurchases = onSnapshot(qPurchases, (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      list.sort((a,b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt));
+      setCookPurchaseHistory(list);
+    }, (err) => console.warn('Cook purchases listen error:', err));
+
+    return () => {
+      unsubVendors();
+      unsubPurchases();
+    };
+  }, [staffProfile?.ownerUid, user?.ownerUid]);
+
+  const toggleKitchenItem = (itemName, defaultUnit = 'kg') => {
+    setSelectedKitchenItems(prev => {
+      if (prev[itemName]) {
+        const next = { ...prev };
+        delete next[itemName];
+        return next;
+      }
+      return {
+        ...prev,
+        [itemName]: { qty: '1', unit: defaultUnit, rate: '' }
+      };
+    });
+  };
+
+  const updateKitchenItemField = (itemName, field, value) => {
+    setSelectedKitchenItems(prev => {
+      if (!prev[itemName]) return prev;
+      return {
+        ...prev,
+        [itemName]: { ...prev[itemName], [field]: value }
+      };
+    });
+  };
+
+  const handleAddCustomKitchenItem = () => {
+    const trimmed = newCustomKitchenName.trim();
+    if (!trimmed) return;
+    if (!customKitchenItems.includes(trimmed)) {
+      setCustomKitchenItems(prev => [...prev, trimmed]);
+    }
+    toggleKitchenItem(trimmed, 'kg');
+    setNewCustomKitchenName('');
+    setShowCustomKitchenItemModal(false);
+  };
+
+  const validKitchenRows = Object.entries(selectedKitchenItems).filter(([, v]) => parseFloat(v.qty) > 0 && parseFloat(v.rate) > 0);
+  const kitchenGrandTotal = validKitchenRows.reduce((sum, [, v]) => sum + (parseFloat(v.qty) || 0) * (parseFloat(v.rate) || 0), 0);
+
+  const openCookCheckout = () => {
+    if (!validKitchenRows.length) {
+      showToast('Please check at least one item and enter quantity & rate', 'error');
+      return;
+    }
+    setCookPaidAmount(String(kitchenGrandTotal));
+    if (adminVendors.length > 0 && !cookSelectedVendorId) {
+      setCookSelectedVendorId(adminVendors[0].id);
+    } else if (!adminVendors.length) {
+      setCookSelectedVendorId('manual');
+    }
+    setCookPaymentSource('petty_cash');
+    setShowCookCheckoutModal(true);
+  };
+
+  const handleConfirmCookPurchase = async () => {
+    if (!validKitchenRows.length) {
+      showToast('Please select at least one item with valid quantity and rate', 'error');
+      return;
+    }
+    if (cookSelectedVendorId === 'manual' && !cookManualVendorName.trim()) {
+      showToast('Please enter vendor / shop name', 'error');
+      return;
+    }
+
+    const paidAmt = parseFloat(cookPaidAmount) || 0;
+    if (cookPaymentSource === 'petty_cash' && paidAmt > availablePettyCash) {
+      const confirmExceed = window.confirm(
+        `Amount to pay (₹${paidAmt.toLocaleString('en-IN')}) exceeds your current available Petty Cash (₹${availablePettyCash.toLocaleString('en-IN')}).\n\nDo you want to proceed and record it?`
+      );
+      if (!confirmExceed) return;
+    }
+
+    setIsSubmittingCookPurchase(true);
+    try {
+      const adminUid = staffProfile?.ownerUid || user?.ownerUid;
+      const targetPgId = activePgId || 'primary';
+      const targetPgObj = assignedProperties.find(p => p.id === targetPgId);
+      const targetPgName = targetPgObj?.name || 'Primary PG';
+
+      let vendorId = cookSelectedVendorId;
+      let vendorName = '';
+      let vendorStore = '';
+      let vendorUpi = '';
+
+      if (cookSelectedVendorId === 'manual') {
+        vendorName = cookManualVendorName.trim();
+        vendorStore = cookManualVendorName.trim();
+        vendorUpi = cookManualVendorUpi.trim();
+
+        const newVRef = await addDoc(collection(db, 'vendors'), {
+          adminId: adminUid,
+          name: vendorName,
+          store: vendorName,
+          category: 'Groceries',
+          phone: cookManualVendorPhone.trim() || '',
+          upi: vendorUpi || '',
+          amount: 0,
+          addedBy: 'Cook',
+          addedByStaffId: user.id || (user?.uid || 'cook'),
+          createdAt: new Date().toISOString()
+        });
+        vendorId = newVRef.id;
+      } else {
+        const matched = adminVendors.find(v => v.id === cookSelectedVendorId);
+        vendorName = matched?.name || 'Vendor';
+        vendorStore = matched?.store || matched?.name || 'Store';
+        vendorUpi = matched?.upi || '';
+      }
+
+      const formattedItems = validKitchenRows.map(([name, v]) => ({
+        item: name,
+        qty: String(v.qty),
+        unit: v.unit || 'kg',
+        rate: parseFloat(v.rate),
+        price: (parseFloat(v.qty) || 0) * (parseFloat(v.rate) || 0)
+      }));
+
+      const itemsSummary = formattedItems.map(it => `${it.item} (${it.qty}${it.unit})`).join(', ');
+
+      // 1. Record in vendor_transactions
+      const txnData = {
+        adminId: adminUid,
+        vendorId: vendorId,
+        vendorName: vendorName,
+        vendorStore: vendorStore,
+        date: cookPurchaseDate || new Date().toISOString().split('T')[0],
+        items: formattedItems,
+        payInfo: {
+          amtNow: paidAmt,
+          method: cookPaymentSource === 'petty_cash' ? 'Petty Cash' : cookPaymentSource === 'upi' ? 'UPI' : 'Cash',
+          toWhom: vendorName,
+          senderUPI: cookPaymentSource === 'upi' ? staffUpiId : '',
+          receiverUPI: vendorUpi
+        },
+        pgId: targetPgId,
+        pgName: targetPgName,
+        isCookPurchase: true,
+        purchasedBy: 'cook',
+        staffId: user.id || (user?.uid || 'cook'),
+        staffName: staffName,
+        paymentSource: cookPaymentSource,
+        isPettyCashPaid: cookPaymentSource === 'petty_cash',
+        note: cookPurchaseNote || '',
+        createdAt: new Date().toISOString()
+      };
+      await addDoc(collection(db, 'vendor_transactions'), txnData);
+
+      // 2. If paid using Petty Cash, record in petty_cash_transactions
+      if (cookPaymentSource === 'petty_cash' && paidAmt > 0) {
+        await addDoc(collection(db, 'petty_cash_transactions'), {
+          type: 'expense',
+          adminId: adminUid,
+          pgId: targetPgId,
+          staffId: user.id || (user?.uid || 'cook'),
+          staffName: staffName,
+          amount: paidAmt,
+          desc: `Kitchen: ${itemsSummary.substring(0, 90)}`,
+          paymentMode: 'Petty Cash',
+          paidTo: vendorName,
+          isCookPurchase: true,
+          date: cookPurchaseDate || new Date().toISOString().split('T')[0],
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      // 3. Send Notification to Admin
+      await addDoc(collection(db, 'notifications'), {
+        adminId: adminUid,
+        title: 'Cook Kitchen Purchase 👨‍🍳',
+        desc: `${staffName} purchased kitchen supplies worth ₹${kitchenGrandTotal} (Paid: ₹${paidAmt} via ${cookPaymentSource === 'petty_cash' ? 'Petty Cash' : cookPaymentSource.toUpperCase()}) from ${vendorName}.`,
+        type: 'Vendor',
+        date: new Date().toISOString(),
+        resolved: false,
+        pgId: targetPgId
+      });
+
+      showToast('Kitchen purchase recorded and synced! 🛒', 'success');
+      setSelectedKitchenItems({});
+      setCookPurchaseNote('');
+      setShowCookCheckoutModal(false);
+      setCookVendorTab('history');
+    } catch (err) {
+      console.error('Error saving cook purchase:', err);
+      showToast('Failed to save purchase: ' + err.message, 'error');
+    } finally {
+      setIsSubmittingCookPurchase(false);
+    }
+  };
 
   // Security
   const [visitors,setVisitors]  = useState([]);
@@ -3164,7 +3437,7 @@ export default function StaffApp(){
             <span className="material-symbols-outlined" style={{fontSize:20,color:'#000'}}>arrow_back_ios_new</span>
           </button>
           <p style={{flex:1,margin:0,fontSize:18,fontWeight:900,color:'#000'}}>
-            {view==='work'?'My Work':view==='history'?'Work History':view==='itemreq'?'Request Supplies':view==='inventory'?'Inventory & Petty Cash':view==='inout'?'Attendance':view==='salary'?'Salary & Pay':view==='items'?'Item List':view==='chat'?'Chat':view==='performance'?'Performance':view==='meter_reading'?'Meter Reading':view==='requests'?'Requests':view==='enquiry'?'Enquiries':view==='add_tenant'?'Add New Tenant':'My Profile'}
+            {view==='work'?'My Work':view==='history'?'Work History':view==='itemreq'?'Request Supplies':view==='inventory'?'Inventory & Petty Cash':view==='inout'?'Attendance':view==='salary'?'Salary & Pay':view==='items'?'Item List':view==='chat'?'Chat':view==='performance'?'Performance':view==='meter_reading'?'Meter Reading':view==='requests'?'Requests':view==='enquiry'?'Enquiries':view==='add_tenant'?'Add New Tenant':view==='cookVendor'?'Kitchen Purchases & Vendors':'My Profile'}
           </p>
           {view==='items' && (
             <button onClick={()=>setShowDemandForm(true)} style={{background:C.primary,border: `1.5px solid ${C.border}`,borderRadius:10,padding:'6px 10px',color:'#000',fontSize:11,fontWeight:800,cursor:'pointer',display:'flex',alignItems:'center',gap:4,boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
@@ -3200,6 +3473,7 @@ export default function StaffApp(){
               ...(staffRole === 'Cook' ? [
                 {id:'foodMenu', label:'Food Menu', icon:'restaurant_menu', bg:'#ede9fe', c:'#a78bfa'},
                 {id:'menu_history', label:'Menu History', icon:'history', bg:'#fdf4ff', c:'#c026d3'},
+                {id:'cookVendor', label:'Vendor Order', icon:'storefront', bg:'#ecfeff', c:'#0891b2'},
               ] : []),
               ...(staffRole === 'Manager' ? [
                 {id:'enquiry',    label:'Enquiry',      icon:'contact_support',        bg:'#ecfeff', c:'#0891b2'},
@@ -3736,10 +4010,16 @@ export default function StaffApp(){
                </div>
             </div>
 
-            <button onClick={() => { const h = new Date().getHours(); let m = 'Dinner'; if (h >= 6 && h < 11) m = 'Breakfast'; else if (h >= 11 && h < 16) m = 'Lunch'; else if (h >= 16 && h < 19) m = 'Snacks'; setBMeal(m); setShowBcast(true); }} style={{width:'100%',padding:14,background: C.primary,color:'#000',border: '1px solid #e2e8f0',borderRadius:16,fontSize:14,fontWeight:800,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8,boxShadow: '0 4px 16px rgba(15,23,42,0.05)',fontFamily:'inherit', marginTop: 14}}>
-              <span className="material-symbols-outlined" style={{fontSize:20}}>campaign</span>
-              Broadcast "Food is Ready!" 📢
-            </button>
+            <div style={{display:'flex', gap:10, marginTop:14}}>
+              <button onClick={() => { const h = new Date().getHours(); let m = 'Dinner'; if (h >= 6 && h < 11) m = 'Breakfast'; else if (h >= 11 && h < 16) m = 'Lunch'; else if (h >= 16 && h < 19) m = 'Snacks'; setBMeal(m); setShowBcast(true); }} style={{flex:1, padding:13, background: C.primary, color:'#000', border: '1px solid #e2e8f0', borderRadius:14, fontSize:13, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6, boxShadow: '0 4px 16px rgba(15,23,42,0.05)', fontFamily:'inherit'}}>
+                <span className="material-symbols-outlined" style={{fontSize:18}}>campaign</span>
+                "Food Ready!" 📢
+              </button>
+              <button onClick={() => setView('cookVendor')} style={{flex:1.2, padding:13, background: '#0891b2', color:'#fff', border: 'none', borderRadius:14, fontSize:13, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6, boxShadow: '0 4px 16px rgba(8,145,178,0.25)', fontFamily:'inherit'}}>
+                <span className="material-symbols-outlined" style={{fontSize:18}}>shopping_basket</span>
+                Kitchen Purchases 🛒
+              </button>
+            </div>
 
             {/* Calendar & Time Filter Bar */}
             <div style={{display:'flex', gap:10, alignItems:'center', flexWrap:'wrap'}}>
@@ -7317,7 +7597,565 @@ export default function StaffApp(){
         </div>
       )}
 
+      {/* ── COOK VENDOR & KITCHEN PURCHASES VIEW ───────────────────────── */}
+      {view === 'cookVendor' && (() => {
+        const categoriesList = ['All', ...Object.keys(INDIAN_KITCHEN_ITEMS)];
+        
+        // Build items for current view
+        let currentItems = [];
+        if (kitchenActiveCategory === 'All') {
+          Object.values(INDIAN_KITCHEN_ITEMS).forEach(items => {
+            currentItems.push(...items);
+          });
+          currentItems.push(...customKitchenItems);
+        } else {
+          currentItems = [...(INDIAN_KITCHEN_ITEMS[kitchenActiveCategory] || [])];
+          currentItems.push(...customKitchenItems);
+        }
+        
+        // Remove duplicates and apply search filter
+        const uniqueItems = Array.from(new Set(currentItems));
+        const filteredItems = uniqueItems.filter(item => 
+          item.toLowerCase().includes(kitchenSearchQuery.toLowerCase())
+        );
+
+        const totalSpentAll = cookPurchaseHistory.reduce((s, p) => {
+          const itTot = p.items ? p.items.reduce((sum, it) => sum + (parseFloat(it.price) || 0), 0) : 0;
+          return s + itTot;
+        }, 0);
+
+        return (
+          <div style={{padding:'16px 14px calc(110px + env(safe-area-inset-bottom, 0px))', display:'flex', flexDirection:'column', gap:14}}>
+            
+            {/* Summary Banner */}
+            <div style={{background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', borderRadius:18, padding:'18px 20px', color:'#fff', boxShadow:'0 8px 24px rgba(15,23,42,0.15)', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+              <div>
+                <p style={{margin:0, fontSize:11, fontWeight:800, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.5}}>Available Petty Cash</p>
+                <h2 style={{margin:'4px 0 0', fontSize:28, fontWeight:900, color:'#fde047'}}>₹{availablePettyCash.toLocaleString('en-IN')}</h2>
+                <p style={{margin:'4px 0 0', fontSize:11, color:'#38bdf8', fontWeight:700}}>👨‍🍳 Cook Kitchen Fund</p>
+              </div>
+              <div style={{textAlign:'right'}}>
+                <p style={{margin:0, fontSize:11, fontWeight:800, color:'#94a3b8', textTransform:'uppercase'}}>Total Logged</p>
+                <h3 style={{margin:'4px 0 0', fontSize:20, fontWeight:900, color:'#f8fafc'}}>₹{totalSpentAll.toLocaleString('en-IN')}</h3>
+                <span style={{fontSize:11, color:'#94a3b8'}}>{cookPurchaseHistory.length} orders</span>
+              </div>
+            </div>
+
+            {/* Tab Selector */}
+            <div style={{display:'flex', background:'#fff', border:`1px solid ${C.border}`, borderRadius:14, padding:4, gap:4}}>
+              <button
+                onClick={() => setCookVendorTab('new')}
+                style={{
+                  flex: 1, padding: '10px 0', borderRadius: 10, border: 'none',
+                  background: cookVendorTab === 'new' ? C.primary : 'transparent',
+                  color: cookVendorTab === 'new' ? '#000' : '#64748b',
+                  fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                }}
+              >
+                <span className="material-symbols-outlined" style={{fontSize:18}}>shopping_cart</span>
+                New Purchase
+              </button>
+              <button
+                onClick={() => setCookVendorTab('history')}
+                style={{
+                  flex: 1, padding: '10px 0', borderRadius: 10, border: 'none',
+                  background: cookVendorTab === 'history' ? C.primary : 'transparent',
+                  color: cookVendorTab === 'history' ? '#000' : '#64748b',
+                  fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                }}
+              >
+                <span className="material-symbols-outlined" style={{fontSize:18}}>history</span>
+                Past Purchases ({cookPurchaseHistory.length})
+              </button>
+            </div>
+
+            {cookVendorTab === 'new' && (
+              <>
+                {/* Search Bar */}
+                <div style={{display:'flex', alignItems:'center', gap:8, background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 12px', boxShadow:'0 2px 8px rgba(120,104,10,0.03)'}}>
+                  <span className="material-symbols-outlined" style={{fontSize:20, color:'#64748b'}}>search</span>
+                  <input
+                    type="text"
+                    placeholder="Search Aloo, Atta, Rice, Milk, Gas cylinder..."
+                    value={kitchenSearchQuery}
+                    onChange={e => setKitchenSearchQuery(e.target.value)}
+                    style={{border:'none', outline:'none', width:'100%', fontSize:13.5, fontFamily:'inherit', color:C.text}}
+                  />
+                  {kitchenSearchQuery && (
+                    <button onClick={() => setKitchenSearchQuery('')} style={{background:'none', border:'none', cursor:'pointer', color:'#94a3b8', display:'flex', padding:0}}>
+                      <span className="material-symbols-outlined" style={{fontSize:18}}>close</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Category Pills */}
+                <div style={{display:'flex', gap:8, overflowX:'auto', paddingBottom:4}}>
+                  {categoriesList.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => setKitchenActiveCategory(cat)}
+                      style={{
+                        padding: '6px 14px', borderRadius: 20, whiteSpace: 'nowrap',
+                        border: kitchenActiveCategory === cat ? 'none' : `1px solid ${C.border}`,
+                        background: kitchenActiveCategory === cat ? '#0891b2' : '#fff',
+                        color: kitchenActiveCategory === cat ? '#fff' : C.text,
+                        fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
+                        flexShrink: 0
+                      }}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Add Custom Item trigger */}
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 2px'}}>
+                  <span style={{fontSize:12, fontWeight:700, color:'#64748b'}}>Select items to purchase:</span>
+                  <button
+                    onClick={() => setShowCustomKitchenItemModal(true)}
+                    style={{
+                      background: '#ecfeff', border: '1px solid #a5f3fc', borderRadius: 8,
+                      padding: '4px 10px', fontSize: 11.5, fontWeight: 800, color: '#0891b2',
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'inherit'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{fontSize:16}}>add</span>
+                    Add Custom Item
+                  </button>
+                </div>
+
+                {/* Items Checklist List */}
+                <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                  {filteredItems.length === 0 ? (
+                    <div style={{background:'#fff', borderRadius:14, padding:'32px 16px', textAlign:'center', border:`1px solid ${C.border}`}}>
+                      <span className="material-symbols-outlined" style={{fontSize:36, color:'#cbd5e1'}}>shopping_bag</span>
+                      <p style={{margin:'8px 0 0', fontSize:13, color:C.muted}}>No matching items found</p>
+                      <button
+                        onClick={() => { setNewCustomKitchenName(kitchenSearchQuery); setShowCustomKitchenItemModal(true); }}
+                        style={{marginTop:12, background:C.primary, border:'none', borderRadius:10, padding:'8px 14px', fontSize:12, fontWeight:800, cursor:'pointer'}}
+                      >
+                        + Add "{kitchenSearchQuery}" as Custom Item
+                      </button>
+                    </div>
+                  ) : (
+                    filteredItems.map(itemName => {
+                      const isSelected = !!selectedKitchenItems[itemName];
+                      const val = selectedKitchenItems[itemName] || { qty: '', unit: 'kg', rate: '' };
+                      const lineTotal = isSelected ? (parseFloat(val.qty) || 0) * (parseFloat(val.rate) || 0) : 0;
+                      
+                      // Auto-suggest unit based on name
+                      let defaultUnit = 'kg';
+                      if (itemName.toLowerCase().includes('milk') || itemName.toLowerCase().includes('oil') || itemName.toLowerCase().includes('dahi')) defaultUnit = 'litre';
+                      if (itemName.toLowerCase().includes('cylinder')) defaultUnit = 'cylinder';
+                      if (itemName.toLowerCase().includes('eggs') || itemName.toLowerCase().includes('bread') || itemName.toLowerCase().includes('packet') || itemName.toLowerCase().includes('bar')) defaultUnit = 'piece';
+
+                      return (
+                        <div
+                          key={itemName}
+                          style={{
+                            background: isSelected ? '#f0fdfa' : '#fff',
+                            border: isSelected ? '1.5px solid #0891b2' : `1px solid ${C.border}`,
+                            borderRadius: 14, padding: '12px 14px',
+                            display: 'flex', flexDirection: 'column', gap: 8,
+                            transition: 'all 0.15s',
+                            boxShadow: isSelected ? '0 4px 14px rgba(8,145,178,0.08)' : '0 2px 6px rgba(120,104,10,0.02)'
+                          }}
+                        >
+                          <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+                            <div
+                              onClick={() => toggleKitchenItem(itemName, defaultUnit)}
+                              style={{display:'flex', alignItems:'center', gap:10, cursor:'pointer', flex:1}}
+                            >
+                              <div
+                                style={{
+                                  width: 22, height: 22, borderRadius: 6,
+                                  border: `2px solid ${isSelected ? '#0891b2' : '#cbd5e1'}`,
+                                  background: isSelected ? '#0891b2' : '#fff',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                                }}
+                              >
+                                {isSelected && <span className="material-symbols-outlined" style={{fontSize:15, color:'#fff'}}>check</span>}
+                              </div>
+                              <span style={{fontSize:14, fontWeight: isSelected ? 800 : 700, color: isSelected ? '#0f172a' : '#334155'}}>
+                                {itemName}
+                              </span>
+                            </div>
+                            {isSelected && lineTotal > 0 && (
+                              <span style={{fontSize:13, fontWeight:900, color:'#0891b2'}}>
+                                = ₹{lineTotal.toFixed(0)}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Inputs when checked */}
+                          {isSelected && (
+                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1.2fr', gap:8, paddingTop:6, borderTop:'1px dashed #ccfbf1'}}>
+                              <div>
+                                <label style={{display:'block', fontSize:10, fontWeight:800, color:'#0f766e', marginBottom:2}}>QTY</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.1"
+                                  placeholder="e.g. 5"
+                                  value={val.qty}
+                                  onChange={e => updateKitchenItemField(itemName, 'qty', e.target.value)}
+                                  style={{
+                                    width: '100%', padding: '7px 8px', border: '1.5px solid #99f6e4',
+                                    borderRadius: 8, fontSize: 13, fontWeight: 700, outline: 'none',
+                                    boxSizing: 'border-box', background: '#fff'
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <label style={{display:'block', fontSize:10, fontWeight:800, color:'#0f766e', marginBottom:2}}>UNIT</label>
+                                <select
+                                  value={val.unit || defaultUnit}
+                                  onChange={e => updateKitchenItemField(itemName, 'unit', e.target.value)}
+                                  style={{
+                                    width: '100%', padding: '7px 6px', border: '1.5px solid #99f6e4',
+                                    borderRadius: 8, fontSize: 12, fontWeight: 700, outline: 'none',
+                                    boxSizing: 'border-box', background: '#fff', cursor: 'pointer'
+                                  }}
+                                >
+                                  <option value="kg">kg</option>
+                                  <option value="g">g</option>
+                                  <option value="litre">litre</option>
+                                  <option value="piece">piece</option>
+                                  <option value="packet">packet</option>
+                                  <option value="can">can</option>
+                                  <option value="cylinder">cylinder</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label style={{display:'block', fontSize:10, fontWeight:800, color:'#0f766e', marginBottom:2}}>RATE (₹)</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  placeholder="₹ Rate"
+                                  value={val.rate}
+                                  onChange={e => updateKitchenItemField(itemName, 'rate', e.target.value)}
+                                  style={{
+                                    width: '100%', padding: '7px 8px', border: '1.5px solid #99f6e4',
+                                    borderRadius: 8, fontSize: 13, fontWeight: 700, outline: 'none',
+                                    boxSizing: 'border-box', background: '#fff'
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Sticky Bottom Summary Bar */}
+                {validKitchenRows.length > 0 && (
+                  <div
+                    style={{
+                      position: 'fixed', bottom: 64, left: 0, right: 0,
+                      maxWidth: 480, margin: '0 auto', padding: '12px 16px',
+                      background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(10px)',
+                      borderTop: '1px solid rgba(255,255,255,0.1)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      zIndex: 40, boxShadow: '0 -4px 20px rgba(0,0,0,0.2)'
+                    }}
+                  >
+                    <div>
+                      <p style={{margin:0, fontSize:11, color:'#94a3b8', fontWeight:700}}>{validKitchenRows.length} item(s) selected</p>
+                      <h3 style={{margin:'2px 0 0', fontSize:18, fontWeight:900, color:'#fde047'}}>Total: ₹{kitchenGrandTotal.toLocaleString('en-IN')}</h3>
+                    </div>
+                    <button
+                      onClick={openCookCheckout}
+                      style={{
+                        padding: '12px 20px', background: '#0891b2', color: '#fff',
+                        border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 800,
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                        boxShadow: '0 4px 14px rgba(8,145,178,0.4)', fontFamily: 'inherit'
+                      }}
+                    >
+                      Vendor &amp; Pay →
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {cookVendorTab === 'history' && (
+              <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                {cookPurchaseHistory.length === 0 ? (
+                  <div style={{background:'#fff', borderRadius:16, padding:'40px 20px', textAlign:'center', border:`1px solid ${C.border}`}}>
+                    <span className="material-symbols-outlined" style={{fontSize:44, color:'#cbd5e1'}}>receipt_long</span>
+                    <h4 style={{margin:'10px 0 4px', fontSize:16, fontWeight:800, color:C.text}}>No Past Purchases Yet</h4>
+                    <p style={{margin:0, fontSize:12, color:C.muted}}>Purchases logged by the cook will appear here with live sync.</p>
+                  </div>
+                ) : (
+                  cookPurchaseHistory.map(pur => {
+                    const purTotal = pur.items ? pur.items.reduce((s, it) => s + (parseFloat(it.price) || 0), 0) : 0;
+                    const paidNow = pur.payInfo?.amtNow ? parseFloat(pur.payInfo.amtNow) : 0;
+                    const isPaidFull = paidNow >= purTotal;
+                    
+                    return (
+                      <div
+                        key={pur.id}
+                        style={{
+                          background: '#fff', border: `1px solid ${C.border}`, borderRadius: 16,
+                          padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+                          boxShadow: '0 2px 8px rgba(120,104,10,0.03)'
+                        }}
+                      >
+                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
+                          <div>
+                            <div style={{display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:2}}>
+                              <h4 style={{margin:0, fontSize:15, fontWeight:800, color:C.text}}>{pur.vendorName || pur.vendorStore || 'Vendor'}</h4>
+                              {pur.pgName && (
+                                <span style={{fontSize:10, background:'#f0fdf4', color:'#166534', border:'1px solid #bbf7d0', padding:'1px 6px', borderRadius:4, fontWeight:700}}>
+                                  🏢 {pur.pgName}
+                                </span>
+                              )}
+                            </div>
+                            <p style={{margin:0, fontSize:11.5, color:'#64748b'}}>
+                              📅 {pur.date} · {pur.payInfo?.method || (pur.paymentSource === 'petty_cash' ? 'Petty Cash' : 'Cash')}
+                            </p>
+                          </div>
+                          <div style={{textAlign:'right'}}>
+                            <h4 style={{margin:0, fontSize:16, fontWeight:900, color:'#0f172a'}}>₹{purTotal.toLocaleString('en-IN')}</h4>
+                            <span style={{fontSize:11, fontWeight:800, color: isPaidFull ? '#16a34a' : '#d97706'}}>
+                              {isPaidFull ? '✓ Paid' : `Pending ₹${(purTotal - paidNow).toLocaleString('en-IN')}`}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Items list */}
+                        {pur.items && pur.items.length > 0 && (
+                          <div style={{background:'#f8fafc', borderRadius:10, padding:'8px 10px', display:'flex', flexWrap:'wrap', gap:6}}>
+                            {pur.items.map((it, idx) => (
+                              <span key={idx} style={{fontSize:11.5, background:'#fff', border:'1px solid #e2e8f0', borderRadius:6, padding:'2px 8px', color:'#334155', fontWeight:600}}>
+                                {it.item}: {it.qty}{it.unit} @ ₹{it.rate}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:11, color:'#94a3b8', borderTop:'1px dashed #f1f5f9', paddingTop:8}}>
+                          <span>👨‍🍳 Logged by Cook: {pur.staffName || 'Staff'}</span>
+                          {pur.paymentSource === 'petty_cash' && (
+                            <span style={{color:'#7c3aed', fontWeight:700}}>💳 Deducted from Petty Cash</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+          </div>
+        );
+      })()}
+
       {/* ── MODALS ────────────────────────────────────────────────────────── */}
+      {/* Cook Kitchen Purchase Checkout Sheet */}
+      <Sheet show={showCookCheckoutModal} onClose={()=>setShowCookCheckoutModal(false)} title="Confirm Kitchen Purchase" sub="Syncs with Vendor Account & Staff Petty Cash">
+        <div style={{display:'flex', flexDirection:'column', gap:14}}>
+          
+          {/* Order items preview */}
+          <div style={{background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:12, padding:'12px 14px'}}>
+            <p style={{margin:'0 0 8px', fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase'}}>Selected Items ({validKitchenRows.length})</p>
+            <div style={{display:'flex', flexDirection:'column', gap:6, maxHeight:140, overflowY:'auto'}}>
+              {validKitchenRows.map(([name, v]) => (
+                <div key={name} style={{display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:12.5}}>
+                  <span style={{color:'#1e293b', fontWeight:700}}>{name} ({v.qty} {v.unit})</span>
+                  <span style={{color:'#0f172a', fontWeight:800}}>₹{((parseFloat(v.qty) || 0) * (parseFloat(v.rate) || 0)).toFixed(0)}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{borderTop:'1px dashed #cbd5e1', marginTop:8, paddingTop:8, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+              <span style={{fontSize:13, fontWeight:800, color:'#0f172a'}}>Grand Total</span>
+              <span style={{fontSize:16, fontWeight:900, color:'#0891b2'}}>₹{kitchenGrandTotal.toLocaleString('en-IN')}</span>
+            </div>
+          </div>
+
+          {/* Delivery Date */}
+          <div>
+            <label style={{display:'block', fontSize:12, fontWeight:800, color:'#475569', marginBottom:5}}>Delivery / Purchase Date</label>
+            <input
+              type="date"
+              value={cookPurchaseDate}
+              onChange={e => setCookPurchaseDate(e.target.value)}
+              style={{width:'100%', padding:'10px 12px', border:'1.5px solid #e2e8f0', borderRadius:10, fontSize:13.5, fontFamily:'inherit', outline:'none', boxSizing:'border-box', color:'#0f172a'}}
+            />
+          </div>
+
+          {/* PG Property */}
+          <div>
+            <label style={{display:'block', fontSize:12, fontWeight:800, color:'#475569', marginBottom:5}}>PG Property</label>
+            <div style={{padding:'10px 12px', border:'1.5px solid #e2e8f0', borderRadius:10, background:'#f8fafc', fontSize:13.5, fontWeight:700, color:'#0f172a'}}>
+              🏢 {assignedProperties.find(p => p.id === activePgId)?.name || 'Primary PG'}
+            </div>
+          </div>
+
+          {/* Vendor Selection */}
+          <div>
+            <label style={{display:'block', fontSize:12, fontWeight:800, color:'#475569', marginBottom:5}}>Vendor / Supplier *</label>
+            <select
+              value={cookSelectedVendorId}
+              onChange={e => setCookSelectedVendorId(e.target.value)}
+              style={{width:'100%', padding:'11px 12px', border:'1.5px solid #e2e8f0', borderRadius:10, fontSize:13.5, fontFamily:'inherit', outline:'none', background:'#fff', color:'#0f172a', fontWeight:700, boxSizing:'border-box'}}
+            >
+              {adminVendors.map(v => (
+                <option key={v.id} value={v.id}>
+                  🏢 {v.name} ({v.store || v.category || 'Vendor'})
+                </option>
+              ))}
+              <option value="manual">➕ Type Manually / New Local Vendor</option>
+            </select>
+          </div>
+
+          {/* If manual vendor selected */}
+          {cookSelectedVendorId === 'manual' && (
+            <div style={{background:'#f0fdfe', border:'1.5px dashed #a5f3fc', borderRadius:12, padding:12, display:'flex', flexDirection:'column', gap:10}}>
+              <p style={{margin:0, fontSize:12, fontWeight:800, color:'#0891b2'}}>Enter Local Vendor Details</p>
+              <InputField
+                label="Vendor / Shop Name *"
+                placeholder="e.g. Ramesh Sabzi Mandi or Kisan Store"
+                value={cookManualVendorName}
+                onChange={e => setCookManualVendorName(e.target.value)}
+              />
+              <InputField
+                label="Phone Number (Optional)"
+                placeholder="e.g. 9876543210"
+                value={cookManualVendorPhone}
+                onChange={e => setCookManualVendorPhone(e.target.value)}
+              />
+              <InputField
+                label="UPI ID (Optional)"
+                placeholder="e.g. vendor@upi or 9876543210@paytm"
+                value={cookManualVendorUpi}
+                onChange={e => setCookManualVendorUpi(e.target.value)}
+              />
+            </div>
+          )}
+
+          {/* Payment Method / Source */}
+          <div>
+            <label style={{display:'block', fontSize:12, fontWeight:800, color:'#475569', marginBottom:6}}>Payment Source *</label>
+            <div style={{display:'flex', gap:8, marginBottom:8}}>
+              {[
+                { id: 'petty_cash', label: 'Petty Cash', icon: 'payments' },
+                { id: 'cash', label: 'Direct Cash', icon: 'money' },
+                { id: 'upi', label: 'UPI / Online', icon: 'smartphone' }
+              ].map(pm => (
+                <button
+                  key={pm.id}
+                  type="button"
+                  onClick={() => setCookPaymentSource(pm.id)}
+                  style={{
+                    flex: 1, padding: '10px 4px', borderRadius: 10,
+                    border: cookPaymentSource === pm.id ? '2px solid #0891b2' : '1.5px solid #e2e8f0',
+                    background: cookPaymentSource === pm.id ? '#ecfeff' : '#fff',
+                    color: cookPaymentSource === pm.id ? '#0891b2' : '#64748b',
+                    fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{fontSize:18}}>{pm.icon}</span>
+                  {pm.label}
+                </button>
+              ))}
+            </div>
+
+            {cookPaymentSource === 'petty_cash' && (
+              <div style={{background:'#fefce8', border:'1px solid #fef08a', borderRadius:10, padding:'8px 12px', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <span style={{fontSize:12, color:'#854d0e', fontWeight:700}}>Available Petty Cash Fund:</span>
+                <span style={{fontSize:13, fontWeight:900, color:'#b45309'}}>₹{availablePettyCash.toLocaleString('en-IN')}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Amount Paying Now */}
+          <div>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5}}>
+              <label style={{fontSize:12, fontWeight:800, color:'#475569'}}>Amount Paying Now (₹) *</label>
+              {kitchenGrandTotal > (parseFloat(cookPaidAmount) || 0) && (
+                <span style={{fontSize:11, color:'#ef4444', fontWeight:800}}>
+                  Remaining Due: ₹{(kitchenGrandTotal - (parseFloat(cookPaidAmount) || 0)).toLocaleString('en-IN')}
+                </span>
+              )}
+            </div>
+            <input
+              type="number"
+              min="0"
+              placeholder="Amount paid"
+              value={cookPaidAmount}
+              onChange={e => setCookPaidAmount(e.target.value)}
+              style={{width:'100%', padding:'11px 12px', border:'1.5px solid #e2e8f0', borderRadius:10, fontSize:15, fontWeight:800, fontFamily:'inherit', outline:'none', boxSizing:'border-box', color:'#0f172a'}}
+            />
+          </div>
+
+          {/* Optional Note */}
+          <div>
+            <label style={{display:'block', fontSize:12, fontWeight:800, color:'#475569', marginBottom:5}}>Note / Remark (Optional)</label>
+            <input
+              type="text"
+              placeholder="e.g. Weekly vegetable mandi purchase"
+              value={cookPurchaseNote}
+              onChange={e => setCookPurchaseNote(e.target.value)}
+              style={{width:'100%', padding:'10px 12px', border:'1.5px solid #e2e8f0', borderRadius:10, fontSize:13, fontFamily:'inherit', outline:'none', boxSizing:'border-box', color:'#0f172a'}}
+            />
+          </div>
+
+          {/* Confirm Button */}
+          <button
+            onClick={handleConfirmCookPurchase}
+            disabled={isSubmittingCookPurchase}
+            style={{
+              padding: '14px', background: '#0891b2', color: '#fff', border: 'none',
+              borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: isSubmittingCookPurchase ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              boxShadow: '0 4px 16px rgba(8,145,178,0.3)', fontFamily: 'inherit',
+              opacity: isSubmittingCookPurchase ? 0.7 : 1, marginTop: 6
+            }}
+          >
+            {isSubmittingCookPurchase ? (
+              <>
+                <div style={{width:16, height:16, border:'2px solid rgba(255,255,255,0.3)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin 1s linear infinite'}} />
+                Syncing with Admin &amp; Petty Cash...
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined" style={{fontSize:20}}>cloud_sync</span>
+                Confirm &amp; Sync Purchase 🚀
+              </>
+            )}
+          </button>
+
+        </div>
+      </Sheet>
+
+      {/* Add Custom Item Modal */}
+      <Sheet show={showCustomKitchenItemModal} onClose={()=>setShowCustomKitchenItemModal(false)} title="Add Custom Kitchen Item" sub="Add any special or local item to checklist">
+        <div style={{display:'flex', flexDirection:'column', gap:12}}>
+          <InputField
+            label="Item Name *"
+            placeholder="e.g. Sona Masoori Rice, Biryani Masala, Kaju..."
+            value={newCustomKitchenName}
+            onChange={e => setNewCustomKitchenName(e.target.value)}
+          />
+          <button
+            onClick={handleAddCustomKitchenItem}
+            style={{
+              padding: '13px', background: C.primary, color: '#000', border: 'none',
+              borderRadius: 12, fontSize: 14, fontWeight: 800, cursor: 'pointer',
+              fontFamily: 'inherit', marginTop: 6
+            }}
+          >
+            Add to Checklist 🛒
+          </button>
+        </div>
+      </Sheet>
       {/* Sheet 1: Demands List (Asked by other staff members) */}
       <Sheet show={showDemandList} onClose={()=>setShowDemandList(false)} title="Staff Requisitions Queue" sub="Item demands raised by staff members">
         <div style={{display:'flex', flexDirection:'column', gap:14}}>
