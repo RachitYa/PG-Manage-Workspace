@@ -23,13 +23,69 @@ import {
   MEAL_LABELS
 } from '../utils/vacationUtils';
 
+// ── Default Weekly Menu Template (Fallback so students always see the mess timetable) ──
+const DEFAULT_MENU = {
+  Monday: {
+    Breakfast: 'Poha, Jalebi, Chai / Masala Tea',
+    Lunch: 'Rajma Chawal, Roti, Salad',
+    Snacks: 'Samosa, Chai / Masala Tea',
+    Dinner: 'Paneer Butter Masala, Roti, Dal'
+  },
+  Tuesday: {
+    Breakfast: 'Aloo Paratha, Curd, Chai / Masala Tea',
+    Lunch: 'Kadi Pakoda, Steamed Rice, Papad',
+    Snacks: 'Veg Puff, Chai / Masala Tea',
+    Dinner: 'Mix Veg, Arhar Dal, Tawa Roti'
+  },
+  Wednesday: {
+    Breakfast: 'Idli, Sambhar, Coconut Chutney, Chai / Masala Tea',
+    Lunch: 'Chole Bhature, Boondi Raita',
+    Snacks: 'Bhel Puri, Chai / Masala Tea',
+    Dinner: 'Dal Makhani, Jeera Rice, Butter Roti'
+  },
+  Thursday: {
+    Breakfast: 'Bread Omelette / Veg Sandwich, Chai / Masala Tea',
+    Lunch: 'Dal Fry, Rice, Seasonal Sabzi',
+    Snacks: 'Biscuits, Chai / Masala Tea',
+    Dinner: 'Egg Curry / Kofta Curry, Roti, Rice'
+  },
+  Friday: {
+    Breakfast: 'Upma, Coconut Chutney, Chai / Masala Tea',
+    Lunch: 'Veg Biryani, Raita, Salad',
+    Snacks: 'Bhel Puri, Chai / Masala Tea',
+    Dinner: 'Matar Paneer, Tawa Roti, Dal Tadka'
+  },
+  Saturday: {
+    Breakfast: 'Puri Sabji, Halwa, Chai / Masala Tea',
+    Lunch: 'Moong Dal, Jeera Rice, Bhindi Masala',
+    Snacks: 'Mix Pakoda, Chai / Masala Tea',
+    Dinner: 'Aloo Gobi, Dal Fry, Phulka'
+  },
+  Sunday: {
+    Breakfast: 'Masala Dosa, Sambhar, Chutney, Chai / Masala Tea',
+    Lunch: 'Special Thali (Paneer/Chicken, Sweet)',
+    Snacks: 'Pastry / Cake, Filter Coffee',
+    Dinner: 'Shahi Paneer, Pulao, Butter Naan'
+  }
+};
+
 const Food = () => {
   const { user } = useAuth();
   const { startLoading, stopLoading } = useLoading();
-  const [foodData, setFoodData] = useState({});
+  const [foodData, setFoodData] = useState(DEFAULT_MENU);
   const [foodMenuImages, setFoodMenuImages] = useState({});
   const [foodItemImages, setFoodItemImages] = useState({});
+  const [adminPausedMeals, setAdminPausedMeals] = useState({});
   const [todayRequests, setTodayRequests] = useState({}); // { Breakfast: 'pack', Lunch: 'cancel', ... }
+
+  // Resolve active PG doc ID
+  const resolvedPgId = (() => {
+    if (user?.subscribedPG?.pgId && user.subscribedPG.pgId !== 'primary') return user.subscribedPG.pgId;
+    if (user?.subscribedPG?.adminId) return user.subscribedPG.adminId;
+    if (user?.adminId) return user.adminId;
+    if (user?.pgId && user.pgId !== 'primary') return user.pgId;
+    return user?.subscribedPG?.pgId || null;
+  })();
 
   // Menu Edit History & Last Editor state
   const [lastMenuEdit, setLastMenuEdit] = useState(null);
@@ -38,7 +94,7 @@ const Food = () => {
   const [loadingMenuHistory, setLoadingMenuHistory] = useState(false);
 
   const fetchMenuHistory = async () => {
-    const pgId = user?.subscribedPG?.pgId;
+    const pgId = resolvedPgId;
     if (!pgId) return;
     setLoadingMenuHistory(true);
     try {
@@ -97,81 +153,81 @@ const Food = () => {
   const [extraDate, setExtraDate] = useState('');
 
 // ── Food item image lookup (Indian PG common items) ──────────────
+// ── Food item image lookup (Indian PG common items) ──────────────
   const FOOD_IMAGES = {
-    
-    // User requested specific dishes
+    // Breads & Rice
     'roti':       'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&h=300&fit=crop',
     'chapati':    'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&h=300&fit=crop',
-    'curd':       'https://images.unsplash.com/photo-1563630382894-3e9a584090b4?w=400&h=300&fit=crop',
-    'raita':      'https://images.unsplash.com/photo-1563630382894-3e9a584090b4?w=400&h=300&fit=crop',
+    'naan':       'https://images.unsplash.com/photo-1725483990094-e95226a16db7?w=400&h=300&fit=crop',
+    'butter naan':'https://images.unsplash.com/photo-1725483990094-e95226a16db7?w=400&h=300&fit=crop',
+    'paratha':    'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=400&h=300&fit=crop',
+    'puri':       'https://images.unsplash.com/photo-1626074353765-517a681e40be?w=400&h=300&fit=crop',
+    'poori':      'https://images.unsplash.com/photo-1626074353765-517a681e40be?w=400&h=300&fit=crop',
+    'puri sabji': 'https://images.unsplash.com/photo-1626074353765-517a681e40be?w=400&h=300&fit=crop',
     'rice':       'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&h=300&fit=crop',
-    'papad':      'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&h=300&fit=crop',
-    'upma':       'https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=400&h=300&fit=crop',
-    'bhel puri':  'https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=400&h=300&fit=crop',
-    'puri sabji': 'https://images.unsplash.com/photo-1626200919300-b8c3c89bddf8?w=400&h=300&fit=crop',
+    'jeera rice': 'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=400&h=300&fit=crop',
+    'biryani':    'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400&h=300&fit=crop',
+    'pulao':      'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400&h=300&fit=crop',
+    'khichdi':    'https://images.unsplash.com/photo-1645177628172-a94c1f96e6db?w=400&h=300&fit=crop',
+    'fried rice': 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=400&h=300&fit=crop',
+
+    // Dal & Curries
+    'dal':        'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop',
+    'dal tadka':  'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop',
+    'dal fry':    'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop',
+    'dal makhani':'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=400&h=300&fit=crop',
+    'rajma':      'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop',
+    'chole':      'https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?w=400&h=300&fit=crop',
+    'sambar':     'https://images.unsplash.com/photo-1610057099443-fde8c4d50f91?w=400&h=300&fit=crop',
+    'sambhar':    'https://images.unsplash.com/photo-1610057099443-fde8c4d50f91?w=400&h=300&fit=crop',
+    'kadhi':      'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=400&h=300&fit=crop',
+
+    // Sabzi & Curries
+    'paneer':     'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&h=300&fit=crop',
+    'shahi paneer':'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&h=300&fit=crop',
+    'matar paneer':'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&h=300&fit=crop',
     'aloo gobhi': 'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&h=300&fit=crop',
-    'alooo gobhi':'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&h=300&fit=crop',
-    'gobi':       'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&h=300&fit=crop',
+    'aloo gobi':  'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&h=300&fit=crop',
+    'mix veg':    'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop',
+    'bhindi':     'https://images.unsplash.com/photo-1596797038530-2c107229654b?w=400&h=300&fit=crop',
+    'bhindi masala':'https://images.unsplash.com/photo-1596797038530-2c107229654b?w=400&h=300&fit=crop',
+    'aloo jeera': 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=400&h=300&fit=crop',
+    'sev tamatar':'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=400&h=300&fit=crop',
+    'egg curry':  'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=400&h=300&fit=crop',
+    'chicken':    'https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=400&h=300&fit=crop',
+
     // Breakfast items
     'poha':       'https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=400&h=300&fit=crop',
     'upma':       'https://images.unsplash.com/photo-1626200928309-0a3aa3d57527?w=400&h=300&fit=crop',
     'idli':       'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=400&h=300&fit=crop',
-    'dosa':       'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&h=300&fit=crop',
-    'paratha':    'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=400&h=300&fit=crop',
-    'puri':       'https://images.unsplash.com/photo-1626200919300-b8c3c89bddf8?w=400&h=300&fit=crop',
-    'aloo':       'https://images.unsplash.com/photo-1630400165756-71413c1ea29a?w=400&h=300&fit=crop',
-    'samosa':     'https://images.unsplash.com/photo-1601050690117-94f5f6fa8bd7?w=400&h=300&fit=crop',
+    'dosa':       'https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=400&h=300&fit=crop',
+    'masala dosa':'https://images.unsplash.com/photo-1668236543090-82eba5ee5976?w=400&h=300&fit=crop',
     'bread':      'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=400&h=300&fit=crop',
-    'egg':        'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=400&h=300&fit=crop',
     'omelette':   'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=400&h=300&fit=crop',
-    'boiled egg': 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=400&h=300&fit=crop',
     'tea':        'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=300&fit=crop',
     'chai':       'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=300&fit=crop',
+    'coffee':     'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&h=300&fit=crop',
     'milk':       'https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400&h=300&fit=crop',
     'banana':     'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=300&fit=crop',
-    // Lunch / Dinner items
-    'dal':        'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop',
-    'rice':       'https://images.unsplash.com/photo-1536304993881-ff86e0c9c938?w=400&h=300&fit=crop',
-    'roti':       'https://images.unsplash.com/photo-1601050690596-df0568f70950?w=400&h=300&fit=crop',
-    'chapati':    'https://images.unsplash.com/photo-1601050690596-df0568f70950?w=400&h=300&fit=crop',
-    'sabji':      'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&h=300&fit=crop',
-    'sabzi':      'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&h=300&fit=crop',
-    'paneer':     'https://images.unsplash.com/photo-1567188040759-fb8a883dc6d8?w=400&h=300&fit=crop',
-    'chole':      'https://images.unsplash.com/photo-1612929633738-8fe44f7ec841?w=400&h=300&fit=crop',
-    'rajma':      'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop',
-    'sambar':     'https://images.unsplash.com/photo-1626200928309-0a3aa3d57527?w=400&h=300&fit=crop',
-    'curry':      'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=400&h=300&fit=crop',
-    'biryani':    'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400&h=300&fit=crop',
-    'pulao':      'https://images.unsplash.com/photo-1536304993881-ff86e0c9c938?w=400&h=300&fit=crop',
-    'khichdi':    'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop',
-    'kadhi':      'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=400&h=300&fit=crop',
-    'salad':      'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&h=300&fit=crop',
-    'raita':      'https://images.unsplash.com/photo-1571167366136-b57e98d70f31?w=400&h=300&fit=crop',
-    'curd':       'https://images.unsplash.com/photo-1571167366136-b57e98d70f31?w=400&h=300&fit=crop',
-    'dahi':       'https://images.unsplash.com/photo-1571167366136-b57e98d70f31?w=400&h=300&fit=crop',
-    'pickle':     'https://images.unsplash.com/photo-1604329760661-e71dc83f8f26?w=400&h=300&fit=crop',
-    'achaar':     'https://images.unsplash.com/photo-1604329760661-e71dc83f8f26?w=400&h=300&fit=crop',
-    'papad':      'https://images.unsplash.com/photo-1626200928309-0a3aa3d57527?w=400&h=300&fit=crop',
-    'chicken':    'https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=400&h=300&fit=crop',
-    'mutton':     'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=400&h=300&fit=crop',
-    'fish':       'https://images.unsplash.com/photo-1544943910-4c1dc44aab44?w=400&h=300&fit=crop',
-    'soup':       'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=400&h=300&fit=crop',
+
     // Snacks
+    'samosa':     'https://images.unsplash.com/photo-1601050690117-94f5f6fa8bd7?w=400&h=300&fit=crop',
     'pakora':     'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=400&h=300&fit=crop',
-    'bhajia':     'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=400&h=300&fit=crop',
-    'vada':       'https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=400&h=300&fit=crop',
     'sandwich':   'https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=400&h=300&fit=crop',
-    'noodles':    'https://images.unsplash.com/photo-1569050467447-ce54b3bbc37d?w=400&h=300&fit=crop',
     'maggi':      'https://images.unsplash.com/photo-1569050467447-ce54b3bbc37d?w=400&h=300&fit=crop',
-    'biscuit':    'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=400&h=300&fit=crop',
-    'juice':      'https://images.unsplash.com/photo-1622597467836-f3285f2131b8?w=400&h=300&fit=crop',
-    'coffee':     'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400&h=300&fit=crop',
-    // Sweets / Dessert
-    'kheer':      'https://images.unsplash.com/photo-1560684352-8c2b26b71d5b?w=400&h=300&fit=crop',
-    'halwa':      'https://images.unsplash.com/photo-1630400165756-71413c1ea29a?w=400&h=300&fit=crop',
-    'sweet':      'https://images.unsplash.com/photo-1505253716362-afaea1d3d1af?w=400&h=300&fit=crop',
-    'ladoo':      'https://images.unsplash.com/photo-1505253716362-afaea1d3d1af?w=400&h=300&fit=crop',
-    'gulab jamun':'https://images.unsplash.com/photo-1489391386868-5ba3b0f3ee40?w=400&h=300&fit=crop',
+    'bhel puri':  'https://images.unsplash.com/photo-1569050467447-ce54b3bbc37d?w=400&h=300&fit=crop',
+    'biscuits':   'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=400&h=300&fit=crop',
+
+    // Sides & Desserts
+    'curd':       'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=400&h=300&fit=crop',
+    'dahi':       'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=400&h=300&fit=crop',
+    'raita':      'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=400&h=300&fit=crop',
+    'salad':      'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&h=300&fit=crop',
+    'papad':      'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=400&h=300&fit=crop',
+    'pickle':     'https://images.unsplash.com/photo-1604329760661-e71dc83f8f26?w=400&h=300&fit=crop',
+    'gulab jamun':'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=400&h=300&fit=crop',
+    'kheer':      'https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=400&h=300&fit=crop',
+    'halwa':      'https://images.unsplash.com/photo-1579954115545-a95591f28bfc?w=400&h=300&fit=crop'
   };
 
   // Fallback images per meal type
@@ -203,51 +259,101 @@ const Food = () => {
   const [extraMeal, setExtraMeal] = useState('');
   const [extraPlates, setExtraPlates] = useState(1);
 
+  // Robust real-time listener for Food Menu & Headcount
   useEffect(() => {
-    if (!user?.subscribedPG?.pgId) return;
-    
-    // Listen to Weekly Food Menu
-    const pgDocRef = doc(db, 'pg_owners', user.subscribedPG.pgId);
-    const unsubMenu = onSnapshot(pgDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.foodMenu) setFoodData(data.foodMenu);
-        if (data.foodMenuImages) setFoodMenuImages(data.foodMenuImages);
-        if (data.foodItemImages) setFoodItemImages(data.foodItemImages);
-        if (data.foodItemImages) setFoodItemImages(data.foodItemImages);
-        if (data.lastMenuEdit) setLastMenuEdit(data.lastMenuEdit);
-      }
-    });
+    let unsubMenu = null;
+    let unsubHeadcount = null;
+    let unsubReq = null;
 
-    // Listen to eaten status
-    const headcountDocRef = doc(db, 'mess_headcount', `${user.subscribedPG.pgId}_${getTodayStr()}`);
-    const unsubHeadcount = onSnapshot(headcountDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setEatenStatus({
-          breakfast: !!data[`${user.uid}_breakfast_eaten`],
-          lunch: !!data[`${user.uid}_lunch_eaten`],
-          snacks: !!data[`${user.uid}_snacks_eaten`],
-          dinner: !!data[`${user.uid}_dinner_eaten`],
-        });
-      }
-    });
+    const attachListeners = (targetPgId) => {
+      if (!targetPgId || targetPgId === 'primary') return;
 
-    // Listen to Student's specific Food Requests
-    const reqDocRef = doc(db, 'pg_owners', user.subscribedPG.pgId, 'food_requests', user.uid);
-    const unsubReq = onSnapshot(reqDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.todayStatus) setTodayRequests(data.todayStatus);
+      // 1. Listen to Weekly Food Menu & Admin Settings from pg_owners
+      const pgDocRef = doc(db, 'pg_owners', targetPgId);
+      unsubMenu = onSnapshot(pgDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.foodMenu && Object.keys(data.foodMenu).length > 0) {
+            setFoodData(data.foodMenu);
+          }
+          if (data.foodMenuImages) setFoodMenuImages(data.foodMenuImages);
+          if (data.foodItemImages) setFoodItemImages(data.foodItemImages);
+          if (data.lastMenuEdit) setLastMenuEdit(data.lastMenuEdit);
+          if (data.pausedMeals) setAdminPausedMeals(data.pausedMeals);
+        }
+      }, (err) => console.warn('Student food menu listener warning:', err));
+
+      // 2. Listen to eaten status & daily paused meals
+      const currentToday = getTodayStr();
+      const headcountDocRef = doc(db, 'mess_headcount', `${targetPgId}_${currentToday}`);
+      unsubHeadcount = onSnapshot(headcountDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (user?.uid) {
+            setEatenStatus({
+              breakfast: !!data[`${user.uid}_breakfast_eaten`],
+              lunch: !!data[`${user.uid}_lunch_eaten`],
+              snacks: !!data[`${user.uid}_snacks_eaten`],
+              dinner: !!data[`${user.uid}_dinner_eaten`],
+            });
+          }
+          if (data.pausedMeals) {
+            setAdminPausedMeals(prev => ({
+              ...prev,
+              [currentToday]: { ...(prev[currentToday] || {}), ...data.pausedMeals }
+            }));
+          }
+        }
+      }, (err) => console.warn('Student headcount listener warning:', err));
+
+      // 3. Listen to Student's specific Food Requests
+      if (user?.uid) {
+        const reqDocRef = doc(db, 'pg_owners', targetPgId, 'food_requests', user.uid);
+        unsubReq = onSnapshot(reqDocRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.todayStatus) setTodayRequests(data.todayStatus);
+          }
+        }, (err) => console.warn('Student request listener warning:', err));
       }
-    });
+    };
+
+    if (resolvedPgId && resolvedPgId !== 'primary') {
+      attachListeners(resolvedPgId);
+    } else if (user?.uid) {
+      // Fallback discovery: query tenants collection for this student's admin/pg ID
+      const discoverTenantPg = async () => {
+        try {
+          const qTen = query(collection(db, 'tenants'), where('tenantId', '==', user.uid));
+          const snap = await getDocs(qTen);
+          let targetId = null;
+          if (!snap.empty) {
+            const tData = snap.docs[0].data();
+            targetId = (tData.pgId && tData.pgId !== 'primary') ? tData.pgId : (tData.adminId || tData.pgId);
+          } else if (user?.phone) {
+            const qPhone = query(collection(db, 'tenants'), where('phone', '==', user.phone));
+            const snapP = await getDocs(qPhone);
+            if (!snapP.empty) {
+              const tData = snapP.docs[0].data();
+              targetId = (tData.pgId && tData.pgId !== 'primary') ? tData.pgId : (tData.adminId || tData.pgId);
+            }
+          }
+          if (targetId) {
+            attachListeners(targetId);
+          }
+        } catch (e) {
+          console.warn('Fallback tenant PG lookup error:', e);
+        }
+      };
+      discoverTenantPg();
+    }
 
     return () => {
-      unsubMenu();
-      unsubReq();
-      unsubHeadcount();
+      if (unsubMenu) unsubMenu();
+      if (unsubReq) unsubReq();
+      if (unsubHeadcount) unsubHeadcount();
     };
-  }, [user]);
+  }, [user, resolvedPgId]);
 
   // Listen to Food Vacations collection for this tenant
   useEffect(() => {
@@ -295,6 +401,13 @@ const Food = () => {
   const isMealPausedToday = (mealName) => {
     if (!currentOrUpcomingVacation) return false;
     return isMealPausedOnDate(currentOrUpcomingVacation, todayStr, mealName);
+  };
+
+  const isMealPausedByAdmin = (mealName) => {
+    if (!mealName) return false;
+    const mealKey = mealName.toLowerCase();
+    const today = getTodayStr();
+    return !!(adminPausedMeals?.[today]?.[mealKey] || adminPausedMeals?.[mealKey]);
   };
 
   const handleMealCheckboxToggle = (mealKey) => {
@@ -485,14 +598,19 @@ const Food = () => {
   }
 
   const handleMealAction = async (meal, actionType) => {
-    if (!user?.subscribedPG?.pgId || !user?.uid) return;
+    const targetPg = resolvedPgId;
+    if (!targetPg || !user?.uid) return;
+    if (isMealPausedByAdmin(meal)) {
+      alert(`Cannot ${actionType}: ${meal} has been paused by PG Admin / Manager for today.`);
+      return;
+    }
     if (isMealPausedToday(meal)) {
       alert(`Cannot ${actionType}: You are currently on Food Vacation for ${meal}.`);
       return;
     }
     startLoading();
     try {
-      const docRef = doc(db, 'pg_owners', user.subscribedPG.pgId, 'food_requests', user.uid);
+      const docRef = doc(db, 'pg_owners', targetPg, 'food_requests', user.uid);
       
       // If the current status is already the actionType, we "undo" it by setting it to null
       const currentStatus = todayRequests[meal];
@@ -503,7 +621,7 @@ const Food = () => {
       await setDoc(docRef, {
         studentId: user.uid,
         studentName: user.name || 'Unknown',
-        roomNumber: user.subscribedPG.roomNumber || 'Unknown',
+        roomNumber: user.subscribedPG?.roomNumber || user.subscribedPG?.roomNo || 'Unknown',
         todayStatus: newTodayStatus,
         lastUpdated: new Date().toISOString()
       }, { merge: true });
@@ -516,10 +634,11 @@ const Food = () => {
   };
 
   const handleSubmitModal = async (type) => {
-    if (!user?.subscribedPG?.pgId || !user?.uid) return;
+    const targetPg = resolvedPgId;
+    if (!targetPg || !user?.uid) return;
     startLoading();
     try {
-      const docRef = doc(db, 'pg_owners', user.subscribedPG.pgId, 'food_requests', user.uid);
+      const docRef = doc(db, 'pg_owners', targetPg, 'food_requests', user.uid);
       const timestamp = new Date().toISOString();
       
       if (type === 'rate') {
@@ -1027,6 +1146,7 @@ const Food = () => {
           const foodItem = foodData[currentDayStr]?.[meal] || 'Not set yet';
           const status = todayRequests[meal]; // 'pack', 'cancel', or null
           const isPaused = isMealPausedToday(meal);
+          const isAdminPaused = isMealPausedByAdmin(meal);
           const items = foodItem !== 'Not set yet' ? foodItem.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
           const accent = mealAccents[meal] || { bg: '#f8fafc', border: '#e2e8f0', label: '#334155' };
           const mealPhoto = foodMenuImages?.[currentDayStr]?.[meal];
@@ -1038,11 +1158,15 @@ const Food = () => {
                   <span style={{ fontWeight: '800', color: accent.label, textTransform: 'uppercase', fontSize: '13px', letterSpacing: '1px' }}>{meal}</span>
                   <span style={{ fontSize: '11px', color: accent.label, opacity: 0.8, fontWeight: 700 }}>({items.length} items)</span>
                 </div>
-                {status && (
+                {isAdminPaused ? (
+                  <span style={{ fontSize: '11px', fontWeight: '800', padding: '2px 8px', borderRadius: '12px', color: 'white', background: '#e11d48' }}>
+                    PAUSED
+                  </span>
+                ) : status ? (
                   <span style={{ fontSize: '11px', fontWeight: '800', padding: '2px 8px', borderRadius: '12px', color: 'white', background: status === 'pack' ? '#0891b2' : '#e11d48' }}>
                     {status === 'pack' ? 'PACKED' : 'CANCELED'}
                   </span>
-                )}
+                ) : null}
               </div>
 
               <div style={{ padding: '14px 12px', display: 'flex', gap: '12px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', minHeight: '115px' }}>
@@ -1084,7 +1208,35 @@ const Food = () => {
               </div>
               
               <div className="subcard-actions" style={{ padding: '12px', borderTop: '1px solid #f1f5f9', background: 'white', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {isPaused ? (
+                {isAdminPaused ? (
+                  <div style={{
+                    background: '#fff1f2',
+                    border: '1.5px solid #fecaca',
+                    borderRadius: '14px',
+                    padding: '12px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}>
+                    <div style={{
+                      width: '36px', height: '36px', borderRadius: '10px',
+                      background: '#ffe4e6', color: '#e11d48',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                    }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>
+                        pause_circle
+                      </span>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '13px', fontWeight: '800', color: '#9f1239' }}>
+                        ⏸️ {meal} Paused Today
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#be123c', fontWeight: '600', marginTop: '2px' }}>
+                        This meal has been paused by PG Admin / Manager.
+                      </div>
+                    </div>
+                  </div>
+                ) : isPaused ? (
                   <div className="vacation-locked-action-box">
                     <span className="material-symbols-outlined" style={{ fontSize: '24px', color: '#059669', flexShrink: 0 }}>
                       beach_access
@@ -1544,7 +1696,23 @@ const Food = () => {
               <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
             </button>
 
-            {isMealPausedToday(activeMealQR) ? (
+            {isMealPausedByAdmin(activeMealQR) ? (
+              <div style={{ padding: '12px 0' }}>
+                <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 36 }}>pause_circle</span>
+                </div>
+                <h3 style={{ margin: '0 0 8px', fontSize: '18px', fontWeight: '900', color: '#0f172a' }}>Meal Paused</h3>
+                <p style={{ margin: '0 0 20px', fontSize: '13px', color: '#64748b', fontWeight: '500', lineHeight: '1.4' }}>
+                  <strong>{activeMealQR}</strong> is paused by PG Admin / Manager for today. Meal pass generation is unavailable.
+                </p>
+                <button 
+                  onClick={() => setShowQRModal(false)}
+                  style={{ width: '100%', padding: '12px', background: '#0f172a', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '800', cursor: 'pointer', fontSize: '13px' }}
+                >
+                  Close
+                </button>
+              </div>
+            ) : isMealPausedToday(activeMealQR) ? (
               <div style={{ padding: '12px 0' }}>
                 <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 36 }}>block</span>

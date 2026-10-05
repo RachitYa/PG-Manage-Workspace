@@ -40,45 +40,45 @@ const compressImage = (file, maxWidth = 750) => {
 // ── Default Weekly Menu Template ──────────────────────────────────────────
 const DEFAULT_MENU = {
   Monday: {
-    Breakfast: 'Poha, Jalebi, Tea',
+    Breakfast: 'Poha, Jalebi, Chai / Masala Tea',
     Lunch: 'Rajma Chawal, Roti, Salad',
-    Snacks: 'Samosa, Coffee',
+    Snacks: 'Samosa, Chai / Masala Tea',
     Dinner: 'Paneer Butter Masala, Roti, Dal'
   },
   Tuesday: {
-    Breakfast: 'Aloo Paratha, Curd, Pickle',
+    Breakfast: 'Aloo Paratha, Curd, Chai / Masala Tea',
     Lunch: 'Kadi Pakoda, Steamed Rice, Papad',
-    Snacks: 'Veg Puff, Masala Tea',
+    Snacks: 'Veg Puff, Chai / Masala Tea',
     Dinner: 'Mix Veg, Arhar Dal, Tawa Roti'
   },
   Wednesday: {
-    Breakfast: 'Idli, Sambhar, Coconut Chutney',
+    Breakfast: 'Idli, Sambhar, Coconut Chutney, Chai / Masala Tea',
     Lunch: 'Chole Bhature, Boondi Raita',
-    Snacks: 'Namkeen Mix, Filter Coffee',
+    Snacks: 'Bhel Puri, Chai / Masala Tea',
     Dinner: 'Dal Makhani, Jeera Rice, Butter Roti'
   },
   Thursday: {
-    Breakfast: 'Bread Omelette / Veg Sandwich, Tea',
+    Breakfast: 'Bread Omelette / Veg Sandwich, Chai / Masala Tea',
     Lunch: 'Dal Fry, Rice, Seasonal Sabzi',
-    Snacks: 'Biscuits, Ginger Tea',
+    Snacks: 'Biscuits, Chai / Masala Tea',
     Dinner: 'Egg Curry / Kofta Curry, Roti, Rice'
   },
   Friday: {
-    Breakfast: 'Upma, Coconut Chutney, Tea',
+    Breakfast: 'Upma, Coconut Chutney, Chai / Masala Tea',
     Lunch: 'Veg Biryani, Raita, Salad',
-    Snacks: 'Bhel Puri, Lemon Tea',
+    Snacks: 'Bhel Puri, Chai / Masala Tea',
     Dinner: 'Matar Paneer, Tawa Roti, Dal Tadka'
   },
   Saturday: {
-    Breakfast: 'Puri Sabji, Halwa, Pickle',
+    Breakfast: 'Puri Sabji, Halwa, Chai / Masala Tea',
     Lunch: 'Moong Dal, Jeera Rice, Bhindi Masala',
-    Snacks: 'Mix Pakoda, Cutting Chai',
+    Snacks: 'Mix Pakoda, Chai / Masala Tea',
     Dinner: 'Aloo Gobi, Dal Fry, Phulka'
   },
   Sunday: {
-    Breakfast: 'Masala Dosa, Sambhar, Chutney',
+    Breakfast: 'Masala Dosa, Sambhar, Chutney, Chai / Masala Tea',
     Lunch: 'Special Thali (Paneer/Chicken, Sweet)',
-    Snacks: 'Pastry / Cake, Coffee',
+    Snacks: 'Pastry / Cake, Filter Coffee',
     Dinner: 'Shahi Paneer, Pulao, Butter Naan'
   }
 };
@@ -86,9 +86,9 @@ const DEFAULT_MENU = {
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const QUICK_FOOD_TAGS = [
-  'Paneer Butter Masala', 'Dal Makhani', 'Rajma Chawal', 'Chole Bhature',
-  'Aloo Paratha', 'Poori Sabji', 'Veg Biryani', 'Kadi Pakoda',
-  'Mix Veg', 'Dal Tadka', 'Gulab Jamun', 'Boondi Raita', 'Masala Dosa', 'Poha & Tea'
+  'Chai / Masala Tea', 'Filter Coffee', 'Paneer Butter Masala', 'Dal Makhani', 'Rajma Chawal', 'Chole Bhature',
+  'Aloo Paratha', 'Poori Sabji', 'Veg Biryani', 'Kadi Pakoda', 'Butter Naan', 'Bhindi Masala',
+  'Mix Veg', 'Dal Tadka', 'Gulab Jamun', 'Boondi Raita', 'Masala Dosa', 'Poha', 'Upma'
 ];
 
 function getTodayStr() {
@@ -136,6 +136,7 @@ export default function MessHeadcount() {
   const [mealStatusLogs, setMealStatusLogs] = useState([]);
   const [eatenData, setEatenData] = useState({});
   const [vacations, setVacations] = useState([]);
+  const [pausedMeals, setPausedMeals] = useState({});
   const [loading, setLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState('');
 
@@ -178,6 +179,39 @@ export default function MessHeadcount() {
     setTimeout(() => setToastMessage(''), 3500);
   };
 
+  // ── Toggle Meal Pause for Today / Selected Date ──
+  const handleToggleMealPause = async (targetMealKey) => {
+    if (!pgDocId) return;
+    const mKey = targetMealKey.toLowerCase();
+    const dateKey = selectedDate;
+    const currentlyPaused = !!(pausedMeals?.[dateKey]?.[mKey]);
+    const nextVal = !currentlyPaused;
+
+    const updatedPausedMeals = {
+      ...pausedMeals,
+      [dateKey]: {
+        ...(pausedMeals?.[dateKey] || {}),
+        [mKey]: nextVal
+      }
+    };
+    setPausedMeals(updatedPausedMeals);
+
+    try {
+      await setDoc(doc(db, 'pg_owners', pgDocId), {
+        pausedMeals: updatedPausedMeals
+      }, { merge: true });
+
+      await setDoc(doc(db, 'mess_headcount', `${pgDocId}_${dateKey}`), {
+        pausedMeals: updatedPausedMeals[dateKey]
+      }, { merge: true });
+
+      showToast(`${targetMealKey.toUpperCase()} is now ${nextVal ? 'PAUSED ⏸️' : 'RESUMED ▶️'} for ${dateKey}!`);
+    } catch (err) {
+      console.error('Failed to toggle meal pause:', err);
+      showToast('Error updating meal pause state');
+    }
+  };
+
   // ── 1. Listen to PG Owner Doc (Name, Capacity, Food Menu, Food Photos, Last Edit) ──────
   useEffect(() => {
     if (!pgDocId) return;
@@ -198,6 +232,9 @@ export default function MessHeadcount() {
         }
         if (data.lastMenuEdit) {
           setLastMenuEdit(data.lastMenuEdit);
+        }
+        if (data.pausedMeals) {
+          setPausedMeals(data.pausedMeals);
         }
       }
     }, (err) => console.error('PG details error:', err));
@@ -958,6 +995,70 @@ export default function MessHeadcount() {
               );
             })}
           </div>
+
+          {/* Admin Meal Pause Control Banner */}
+          {(() => {
+            const isPaused = !!(pausedMeals?.[selectedDate]?.[mealTab.toLowerCase()]);
+            return (
+              <div style={{
+                background: isPaused ? '#fff1f2' : '#f0fdf4',
+                border: `1.5px solid ${isPaused ? '#fecaca' : '#bbf7d0'}`,
+                borderRadius: '14px',
+                padding: '10px 14px',
+                marginBottom: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                boxShadow: isPaused ? '0 4px 12px rgba(225,29,72,0.08)' : '0 4px 12px rgba(22,163,74,0.06)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '36px', height: '36px', borderRadius: '10px',
+                    background: isPaused ? '#ffe4e6' : '#dcfce7',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: isPaused ? '#e11d48' : '#16a34a'
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>
+                      {isPaused ? 'pause_circle' : 'check_circle'}
+                    </span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 800, color: isPaused ? '#9f1239' : '#166534', textTransform: 'capitalize' }}>
+                      {mealTab} is {isPaused ? 'Paused for Today ⏸️' : 'Active & Serving ✅'}
+                    </div>
+                    <div style={{ fontSize: '11px', color: isPaused ? '#be123c' : '#15803d', fontWeight: 600 }}>
+                      {isPaused ? 'Students cannot place requests or scan QR for this meal' : 'Students can view menu, request pack/extra & eat'}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleToggleMealPause(mealTab)}
+                  style={{
+                    background: isPaused ? '#10b981' : '#e11d48',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '10px',
+                    padding: '8px 14px',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: isPaused ? '0 2px 8px rgba(16,185,129,0.25)' : '0 2px 8px rgba(225,29,72,0.25)',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
+                    {isPaused ? 'play_arrow' : 'pause'}
+                  </span>
+                  {isPaused ? 'Resume Meal' : 'Pause Meal'}
+                </button>
+              </div>
+            );
+          })()}
 
           {/* Current Menu Item Pill with Per-Item Photos */}
           {(() => {

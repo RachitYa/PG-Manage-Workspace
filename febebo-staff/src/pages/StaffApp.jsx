@@ -859,16 +859,51 @@ export default function StaffApp(){
   
   // Weekly Food Menu
   const [weeklyFoodMenu, setWeeklyFoodMenu] = useState({
-    Monday: { Breakfast: 'Poha, Jalebi, Tea', Lunch: 'Rajma Chawal, Roti, Salad', Snacks: 'Samosa, Coffee', Dinner: 'Paneer Butter Masala, Roti, Dal' },
-    Tuesday: { Breakfast: 'Aloo Paratha, Curd', Lunch: 'Kadi Pakoda, Rice', Snacks: 'Puff, Tea', Dinner: 'Mix Veg, Dal, Roti' },
-    Wednesday: { Breakfast: 'Idli, Sambhar', Lunch: 'Chole Bhature, Lassi', Snacks: 'Namkeen, Coffee', Dinner: 'Dal Makhani, Roti, Rice' },
-    Thursday: { Breakfast: 'Bread Omelette, Tea', Lunch: 'Dal Fry, Rice, Papad', Snacks: 'Biscuits, Tea', Dinner: 'Egg Curry, Roti, Rice' },
-    Friday: { Breakfast: 'Upma, Tea', Lunch: 'Veg Biryani, Raita', Snacks: 'Bhel Puri', Dinner: 'Matar Paneer, Roti' },
-    Saturday: { Breakfast: 'Puri Sabji, Jalebi', Lunch: 'Dal Tadka, Rice', Snacks: 'Pakoda, Tea', Dinner: 'Aloo Gobi, Roti' },
-    Sunday: { Breakfast: 'Masala Dosa, Chutney', Lunch: 'Special Thali', Snacks: 'Cake, Coffee', Dinner: 'Chicken Curry/Paneer, Roti' }
+    Monday: { Breakfast: 'Poha, Jalebi, Chai / Masala Tea', Lunch: 'Rajma Chawal, Roti, Salad', Snacks: 'Samosa, Chai / Masala Tea', Dinner: 'Paneer Butter Masala, Roti, Dal' },
+    Tuesday: { Breakfast: 'Aloo Paratha, Curd, Chai / Masala Tea', Lunch: 'Kadi Pakoda, Rice', Snacks: 'Puff, Chai / Masala Tea', Dinner: 'Mix Veg, Dal, Roti' },
+    Wednesday: { Breakfast: 'Idli, Sambhar, Chai / Masala Tea', Lunch: 'Chole Bhature, Lassi', Snacks: 'Namkeen, Chai / Masala Tea', Dinner: 'Dal Makhani, Roti, Rice' },
+    Thursday: { Breakfast: 'Bread Omelette, Chai / Masala Tea', Lunch: 'Dal Fry, Rice, Papad', Snacks: 'Biscuits, Chai / Masala Tea', Dinner: 'Egg Curry, Roti, Rice' },
+    Friday: { Breakfast: 'Upma, Chai / Masala Tea', Lunch: 'Veg Biryani, Raita', Snacks: 'Bhel Puri, Chai / Masala Tea', Dinner: 'Matar Paneer, Roti' },
+    Saturday: { Breakfast: 'Puri Sabji, Chai / Masala Tea', Lunch: 'Dal Tadka, Rice', Snacks: 'Pakoda, Chai / Masala Tea', Dinner: 'Aloo Gobi, Roti' },
+    Sunday: { Breakfast: 'Masala Dosa, Chutney, Chai / Masala Tea', Lunch: 'Special Thali', Snacks: 'Samosa, Chai / Masala Tea', Dinner: 'Paneer Butter Masala, Roti, Dal' }
   });
   const [foodMenuImages, setFoodMenuImages] = useState({});
   const [foodItemImages, setFoodItemImages] = useState({});
+  const [pausedMeals, setPausedMeals] = useState({});
+
+  const handleToggleMealPause = async (targetMealKey, targetDate) => {
+    const adminId = user?.ownerUid;
+    if (!adminId) return;
+    const mKey = (targetMealKey || 'lunch').toLowerCase();
+    const dateKey = targetDate || workDate || new Date().toISOString().split('T')[0];
+    const currentlyPaused = !!(pausedMeals?.[dateKey]?.[mKey]);
+    const nextVal = !currentlyPaused;
+
+    const updatedPausedMeals = {
+      ...pausedMeals,
+      [dateKey]: {
+        ...(pausedMeals?.[dateKey] || {}),
+        [mKey]: nextVal
+      }
+    };
+    setPausedMeals(updatedPausedMeals);
+
+    try {
+      await setDoc(doc(db, 'pg_owners', adminId), {
+        pausedMeals: updatedPausedMeals
+      }, { merge: true });
+
+      await setDoc(doc(db, 'mess_headcount', `${adminId}_${dateKey}`), {
+        pausedMeals: updatedPausedMeals[dateKey]
+      }, { merge: true });
+
+      showToast?.(`${targetMealKey.toUpperCase()} is now ${nextVal ? 'PAUSED ⏸️' : 'RESUMED ▶️'}!`, nextVal ? 'warning' : 'success');
+    } catch (err) {
+      console.error('Failed to toggle meal pause:', err);
+      showToast?.('Error updating meal pause state', 'error');
+    }
+  };
+
   const [showWeeklyMenuEdit, setShowWeeklyMenuEdit] = useState(false);
   const [editWeeklyMenuDay, setEditWeeklyMenuDay] = useState('');
   const [editWeeklyMenuMeal, setEditWeeklyMenuMeal] = useState('');
@@ -2172,7 +2207,17 @@ export default function StaffApp(){
     if (!user?.ownerUid) return;
     const docRef = doc(db, 'mess_headcount', `${user.ownerUid}_${new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0')}`);
     const unsub = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) setEatenData(docSnap.data());
+      if (docSnap.exists()) {
+        const hData = docSnap.data();
+        setEatenData(hData);
+        if (hData.pausedMeals) {
+          const todayDateKey = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0');
+          setPausedMeals(prev => ({
+            ...prev,
+            [todayDateKey]: hData.pausedMeals
+          }));
+        }
+      }
     });
     return () => unsub();
   }, [user]);
@@ -2491,6 +2536,9 @@ export default function StaffApp(){
         }
         if (data.lastMenuEdit) {
           setLastMenuEdit(data.lastMenuEdit);
+        }
+        if (data.pausedMeals) {
+          setPausedMeals(data.pausedMeals);
         }
       }
     });
@@ -3476,6 +3524,8 @@ export default function StaffApp(){
                 {id:'cookVendor', label:'Vendor Order', icon:'storefront', bg:'#ecfeff', c:'#0891b2'},
               ] : []),
               ...(staffRole === 'Manager' ? [
+                {id:'foodMenu',   label:'Food Menu',    icon:'restaurant_menu',        bg:'#ede9fe', c:'#a78bfa'},
+                {id:'menu_history', label:'Menu History', icon:'history',              bg:'#fdf4ff', c:'#c026d3'},
                 {id:'enquiry',    label:'Enquiry',      icon:'contact_support',        bg:'#ecfeff', c:'#0891b2'},
                 {id:'add_tenant', label:'Add Tenant',   icon:'person_add',             bg:'#f0fdf4', c:'#16a34a'},
               ] : []),
@@ -4052,6 +4102,63 @@ export default function StaffApp(){
                 </div>
               ))}
             </div>
+
+            {/* Meal Pause Control Banner for Selected Meal & Date */}
+            {(() => {
+              const mKey = (mealTab || 'lunch').toLowerCase();
+              const targetDate = workDate || new Date().toISOString().split('T')[0];
+              const isPaused = !!(pausedMeals?.[targetDate]?.[mKey]);
+              return (
+                <div style={{
+                  background: isPaused ? '#fff1f2' : '#f0fdf4',
+                  border: `1.5px solid ${isPaused ? '#fecaca' : '#bbf7d0'}`,
+                  borderRadius: 14,
+                  padding: '10px 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+                }}>
+                  <div style={{display:'flex', alignItems:'center', gap:8}}>
+                    <span className="material-symbols-outlined" style={{fontSize:22, color: isPaused ? '#e11d48' : '#16a34a'}}>
+                      {isPaused ? 'pause_circle' : 'check_circle'}
+                    </span>
+                    <div>
+                      <p style={{margin:0, fontSize:12.5, fontWeight:900, color: isPaused ? '#9f1239' : '#14532d'}}>
+                        {isPaused ? `${mealTab} is Paused for this date` : `${mealTab} is Serving Normally`}
+                      </p>
+                      <p style={{margin:0, fontSize:11, color: isPaused ? '#be123c' : '#15803d'}}>
+                        {isPaused ? 'Meal passes & orders locked' : 'Students can order and eat'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleToggleMealPause(mealTab, targetDate)}
+                    style={{
+                      background: isPaused ? '#10b981' : '#e11d48',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: 10,
+                      padding: '7px 14px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      boxShadow: isPaused ? '0 2px 6px rgba(16,185,129,0.3)' : '0 2px 6px rgba(225,29,72,0.3)'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{fontSize:16}}>
+                      {isPaused ? 'play_arrow' : 'pause'}
+                    </span>
+                    {isPaused ? 'Resume' : 'Pause'}
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* Menu Display */}
             {(() => {
@@ -5252,6 +5359,125 @@ export default function StaffApp(){
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Mess & Meal Management Card */}
+            <div style={{background:'#fff', borderRadius:16, border:'1px solid #e2e8f0', padding:16, boxShadow:'0 4px 16px rgba(15,23,42,0.05)'}}>
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
+                <div style={{display:'flex', alignItems:'center', gap:8}}>
+                  <div style={{width:36, height:36, borderRadius:10, background:'#ede9fe', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                    <span className="material-symbols-outlined" style={{fontSize:20, color:'#7c3aed'}}>restaurant_menu</span>
+                  </div>
+                  <div>
+                    <p style={{margin:0, fontSize:14, fontWeight:900, color:C.text}}>Mess & Meal Management</p>
+                    <p style={{margin:'2px 0 0', fontSize:11, color:C.muted}}>Pause / resume meals & manage food menu</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setView('foodMenu')}
+                  style={{
+                    background: '#ede9fe',
+                    color: '#6d28d9',
+                    border: '1px solid #ddd6fe',
+                    borderRadius: 10,
+                    padding: '6px 12px',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{fontSize:16}}>edit</span>
+                  Edit Menu
+                </button>
+              </div>
+
+              {/* Pause/Resume Meals Grid */}
+              <div style={{display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:8, marginTop:8}}>
+                {['Breakfast', 'Lunch', 'Snacks', 'Dinner'].map(meal => {
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  const mKey = meal.toLowerCase();
+                  const isPaused = !!(pausedMeals?.[todayStr]?.[mKey]);
+                  return (
+                    <div
+                      key={meal}
+                      style={{
+                        background: isPaused ? '#fff1f2' : '#f8fafc',
+                        border: `1px solid ${isPaused ? '#fecaca' : '#e2e8f0'}`,
+                        borderRadius: 12,
+                        padding: '10px 12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6
+                      }}
+                    >
+                      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                        <span style={{fontSize:13, fontWeight:900, color: isPaused ? '#b91c1c' : '#1e293b'}}>{meal}</span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 800,
+                            padding: '2px 6px',
+                            borderRadius: 6,
+                            background: isPaused ? '#fee2e2' : '#dcfce7',
+                            color: isPaused ? '#dc2626' : '#166534'
+                          }}
+                        >
+                          {isPaused ? '⏸️ Paused' : '🟢 Active'}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleToggleMealPause(meal, todayStr)}
+                        style={{
+                          width: '100%',
+                          padding: '6px 0',
+                          borderRadius: 8,
+                          border: 'none',
+                          background: isPaused ? '#10b981' : '#e11d48',
+                          color: '#fff',
+                          fontSize: 11,
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 4
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{fontSize:14}}>
+                          {isPaused ? 'play_arrow' : 'pause'}
+                        </span>
+                        {isPaused ? 'Resume Meal' : 'Pause Meal'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:12, paddingTop:10, borderTop:'1px solid #f1f5f9'}}>
+                <span style={{fontSize:11, color:C.muted}}>Paused meals block tenant meal passes & orders.</span>
+                <button
+                  onClick={() => {
+                    fetchCookMenuHistory();
+                    setShowMenuHistoryModal(true);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#7c3aed',
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{fontSize:15}}>history</span> History
+                </button>
+              </div>
             </div>
 
             {/* Open Issues Summary by Department */}
