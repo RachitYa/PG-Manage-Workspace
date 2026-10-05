@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, doc, deleteDoc, query, where, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, query, where, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Trash2, Building2, FileText, Filter, AlertTriangle, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -107,7 +107,7 @@ export default function PGOwners() {
     try {
       if (isSubPg) {
          // Additional PG
-         await updateDoc(doc(db, 'pg_owners', pgId), {
+         await updateDoc, setDoc(doc(db, 'pg_owners', pgId), {
            status: 'Approved',
            visibility
          });
@@ -116,8 +116,8 @@ export default function PGOwners() {
          ));
       } else {
          // Primary PG (from PGOwners list)
-         await updateDoc(doc(db, 'admins', adminUid), { isApproved: true });
-         await updateDoc(doc(db, 'pg_owners', pgId), { status: 'Approved', visibility });
+         await updateDoc, setDoc(doc(db, 'admins', adminUid), { isApproved: true });
+         await updateDoc, setDoc(doc(db, 'pg_owners', pgId), { status: 'Approved', visibility });
          setAdmins(prev => prev.map(a =>
            a.id === pgId ? { ...a, isApproved: true, pgData: { ...a.pgData, status: 'Approved', visibility } } : a
          ));

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ArrowLeft, CheckCircle, User, Building2, MapPin, Check, Image as ImageIcon } from 'lucide-react';
 
@@ -45,10 +45,10 @@ export default function PGOwnerDetails() {
     setShowApproveOptions(false);
     try {
       if (adminData && adminData.id) {
-        await updateDoc(doc(db, 'admins', adminData.id), { isApproved: true });
+        await updateDoc, setDoc(doc(db, 'admins', adminData.id), { isApproved: true });
       }
       if (pgData) {
-        await updateDoc(doc(db, 'pg_owners', id), { status: 'Approved', visibility });
+        await updateDoc, setDoc(doc(db, 'pg_owners', id), { status: 'Approved', visibility });
         setPgData(prev => ({ ...prev, status: 'Approved', visibility }));
       }
       setAdminData(prev => ({ ...prev, isApproved: true }));
@@ -64,7 +64,7 @@ export default function PGOwnerDetails() {
     if (!pgData) return;
     const newVis = pgData.visibility === 'private' ? 'public' : 'private';
     try {
-      await updateDoc(doc(db, 'pg_owners', id), { visibility: newVis });
+      await updateDoc, setDoc(doc(db, 'pg_owners', id), { visibility: newVis });
       setPgData(prev => ({ ...prev, visibility: newVis }));
     } catch(e) {
       alert("Error updating visibility");

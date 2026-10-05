@@ -46,7 +46,8 @@ export const AuthProvider = ({ children }) => {
               ...user, 
               ownerUid: data.ownerUid || user.ownerUid,
               assignedPgs: assignedIds,
-              assignedPgNames: assignedNames
+              assignedPgNames: assignedNames,
+              photoUrl: data.photoUrl || user.photoUrl
             };
             setUser(updated);
             localStorage.setItem('febebo_user', JSON.stringify(updated));
