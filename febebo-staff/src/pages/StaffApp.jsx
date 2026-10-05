@@ -771,6 +771,7 @@ export default function StaffApp(){
   // Sidebar & view
   const [sidebar,  setSidebar]  = useState(false);
   const [view,     setView]     = useState('home');
+  const [showAllModules, setShowAllModules] = useState(false);
   const [salaryExpanded, setSalaryExpanded] = useState({});
   const [aiEstimates, setAiEstimates] = useState(null);
   const [isEstimating, setIsEstimating] = useState(false);
@@ -3511,62 +3512,115 @@ export default function StaffApp(){
         <div style={{padding:'16px 14px', paddingBottom:'calc(110px + env(safe-area-inset-bottom, 0px))'}}>
 
           {/* Modules Grid */}
-          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
-            <p style={{margin:0, fontSize:15, fontWeight:900, color:C.text}}>Modules</p>
-            <span style={{fontSize:12, fontWeight:800, color:C.primaryDk, cursor:'pointer'}}>See all ▾</span>
-          </div>
-
-          <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:10, marginBottom:20}}>
-            {[
-              {id:'work',      label:'My Work',        icon:'home_work',              bg:'#eef2ff', c:'#6366f1'},
-              {id:'inventory', label:'Inventory',      icon:'account_balance_wallet', bg:'#fdf2f8', c:'#ec4899'},
-              {id:'inout',     label:'Attendance',     icon:'schedule',               bg:'#f0fdf4', c:'#10b981'},
-              {id:'salary',    label:'Salary',         icon:'payments',               bg:'#fefce8', c:'#eab308'},
-              {id:'chat',      label:'Chat',           icon:'forum',                  bg:'#f0f9ff', c:'#0ea5e9'},
-              {id:'performance',label:'Performance',    icon:'star',                   bg:'#fff1f2', c:'#f43f5e'},
-              ...(['Electrician', 'Manager'].includes(staffRole) ? [{id:'meter_reading', label:'Meter', icon:'electric_meter', bg:'#ecfeff', c:'#06b6d4'}] : []),
-              {id:'requests',  label:'Requests',       icon:'approval',               bg:'#f5f3ff', c:'#8b5cf6'},
+          {(() => {
+            const allModules = staffRole === 'Manager' ? [
+              {id:'manage_tenants', label:'Tenants',       icon:'groups',                 bg:'#fef3c7', c:'#d97706'},
+              {id:'manage_rooms',   label:'Rooms & Beds',  icon:'meeting_room',           bg:'#ecfdf5', c:'#059669'},
+              {id:'complaints',     label:'Complaints',    icon:'report_problem',         bg:'#fff1f2', c:'#e11d48'},
+              {id:'mess_headcount', label:'Live Mess',     icon:'restaurant',             bg:'#ede9fe', c:'#7c3aed'},
+              {id:'student_leaves', label:'Leaves',        icon:'event_busy',             bg:'#ecfeff', c:'#0891b2'},
+              {id:'visitor_log',    label:'Visitors',      icon:'recent_actors',          bg:'#f0fdf4', c:'#16a34a'},
+              {id:'manage_staff',   label:'Staff & Work',  icon:'badge',                  bg:'#fdf4ff', c:'#c026d3'},
+              {id:'approvals',      label:'Approvals',     icon:'verified',               bg:'#fefce8', c:'#ca8a04'},
+              {id:'work',           label:'My Work',       icon:'home_work',              bg:'#eef2ff', c:'#6366f1'},
+              {id:'inout',          label:'Attendance',    icon:'schedule',               bg:'#f0fdf4', c:'#10b981'},
+              {id:'foodMenu',       label:'Food Menu',     icon:'restaurant_menu',        bg:'#ede9fe', c:'#a78bfa'},
+              {id:'enquiry',        label:'Leads',         icon:'contact_support',        bg:'#ecfeff', c:'#0891b2'},
+              {id:'add_tenant',     label:'Add Tenant',    icon:'person_add',             bg:'#f0fdf4', c:'#16a34a'},
+              {id:'cookVendor',     label:'Kitchen POs',   icon:'storefront',             bg:'#ecfeff', c:'#0891b2'},
+              {id:'meter_reading',  label:'Meter',         icon:'electric_meter',         bg:'#ecfeff', c:'#06b6d4'},
+              {id:'inventory',      label:'Inventory',     icon:'account_balance_wallet', bg:'#fdf2f8', c:'#ec4899'},
+              {id:'chat',           label:'Chat',          icon:'forum',                  bg:'#f0f9ff', c:'#0ea5e9'},
+              {id:'salary',         label:'Salary',        icon:'payments',               bg:'#fefce8', c:'#eab308'},
+              {id:'requests',       label:'Requests',      icon:'approval',               bg:'#f5f3ff', c:'#8b5cf6'},
+              {id:'performance',    label:'Performance',   icon:'star',                   bg:'#fff1f2', c:'#f43f5e'},
+            ] : [
+              {id:'work',           label:'My Work',        icon:'home_work',              bg:'#eef2ff', c:'#6366f1'},
+              {id:'inventory',      label:'Inventory',      icon:'account_balance_wallet', bg:'#fdf2f8', c:'#ec4899'},
+              {id:'inout',          label:'Attendance',     icon:'schedule',               bg:'#f0fdf4', c:'#10b981'},
+              {id:'salary',         label:'Salary',         icon:'payments',               bg:'#fefce8', c:'#eab308'},
+              {id:'chat',           label:'Chat',           icon:'forum',                  bg:'#f0f9ff', c:'#0ea5e9'},
+              {id:'performance',    label:'Performance',    icon:'star',                   bg:'#fff1f2', c:'#f43f5e'},
+              ...(staffRole === 'Electrician' ? [{id:'meter_reading', label:'Meter', icon:'electric_meter', bg:'#ecfeff', c:'#06b6d4'}] : []),
+              {id:'requests',       label:'Requests',       icon:'approval',               bg:'#f5f3ff', c:'#8b5cf6'},
               ...(staffRole === 'Cook' ? [
-                {id:'foodMenu', label:'Food Menu', icon:'restaurant_menu', bg:'#ede9fe', c:'#a78bfa'},
-                {id:'menu_history', label:'Menu History', icon:'history', bg:'#fdf4ff', c:'#c026d3'},
-                {id:'cookVendor', label:'Vendor Order', icon:'storefront', bg:'#ecfeff', c:'#0891b2'},
+                {id:'foodMenu',     label:'Food Menu',      icon:'restaurant_menu',        bg:'#ede9fe', c:'#a78bfa'},
+                {id:'menu_history', label:'Menu History',   icon:'history',                bg:'#fdf4ff', c:'#c026d3'},
+                {id:'cookVendor',   label:'Vendor Order',   icon:'storefront',             bg:'#ecfeff', c:'#0891b2'},
               ] : []),
-              ...(staffRole === 'Manager' ? [
-                {id:'manage_tenants', label:'Tenants',       icon:'groups',                 bg:'#fef3c7', c:'#d97706'},
-                {id:'manage_rooms',   label:'Rooms & Beds',  icon:'meeting_room',           bg:'#ecfdf5', c:'#059669'},
-                {id:'complaints',     label:'Complaints',    icon:'report_problem',         bg:'#fff1f2', c:'#e11d48'},
-                {id:'student_leaves', label:'Leaves',        icon:'event_busy',             bg:'#ecfeff', c:'#0891b2'},
-                {id:'visitor_log',    label:'Visitors',      icon:'recent_actors',          bg:'#f0fdf4', c:'#16a34a'},
-                {id:'mess_headcount', label:'Live Mess',     icon:'restaurant',             bg:'#ede9fe', c:'#7c3aed'},
-                {id:'foodMenu',       label:'Food Menu',     icon:'restaurant_menu',        bg:'#ede9fe', c:'#a78bfa'},
-                {id:'manage_staff',   label:'Staff & Work',  icon:'badge',                  bg:'#fdf4ff', c:'#c026d3'},
-                {id:'approvals',      label:'Approvals',     icon:'verified',               bg:'#fefce8', c:'#ca8a04'},
-                {id:'cookVendor',     label:'Kitchen POs',   icon:'storefront',             bg:'#ecfeff', c:'#0891b2'},
-                {id:'enquiry',        label:'Leads',         icon:'contact_support',        bg:'#ecfeff', c:'#0891b2'},
-                {id:'add_tenant',     label:'Add Tenant',    icon:'person_add',             bg:'#f0fdf4', c:'#16a34a'},
-              ] : []),
-            ].map(m => (
-              <button key={m.id} onClick={() => {
-                if (m.id === 'menu_history') {
-                  fetchCookMenuHistory();
-                  setShowMenuHistoryModal(true);
-                  return;
-                }
-                if (m.id === 'add_tenant') {
-                  setMgr_serviceModal(true);
-                  setMgr_addTenantStep(1);
-                  setMgr_addTenantForm(prev => ({...prev, serviceType: 'all_services'}));
-                }
-                setView(m.id);
-              }}
-                style={{display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, background:'#fff', border:`1px solid ${C.border}`, borderRadius:20, padding:'12px 4px 10px', cursor:'pointer', boxShadow:'0 4px 12px rgba(120, 104, 10, 0.04)', minHeight:88, outline:'none', transition:'all 0.15s'}}>
-                <div style={{width:44, height:44, borderRadius:14, background:m.bg, display:'flex', alignItems:'center', justifyContent:'center'}}>
-                  <span className="material-symbols-outlined" style={{fontSize:22, color:m.c}}>{m.icon}</span>
+            ];
+
+            const displayedModules = (staffRole === 'Manager' && !showAllModules)
+              ? allModules.slice(0, 8)
+              : allModules;
+
+            return (
+              <>
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
+                  <p style={{margin:0, fontSize:15, fontWeight:900, color:C.text}}>Modules</p>
+                  {allModules.length > 8 && (
+                    <span 
+                      onClick={() => setShowAllModules(prev => !prev)} 
+                      style={{fontSize:12, fontWeight:800, color:C.primaryDk, cursor:'pointer', display:'flex', alignItems:'center', gap:2}}
+                    >
+                      {showAllModules ? 'See less ▴' : `See all (${allModules.length}) ▾`}
+                    </span>
+                  )}
                 </div>
-                <span style={{fontSize:11.5, fontWeight:800, color:C.text, textAlign:'center', lineHeight:1.1}}>{m.label}</span>
-              </button>
-            ))}
-          </div>
+
+                <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:10, marginBottom: allModules.length > 8 ? 10 : 20}}>
+                  {displayedModules.map(m => (
+                    <button key={m.id} onClick={() => {
+                      if (m.id === 'menu_history') {
+                        fetchCookMenuHistory();
+                        setShowMenuHistoryModal(true);
+                        return;
+                      }
+                      if (m.id === 'add_tenant') {
+                        setMgr_serviceModal(true);
+                        setMgr_addTenantStep(1);
+                        setMgr_addTenantForm(prev => ({...prev, serviceType: 'all_services'}));
+                      }
+                      setView(m.id);
+                    }}
+                      style={{display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, background:'#fff', border:`1px solid ${C.border}`, borderRadius:20, padding:'12px 4px 10px', cursor:'pointer', boxShadow:'0 4px 12px rgba(120, 104, 10, 0.04)', minHeight:88, outline:'none', transition:'all 0.15s'}}>
+                      <div style={{width:44, height:44, borderRadius:14, background:m.bg, display:'flex', alignItems:'center', justifyContent:'center'}}>
+                        <span className="material-symbols-outlined" style={{fontSize:22, color:m.c}}>{m.icon}</span>
+                      </div>
+                      <span style={{fontSize:11.5, fontWeight:800, color:C.text, textAlign:'center', lineHeight:1.1}}>{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {allModules.length > 8 && (
+                  <div 
+                    onClick={() => setShowAllModules(prev => !prev)} 
+                    style={{
+                      display:'flex',
+                      alignItems:'center',
+                      justifyContent:'center',
+                      gap:6,
+                      background:'#f8fafc',
+                      border:`1px dashed ${C.border}`,
+                      borderRadius:14,
+                      padding:'8px 14px',
+                      cursor:'pointer',
+                      marginBottom:18,
+                      fontSize:12,
+                      fontWeight:800,
+                      color: showAllModules ? C.muted : C.primaryDk,
+                      transition:'all 0.15s'
+                    }}
+                  >
+                    <span>{showAllModules ? 'Show less modules' : `See all ${allModules.length} modules`}</span>
+                    <span className="material-symbols-outlined" style={{fontSize:16}}>
+                      {showAllModules ? 'expand_less' : 'expand_more'}
+                    </span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {/* Need Supplies Card */}
           <div onClick={openItemRequest} style={{
