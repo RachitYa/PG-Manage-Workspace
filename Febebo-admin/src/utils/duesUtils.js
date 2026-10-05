@@ -225,6 +225,15 @@ export const aggregateTenantDues = ({
     const ageInfo = getDueAgeInfo(effectiveDueDate, todayStr);
     const origAgeInfo = getDueAgeInfo(due.originalDueDate || effectiveDueDate, todayStr);
 
+    let derivedMonth = due.rentMonth;
+    if (!derivedMonth && effectiveDueDate) {
+      try {
+        derivedMonth = new Date(effectiveDueDate).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      } catch (e) {
+        derivedMonth = 'General Due';
+      }
+    }
+
     allItems.push({
       id: due.id,
       docId: due.id,
@@ -240,10 +249,12 @@ export const aggregateTenantDues = ({
       isOverdue: ageInfo.isOverdue,
       status: due.status || (ageInfo.isOverdue ? 'overdue' : 'pending'),
       createdAt: due.createdAt || new Date().toISOString(),
+      unpaidSince: due.originalDueDate || effectiveDueDate,
       payLaterRequest: due.payLaterRequest || null,
       payLaterApproval: due.payLaterApproval || null,
       meterBillId: due.meterBillId || null,
-      rentMonth: due.rentMonth || null,
+      rentMonth: derivedMonth || 'General Due',
+      monthKey: (effectiveDueDate || '').slice(0, 7) || 'general',
       raw: due
     });
   });
@@ -261,13 +272,22 @@ export const aggregateTenantDues = ({
     const mbDueDate = mb.dueDate || mb.billDate || mb.createdAt?.split('T')[0] || todayStr;
     const ageInfo = getDueAgeInfo(mbDueDate, todayStr);
 
+    let derivedMonth = mb.month;
+    if (!derivedMonth && mbDueDate) {
+      try {
+        derivedMonth = new Date(mbDueDate).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      } catch (e) {
+        derivedMonth = 'Current';
+      }
+    }
+
     allItems.push({
       id: `meter_${mb.id || mb.docId}`,
       docId: mb.id || mb.docId,
       source: 'meter_bill',
       type: 'electricity',
-      title: `Electricity Meter Bill (${mb.month || 'Current'})`,
-      description: `Units consumed: ${mb.units || mb.unitsConsumed || '—'} kWh · Rate: ₹${mb.ratePerUnit || 10}/unit`,
+      title: `Electricity Meter Bill (${derivedMonth || 'Current'})`,
+      description: `Units: ${mb.units || mb.unitsConsumed || '—'} kWh · Rate: ₹${mb.ratePerUnit || 10}/unit`,
       amount: amt,
       originalDueDate: mbDueDate,
       dueDate: mbDueDate,
@@ -276,96 +296,133 @@ export const aggregateTenantDues = ({
       isOverdue: ageInfo.isOverdue,
       status: ageInfo.isOverdue ? 'overdue' : 'pending',
       createdAt: mb.createdAt || new Date().toISOString(),
+      unpaidSince: mbDueDate,
       payLaterRequest: mb.payLaterRequest || null,
       payLaterApproval: mb.payLaterApproval || null,
       meterBillId: mb.id || mb.docId,
+      rentMonth: derivedMonth || 'Electricity',
+      monthKey: (mbDueDate || '').slice(0, 7) || 'meter',
       raw: mb
     });
   });
 
-  // 3. Auto-calculate overdue monthly rent if not already paid and not recorded in customDues
+  // 3. Process Remaining Admission Balance
+  const remainingAdmission = Number(tenant.remainingAmount || tenant.subscribedPG?.remainingAmount || 0);
+  if (remainingAdmission > 0 && !recordedRentMonths.has('admission_remaining') && !recordedRentMonths.has('admission')) {
+    const joinDueDate = tenant.dateOfJoining || tenant.joiningDate || tenant.subscribedPG?.dateOfJoining || tenant.subscribedPG?.joiningDate || todayStr;
+    const joinAgeInfo = getDueAgeInfo(joinDueDate, todayStr);
+    allItems.push({
+      id: `admission_remaining_${tenantId}`,
+      source: 'admission_balance',
+      type: 'rent',
+      title: `Remaining Admission Balance`,
+      description: `Pending balance from admission / registration`,
+      amount: remainingAdmission,
+      originalDueDate: joinDueDate,
+      dueDate: joinDueDate,
+      daysOverdue: joinAgeInfo.daysOverdue,
+      origDaysOverdue: joinAgeInfo.daysOverdue,
+      isOverdue: joinAgeInfo.isOverdue,
+      status: joinAgeInfo.isOverdue ? 'overdue' : 'pending',
+      createdAt: new Date().toISOString(),
+      unpaidSince: joinDueDate,
+      rentMonth: 'Admission Balance',
+      monthKey: 'admission',
+      payLaterRequest: null,
+      payLaterApproval: null
+    });
+  }
+
+  // 4. Auto-calculate overdue monthly rent for past and current unpaid months
   const rentAmt = Number(tenant.rent || tenant.roomRent || tenant.monthlyRent || tenant.subscribedPG?.rent || tenant.rentAmount || 0);
   if (rentAmt > 0) {
     const now = new Date();
-    const currentMonthName = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
     const currentMonthVal = now.toISOString().slice(0, 7); // e.g. "2026-10"
+
+    // Paid-till month string e.g. "2026-09"
     const paidTill = tenant.paidTillMonth || tenant.subscribedPG?.paidTillMonth;
-    const isPaidTillCurrent = Boolean(paidTill && paidTill >= currentMonthVal);
 
-    // Check if tenant has remaining unpaid balance from admission / registration
-    const remainingAdmission = Number(tenant.remainingAmount || tenant.subscribedPG?.remainingAmount || 0);
-    if (remainingAdmission > 0 && !recordedRentMonths.has('admission_remaining') && !recordedRentMonths.has('admission')) {
-      const joinDueDate = tenant.dateOfJoining || tenant.joiningDate || tenant.subscribedPG?.dateOfJoining || tenant.subscribedPG?.joiningDate || todayStr;
-      const joinAgeInfo = getDueAgeInfo(joinDueDate, todayStr);
-      allItems.push({
-        id: `admission_remaining_${tenantId}`,
-        source: 'admission_balance',
-        type: 'rent',
-        title: `Remaining Admission Balance`,
-        description: `Pending balance from admission / registration`,
-        amount: remainingAdmission,
-        originalDueDate: joinDueDate,
-        dueDate: joinDueDate,
-        daysOverdue: joinAgeInfo.daysOverdue,
-        origDaysOverdue: joinAgeInfo.daysOverdue,
-        isOverdue: joinAgeInfo.isOverdue,
-        status: joinAgeInfo.isOverdue ? 'overdue' : 'pending',
-        createdAt: new Date().toISOString(),
-        rentMonth: 'Admission',
-        payLaterRequest: null,
-        payLaterApproval: null
-      });
-    }
-
-    // Determine joining date and whether the tenant joined during or after the current month
+    // Resolve joining date
     const joinRaw = tenant.joiningDate || tenant.dateOfJoining || tenant.subscribedPG?.joiningDate || tenant.subscribedPG?.dateOfJoining || tenant.createdAt;
     let dojDate = 1;
-    let isJoiningOrFutureMonth = false;
+    let startYear = currentYear;
+    let startMonth = currentMonth;
 
     if (joinRaw) {
       const parsedJoin = new Date(joinRaw);
       if (!isNaN(parsedJoin.getTime())) {
         dojDate = parsedJoin.getDate();
-        // Use ISO string slice (YYYY-MM) for timezone-safe month comparison
-        // e.g. "2026-10-01T00:00:00.000Z".slice(0,7) === "2026-10"
-        const joinMonthVal = parsedJoin.toISOString().slice(0, 7);
-        // If joining month is current month or future, first month was settled upon admission
-        if (joinMonthVal >= currentMonthVal) {
-          isJoiningOrFutureMonth = true;
+        // The first month was settled upon admission, so recurring rent starts next month
+        startYear = parsedJoin.getFullYear();
+        startMonth = parsedJoin.getMonth() + 1;
+        if (startMonth > 11) {
+          startMonth = 0;
+          startYear++;
         }
       }
     }
 
-    // If tenant joined in previous months, check if current month's recurring rent is due
-    if (!isJoiningOrFutureMonth) {
-      // Check if tenant paid for current month in rentReceipts
-      const hasPaidCurrentMonth = isPaidTillCurrent || rentReceipts.some(r => {
+    // If tenant has paidTillMonth, start checking after paidTillMonth
+    if (paidTill && typeof paidTill === 'string') {
+      const parts = paidTill.split('-').map(Number);
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        startYear = parts[0];
+        startMonth = parts[1]; // Next month (parts[1] is 1-12, in 0-indexed it is the next month)
+        if (startMonth > 11) {
+          startMonth = 0;
+          startYear++;
+        }
+      }
+    }
+
+    // Prevent checking years into the past — clamp to at most 6 months back
+    const sixMonthsAgo = new Date(currentYear, currentMonth - 6, 1);
+    if (new Date(startYear, startMonth, 1) < sixMonthsAgo) {
+      startYear = sixMonthsAgo.getFullYear();
+      startMonth = sixMonthsAgo.getMonth();
+    }
+
+    // Iterate month by month from startMonth up to currentMonth
+    let iterYear = startYear;
+    let iterMonth = startMonth;
+    let loopGuard = 0;
+
+    while (new Date(iterYear, iterMonth, 1) <= new Date(currentYear, currentMonth, 1) && loopGuard < 24) {
+      loopGuard++;
+      const iterMonthObj = new Date(iterYear, iterMonth, 1);
+      const iterMonthName = iterMonthObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      const iterMonthVal = `${iterYear}-${String(iterMonth + 1).padStart(2, '0')}`;
+
+      // Check if paid in receipts
+      const hasPaidInReceipts = rentReceipts.some(r => {
         const rTenantId = r.tenantId || r.userId || r.uid;
         const isMatch = (rTenantId && rTenantId === tenantId) || 
                         (r.tenantName && r.tenantName.trim().toLowerCase() === tenantName.trim().toLowerCase());
         if (!isMatch) return false;
         const rMonth = String(r.rentMonth || r.month || '').trim().toLowerCase();
-        return rMonth === currentMonthName.toLowerCase();
+        return rMonth === iterMonthName.toLowerCase() || rMonth === iterMonthVal;
       });
 
-      if (!hasPaidCurrentMonth && !recordedRentMonths.has(currentMonthName.toLowerCase())) {
-        const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth();
-        const lastDayOfCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-        const dueDay = Math.min(dojDate, lastDayOfCurrentMonth);
-        const dueDateObj = new Date(currentYear, currentMonth, dueDay);
-        const dueDateStr = dueDateObj.toISOString().split('T')[0];
+      const alreadyRecorded = recordedRentMonths.has(iterMonthName.toLowerCase()) || recordedRentMonths.has(iterMonthVal);
+
+      if (!hasPaidInReceipts && !alreadyRecorded) {
+        const lastDayOfIterMonth = new Date(iterYear, iterMonth + 1, 0).getDate();
+        const dueDay = Math.min(dojDate, lastDayOfIterMonth);
+        const dueDateObj = new Date(iterYear, iterMonth, dueDay);
+        const dueDateStr = `${iterYear}-${String(iterMonth + 1).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`;
 
         const ageInfo = getDueAgeInfo(dueDateStr, todayStr);
 
-        // Only add if due date has arrived or passed (or if within current month)
-        if (ageInfo.isOverdue || dueDateStr <= todayStr) {
+        // Include if due date is today or in the past, OR if it's the current month
+        if (ageInfo.isOverdue || dueDateStr <= todayStr || iterMonthVal === currentMonthVal) {
           allItems.push({
-            id: `rent_auto_${currentMonthName.replace(/\s+/g, '_')}`,
+            id: `rent_auto_${iterMonthVal}`,
             source: 'auto_rent',
             type: 'rent',
-            title: `Monthly Rent — ${currentMonthName}`,
-            description: `Room ${tenant.roomNo || 'TBD'} · Due on day ${dojDate} of each month`,
+            title: `Monthly Rent — ${iterMonthName}`,
+            description: `Room ${tenant.roomNo || tenant.room || 'TBD'} · Due on day ${dojDate} of month`,
             amount: rentAmt,
             originalDueDate: dueDateStr,
             dueDate: dueDateStr,
@@ -373,28 +430,55 @@ export const aggregateTenantDues = ({
             origDaysOverdue: ageInfo.daysOverdue,
             isOverdue: ageInfo.isOverdue,
             status: ageInfo.isOverdue ? 'overdue' : 'pending',
-            createdAt: new Date().toISOString(),
-            rentMonth: currentMonthName,
+            createdAt: `${dueDateStr}T00:00:00.000Z`,
+            unpaidSince: dueDateStr,
+            rentMonth: iterMonthName,
+            monthKey: iterMonthVal,
             payLaterRequest: null,
             payLaterApproval: null
           });
         }
       }
+
+      iterMonth++;
+      if (iterMonth > 11) {
+        iterMonth = 0;
+        iterYear++;
+      }
     }
   }
 
-  // 4. Sort all items: OLDEST OVERDUE FIRST (earliest due date at top)
+  // 5. Calculate oldest unpaid date & time (since when this resident hasn't paid)
+  let oldestUnpaidDate = null;
+  let oldestUnpaidTime = Infinity;
+  let oldestDaysOverdue = 0;
+
+  allItems.forEach(item => {
+    const dStr = item.unpaidSince || item.originalDueDate || item.dueDate || item.createdAt;
+    if (dStr) {
+      const t = new Date(dStr).getTime();
+      if (!isNaN(t) && t < oldestUnpaidTime) {
+        oldestUnpaidTime = t;
+        oldestUnpaidDate = dStr.split('T')[0];
+      }
+    }
+    if ((item.daysOverdue || 0) > oldestDaysOverdue) {
+      oldestDaysOverdue = item.daysOverdue;
+    }
+  });
+
+  if (oldestUnpaidTime === Infinity) {
+    oldestUnpaidTime = Date.now();
+    oldestUnpaidDate = todayStr;
+  }
+
+  // 6. Sort all items inside this tenant's dues: OLDEST OVERDUE FIRST
   allItems.sort((a, b) => {
-    // Overdue items come before pending items
     if (a.isOverdue && !b.isOverdue) return -1;
     if (!a.isOverdue && b.isOverdue) return 1;
-    
-    // For overdue items: larger daysOverdue (older) comes first
     if (a.daysOverdue !== b.daysOverdue) {
       return b.daysOverdue - a.daysOverdue;
     }
-    
-    // Otherwise earliest dueDate first
     return (a.dueDate || '').localeCompare(b.dueDate || '');
   });
 
@@ -409,7 +493,140 @@ export const aggregateTenantDues = ({
     hasOverdue: overdueCount > 0,
     items: allItems,
     tenantName,
-    tenantRoom: tenant.roomNo || 'N/A'
+    tenantRoom: tenant.roomNo || tenant.room || 'N/A',
+    tenantPhone: tenant.phone || tenant.contactNo || '',
+    tenantPhoto: tenant.photoUrl || tenant.profilePic || tenant.kyc?.profilePhoto || tenant.image || null,
+    oldestUnpaidDate,
+    oldestUnpaidTime,
+    oldestDaysOverdue
+  };
+};
+
+/**
+ * Aggregates all pending & outstanding dues across all tenants.
+ * Ensures 100% synchronization:
+ * - Pending Dues: Sorted / Grouped according to MONTHS
+ * - Outstanding Dues: PEOPLE sorted according to the TIME & DATE they hadn't paid for
+ */
+export const aggregateAllPendingDues = ({
+  tenants = [],
+  rentReceipts = [],
+  meterBills = [],
+  customDues = [],
+  todayStr = getTodayStr()
+}) => {
+  const peopleWithOutstanding = [];
+  const allPendingItems = [];
+  const monthsMap = {};
+  let totalPendingAmount = 0;
+
+  // Filter active registered tenants
+  const activeTenants = tenants.filter(t => {
+    const st = String(t.status || '').toLowerCase().trim();
+    if (st === 'removed' || st === 'moved out' || st === 'left' || st === 'kicked') return false;
+    return true;
+  });
+
+  activeTenants.forEach(t => {
+    const dues = aggregateTenantDues({
+      tenant: t,
+      rentReceipts,
+      meterBills,
+      customDues,
+      todayStr
+    });
+
+    if (dues.totalOutstanding > 0) {
+      totalPendingAmount += dues.totalOutstanding;
+
+      const primaryItem = dues.items[0];
+      const dueLabel = dues.oldestDaysOverdue > 0
+        ? `Overdue (${dues.oldestDaysOverdue}d)`
+        : `Due: ${formatDateDisplay(dues.oldestUnpaidDate)}`;
+
+      peopleWithOutstanding.push({
+        id: t.id,
+        tenantId: t.id,
+        name: t.name || 'Unknown',
+        room: t.roomNo || t.room || '-',
+        amount: dues.totalOutstanding.toLocaleString('en-IN'),
+        rawAmount: dues.totalOutstanding,
+        rent: t.rentAmount || t.rent || 0,
+        security: t.securityDeposit || 0,
+        due: dueLabel,
+        initials: (t.name || 'U').substring(0, 2).toUpperCase(),
+        color: dues.hasOverdue ? '#e11d48' : '#0891b2',
+        img: t.photoUrl || t.profilePic || t.kyc?.profilePhoto || t.image || null,
+        phone: t.phone || t.contactNo || '',
+        joinDate: t.dateOfJoining || t.joiningDate || '-',
+        plan: t.plan || '-',
+        duesSummary: dues,
+        oldestUnpaidDate: dues.oldestUnpaidDate,
+        oldestUnpaidTime: dues.oldestUnpaidTime,
+        oldestDaysOverdue: dues.oldestDaysOverdue,
+        payHistory: []
+      });
+
+      // Extract each item for Month-wise Pending View
+      dues.items.forEach(item => {
+        const itemRecord = {
+          ...item,
+          tenantId: t.id,
+          tenantName: t.name || 'Unknown',
+          room: t.roomNo || t.room || '-',
+          phone: t.phone || t.contactNo || '',
+          photoUrl: t.photoUrl || t.profilePic || t.kyc?.profilePhoto || t.image || null,
+          initials: (t.name || 'U').substring(0, 2).toUpperCase(),
+          color: item.isOverdue ? '#e11d48' : '#0891b2'
+        };
+
+        allPendingItems.push(itemRecord);
+
+        // Group by month
+        const mKey = item.monthKey || 'other';
+        const mLabel = item.rentMonth || 'General Pending';
+        if (!monthsMap[mKey]) {
+          monthsMap[mKey] = {
+            monthKey: mKey,
+            monthLabel: mLabel,
+            totalAmount: 0,
+            items: []
+          };
+        }
+        monthsMap[mKey].totalAmount += Number(item.amount) || 0;
+        monthsMap[mKey].items.push(itemRecord);
+      });
+    }
+  });
+
+  // 1. Sort peopleWithOutstanding strictly according to the time and date they hadn't paid the money for:
+  // Earliest unpaid date/time (longest duration unpaid) at the top!
+  peopleWithOutstanding.sort((a, b) => {
+    if (a.oldestUnpaidTime !== b.oldestUnpaidTime) {
+      return a.oldestUnpaidTime - b.oldestUnpaidTime;
+    }
+    return b.rawAmount - a.rawAmount;
+  });
+
+  // 2. Sort monthsList according to months (e.g. reverse chronological: October 2026, September 2026, August 2026, Admission):
+  const monthsList = Object.values(monthsMap).sort((a, b) => {
+    if (a.monthKey === 'admission') return 1;
+    if (b.monthKey === 'admission') return -1;
+    return b.monthKey.localeCompare(a.monthKey); // Latest month first
+  });
+
+  // Within each month, sort items by due date / days overdue
+  monthsList.forEach(m => {
+    m.items.sort((a, b) => (b.daysOverdue || 0) - (a.daysOverdue || 0));
+  });
+
+  return {
+    totalPendingAmount,
+    totalOutstandingAmount: totalPendingAmount,
+    uniqueTenantsCount: peopleWithOutstanding.length,
+    peopleWithOutstanding,
+    monthsList,
+    allPendingItems
   };
 };
 

@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import DetailedReceiptModal, { CollectPaymentModal } from '../components/DetailedReceiptModal';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc, onSnapshot, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { aggregateTenantDues, formatDateDisplay, BILL_TYPES } from '../utils/duesUtils';
+import { aggregateTenantDues, aggregateAllPendingDues, formatDateDisplay, BILL_TYPES } from '../utils/duesUtils';
 import { fetchAllAdminPgs } from '../utils/pgUtils';
 
 export default function AdminDashboard() {
@@ -141,59 +141,31 @@ export default function AdminDashboard() {
         const customDuesList = qCustomDues.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => matchesPg(d.pgId));
         const meterBillsList = qMeterBills.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => matchesPg(d.pgId));
 
-        let pendingDuesCount = 0;
-        let totalDueAmount = 0;
-        const duesData = [];
-
-        tenants.filter(t => t.status === 'Approved' || t.status === 'Current User' || t.status === 'Notice' || t.status === 'On Notice Period').forEach(t => {
-          const tenantDues = aggregateTenantDues({
-            tenant: t,
-            rentReceipts: receipts,
-            meterBills: meterBillsList,
-            customDues: customDuesList,
-            todayStr
-          });
-
-          if (tenantDues.totalOutstanding > 0) {
-            pendingDuesCount++;
-            totalDueAmount += tenantDues.totalOutstanding;
-            
-            const primaryItem = tenantDues.items[0];
-            const dueLabel = primaryItem?.isOverdue
-              ? `Overdue (${primaryItem.daysOverdue}d)`
-              : `Due: ${formatDateDisplay(primaryItem?.dueDate)}`;
-
-            duesData.push({
-              id: t.id,
-              name: t.name || 'Unknown',
-              room: t.roomNo || t.room || '-',
-              amount: tenantDues.totalOutstanding.toLocaleString('en-IN'),
-              rent: t.rentAmount || 0,
-              security: t.securityDeposit || 0,
-              due: dueLabel,
-              initials: (t.name || 'U').substring(0, 2).toUpperCase(),
-              color: primaryItem?.isOverdue ? '#e11d48' : '#0891b2',
-              img: t.photoUrl || t.profilePic || t.kyc?.profilePhoto || t.image || null,
-              phone: t.phone || t.contactNo || '',
-              joinDate: t.dateOfJoining || t.joiningDate || '-',
-              plan: t.plan || '-',
-              duesSummary: tenantDues,
-              payHistory: []
-            });
-          }
+        // --- Synchronized Outstanding & Pending Dues ---
+        const {
+          totalPendingAmount,
+          uniqueTenantsCount,
+          peopleWithOutstanding
+        } = aggregateAllPendingDues({
+          tenants: tenants.filter(t => t.status === 'Approved' || t.status === 'Current User' || t.status === 'Notice' || t.status === 'On Notice Period'),
+          rentReceipts: receipts,
+          meterBills: meterBillsList,
+          customDues: customDuesList,
+          todayStr
         });
-        
-        setDues(duesData);
+
+        // Set dues strictly sorted by oldest unpaid date/time (longest duration unpaid first)
+        setDues(peopleWithOutstanding);
         // ---------------------------------------------------------------
         
         let dueValueStr = '0';
-        if (totalDueAmount > 0) {
-           dueValueStr = totalDueAmount >= 1000 ? `₹${(totalDueAmount/1000).toFixed(1).replace('.0', '')}K` : `₹${totalDueAmount}`;
+        if (totalPendingAmount > 0) {
+           dueValueStr = totalPendingAmount >= 1000 ? `₹${(totalPendingAmount/1000).toFixed(1).replace('.0', '')}K` : `₹${totalPendingAmount}`;
         }
 
         setStats([
           { label: 'Seats Occupied', value: `${occupiedCount}/${totalSeats}`, sub: 'Total Seats', icon: 'meeting_room', color: '#0891b2', bg: '#ecfeff' },
-          { label: 'Pending Dues', value: dueValueStr, sub: `${pendingDuesCount} tenants`, icon: 'payments', color: '#e11d48', bg: '#fff1f2' },
+          { label: 'Pending Dues', value: dueValueStr, sub: `${uniqueTenantsCount} tenants`, icon: 'payments', color: '#e11d48', bg: '#fff1f2' },
           { label: 'Staff Present', value: `${qAttendance.size}/${qStaff.size}`, sub: 'Today', icon: 'badge', color: '#059669', bg: '#ecfdf5' },
           { label: 'Visitors in PG', value: String(qVisitorsInside.size), sub: 'Inside Now', icon: 'recent_actors', color: '#d97706', bg: '#fffbeb' },
         ]);
@@ -685,8 +657,11 @@ export default function AdminDashboard() {
 
         {/* Outstanding Dues */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 18, color: '#0f172a', margin: 0 }}>Outstanding Dues</p>
-          <span style={{ fontSize: 12, color: '#0891b2', fontWeight: 600, cursor: 'pointer' }} onClick={() => navigate('/manage-tenants')}>See all</span>
+          <div>
+            <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 18, color: '#0f172a', margin: 0 }}>Outstanding Dues</p>
+            <p style={{ fontSize: 11, color: '#64748b', margin: '2px 0 0' }}>Sorted by unpaid date (oldest overdue first)</p>
+          </div>
+          <span style={{ fontSize: 12, color: '#0891b2', fontWeight: 600, cursor: 'pointer' }} onClick={() => navigate('/manage-account', { state: { activeModule: 'total-rents', rentTab: 'pending', duesView: 'people' } })}>See all</span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
@@ -732,13 +707,17 @@ export default function AdminDashboard() {
                     : (d.initials || (d.name || 'U').substring(0, 2).toUpperCase())}
                 </div>
                 <div>
-                  <p style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', margin: '0 0 2px' }}>{d.name}</p>
-                  <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>Room {d.room} · {d.due}</p>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: '0 0 2px' }}>{d.name}</p>
+                  <p style={{ fontSize: 11, color: d.oldestDaysOverdue > 0 ? '#e11d48' : '#64748b', margin: 0, fontWeight: d.oldestDaysOverdue > 0 ? 600 : 400 }}>
+                    Room {d.room} · {d.oldestDaysOverdue > 0 ? `Unpaid since ${formatDateDisplay(d.oldestUnpaidDate)} (${d.oldestDaysOverdue}d ago)` : `Due: ${formatDateDisplay(d.oldestUnpaidDate)}`}
+                  </p>
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: '0 0 2px' }}>₹{d.amount}</p>
-                <p style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, margin: 0 }}>Outstanding</p>
+                <p style={{ fontSize: 11, color: d.oldestDaysOverdue >= 4 ? '#dc2626' : d.oldestDaysOverdue > 0 ? '#ea580c' : '#0891b2', fontWeight: 700, margin: 0 }}>
+                  {d.oldestDaysOverdue >= 4 ? '🔴 Critical' : d.oldestDaysOverdue > 0 ? '🟠 Overdue' : '⚪ Current'}
+                </p>
               </div>
             </div>
           ))}
@@ -955,14 +934,14 @@ export default function AdminDashboard() {
                 // If dues were custom dues or meter bills, mark them as paid in Firestore
                 if (collectModalData.duesSummary?.items) {
                   for (const it of collectModalData.duesSummary.items) {
-                    if (it.source === 'custom_due' && it.docId) {
+                    if ((it.source === 'custom_due' || it.source === 'firestore_dues') && it.docId) {
                       try {
-                        await updateDoc(doc(db, 'outstanding_dues', it.docId), { status: 'Paid', isPaid: true, paidAt: new Date().toISOString() });
+                        await updateDoc(doc(db, 'outstanding_dues', it.docId), { status: 'paid', isPaid: true, paidAt: new Date().toISOString() });
                       } catch (e) {}
                     }
                     if (it.source === 'meter_bill' && it.docId) {
                       try {
-                        await updateDoc(doc(db, 'electricity_meter_bills', it.docId), { status: 'Paid', isPaid: true, paidAt: new Date().toISOString() });
+                        await updateDoc(doc(db, 'meter_bills', it.docId), { status: 'Paid', isPaid: true, paidAt: new Date().toISOString() });
                       } catch (e) {}
                     }
                   }

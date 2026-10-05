@@ -6,7 +6,7 @@ import { db } from '../firebase';
 import DetailedReceiptModal, { CollectPaymentModal } from '../components/DetailedReceiptModal';
 import PayStaffModal from '../components/PayStaffModal';
 import OutstandingDuesModal from '../components/OutstandingDuesModal';
-import { aggregateTenantDues, formatCurrency } from '../utils/duesUtils';
+import { aggregateTenantDues, aggregateAllPendingDues, formatCurrency, formatDateDisplay, BILL_TYPES } from '../utils/duesUtils';
 
 const MODULES = [
   { id: 'total-rents',   label: 'Total\nRents',         icon: 'account_balance_wallet', gradient: 'linear-gradient(135deg,#0ea5e9,#0891b2)' },
@@ -403,12 +403,18 @@ export default function ManageAccount() {
   const [loadingLease, setLoadingLease] = useState(false);
   const [showAddLeaseModal, setShowAddLeaseModal] = useState(false);
 
+  const [duesView, setDuesView] = useState(location.state?.duesView || 'month'); // 'month' (Pending sorted by month) or 'people' (Outstanding sorted by unpaid date)
+  const [selectedPendingMonth, setSelectedPendingMonth] = useState('all');
+
   useEffect(() => {
     if (location.state?.activeModule) {
       setActiveModule(location.state.activeModule);
     }
     if (location.state?.rentTab) {
       setRentTab(location.state.rentTab);
+    }
+    if (location.state?.duesView) {
+      setDuesView(location.state.duesView);
     }
   }, [location.state]);
 
@@ -508,10 +514,15 @@ export default function ManageAccount() {
             }
           });
 
-          // 2. Fetch Receipts (rent_receipts where adminId == user.uid)
-          const receiptsQ = query(collection(db, 'rent_receipts'), where('adminId', '==', user.uid));
-          const receiptsSnap = await getDocs(receiptsQ);
+          // 2. Fetch Receipts, Custom Dues, and Meter Bills
+          const [receiptsSnap, duesSnap, meterSnap] = await Promise.all([
+            getDocs(query(collection(db, 'rent_receipts'), where('adminId', '==', user.uid))),
+            getDocs(query(collection(db, 'outstanding_dues'), where('adminId', '==', user.uid))),
+            getDocs(query(collection(db, 'meter_bills'), where('adminId', '==', user.uid)))
+          ]);
           const receipts = receiptsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(r => matchesPg(r.pgId));
+          const customDuesList = duesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(d => matchesPg(d.pgId));
+          const meterBillsList = meterSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(m => matchesPg(m.pgId));
 
           // Helper to extract timestamp
           const getTimestamp = (item) => {
@@ -777,16 +788,13 @@ export default function ManageAccount() {
             return timeB - timeA;
           });
 
-          // 4. Process Upcoming and Pending dues for active registered tenants
+          // 4. Process Upcoming rent for active registered tenants (future due dates in current month)
           const upcoming = [];
-          const pending = [];
 
           tenants.forEach(t => {
-            // Exclude tenants who have officially moved out, left, or kicked
             const st = String(t.status || '').toLowerCase().trim();
             if (st === 'removed' || st === 'moved out' || st === 'left' || st === 'kicked') return;
 
-            // Resolve joining date robustly across multiple possible field names
             const joinRaw = t.joiningDate || t.dateOfJoining || t.subscribedPG?.joiningDate || t.subscribedPG?.dateOfJoining || t.createdAt;
             let doj = null;
             if (joinRaw) {
@@ -797,39 +805,17 @@ export default function ManageAccount() {
 
             const tenantKey = t.tenantId || t.id;
 
-            // Check if tenant has remaining unpaid balance from admission / registration
-            const remBal = Number(t.remainingAmount || t.subscribedPG?.remainingAmount || 0);
-            if (remBal > 0) {
-              const remInitials = t.name ? t.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';
-              pending.push({
-                tenantId: tenantKey,
-                month: 'Admission Balance',
-                name: t.name || 'Unknown',
-                room: t.roomNo || t.room || 'N/A',
-                amount: remBal.toLocaleString('en-IN'),
-                rent: remBal,
-                security: 0,
-                date: `Pending Admission Balance`,
-                daysOverdue: 1,
-                initials: remInitials,
-                color: '#e11d48'
-              });
-            }
-
             // Check if tenant already has a payment for current month
             const paidTill = t.paidTillMonth || t.subscribedPG?.paidTillMonth;
             const isPaidTillCurrent = Boolean(paidTill && paidTill >= currentMonthVal);
 
-            // Check if this is the tenant's joining month — if so, skip auto-rent
-            // (they paid at admission; the rent_receipt for this month is already in collected)
             const joinRawVal = t.joiningDate || t.dateOfJoining || t.subscribedPG?.joiningDate || t.subscribedPG?.dateOfJoining;
             let isJoiningMonth = false;
             if (joinRawVal) {
-              // Use ISO slice to avoid timezone issues: "2026-10-01T..." → "2026-10"
               const joinMonthVal = String(joinRawVal).slice(0, 7);
               if (joinMonthVal >= currentMonthVal) isJoiningMonth = true;
             }
-            if (isJoiningMonth) return; // First-month tenants: no pending/upcoming rent generated
+            if (isJoiningMonth) return;
 
             const hasPaidThisMonth = isPaidTillCurrent || collected.some(c => {
               const cr = c.rawReceipt;
@@ -841,19 +827,9 @@ export default function ManageAccount() {
               return false;
             });
 
-            // Use t.rent (monthly recurring rent) first; t.rentAmount is the full lease package (includes security etc.)
             const rentAmt = Number(t.rent || t.roomRent || t.monthlyRent || t.subscribedPG?.rent || t.price || t.rentAmount || t.leaseAmount || 0);
-            if (rentAmt <= 0) return;
-            const amtStr = rentAmt.toLocaleString('en-IN');
-            const initials = t.name ? t.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';
+            if (rentAmt <= 0 || hasPaidThisMonth) return;
 
-            if (hasPaidThisMonth) {
-              // Tenant has already paid for the current month -> they appear in Collected!
-              // Do NOT push them into Upcoming for next month.
-              return;
-            }
-
-            // Tenant has NOT paid current month yet
             const currentYear = now.getFullYear();
             const currentMonth = now.getMonth();
             const lastDayOfCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
@@ -862,30 +838,16 @@ export default function ManageAccount() {
             const todayMidnight = new Date(currentYear, currentMonth, now.getDate());
             const daysDiff = Math.ceil((dueDate.getTime() - todayMidnight.getTime()) / (1000 * 3600 * 24));
             const dueStr = dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            const initials = t.name ? t.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??';
 
-            if (daysDiff < 0) {
-              // Due date has already passed this month -> Pending
-              pending.push({
-                tenantId: tenantKey,
-                month: currentMonthName,
-                name: t.name || 'Unknown',
-                room: t.roomNo || t.room || 'N/A',
-                amount: amtStr,
-                rent: rentAmt,
-                security: t.securityDeposit || 0,
-                date: `Was Due: ${dueStr}`,
-                daysOverdue: Math.abs(daysDiff),
-                initials: initials,
-                color: '#e11d48'
-              });
-            } else {
-              // Due date is today or coming up later in the current month -> Upcoming
+            if (daysDiff >= 0) {
+              // Due today or upcoming later this month
               upcoming.push({
                 tenantId: tenantKey,
                 month: currentMonthName,
                 name: t.name || 'Unknown',
                 room: t.roomNo || t.room || 'N/A',
-                amount: amtStr,
+                amount: rentAmt.toLocaleString('en-IN'),
                 rent: rentAmt,
                 security: t.securityDeposit || 0,
                 date: daysDiff === 0 ? `Due Today (${dueStr})` : `Due: ${dueStr}`,
@@ -896,11 +858,31 @@ export default function ManageAccount() {
             }
           });
 
-          // Sort Upcoming by soonest due date first; Pending by most overdue first
+          // Sort Upcoming by soonest due date first
           upcoming.sort((a, b) => (a.daysLeft ?? 0) - (b.daysLeft ?? 0));
-          pending.sort((a, b) => (b.daysOverdue ?? 0) - (a.daysOverdue ?? 0));
 
-          setRentData({ upcoming, pending, collected });
+          // 5. Process synchronized Pending Dues (grouped by month) & Outstanding Dues (sorted by unpaid date)
+          const {
+            totalPendingAmount,
+            monthsList,
+            allPendingItems,
+            peopleWithOutstanding
+          } = aggregateAllPendingDues({
+            tenants,
+            rentReceipts: receipts,
+            meterBills: meterBillsList,
+            customDues: customDuesList,
+            todayStr: now.toISOString().split('T')[0]
+          });
+
+          setRentData({
+            upcoming,
+            pending: allPendingItems,
+            collected,
+            pendingMonths: monthsList,
+            peopleWithOutstanding,
+            totalPendingAmount
+          });
         } catch (error) {
           console.error("Error fetching rent data:", error);
         } finally {
@@ -2005,21 +1987,209 @@ export default function ManageAccount() {
             </div>
 
 
-            {!loadingRents && rentData[rentTab].length > 0 && (
-               <div style={{ background: '#f8fafc', padding: '16px', borderRadius: 12, marginBottom: 16, border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: '#475569' }}>Total {activeTab.label}</span>
+            {!loadingRents && (
+               <div style={{ background: '#f8fafc', padding: '16px', borderRadius: 12, marginBottom: 16, border: `1px solid ${rentTab === 'pending' ? '#fecdd3' : '#e2e8f0'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                  <div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#475569', display: 'block' }}>Total {activeTab.label}</span>
+                    {rentTab === 'pending' && (
+                      <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
+                        {rentData.peopleWithOutstanding?.length || 0} residents with dues · 100% Synced
+                      </span>
+                    )}
+                  </div>
                   <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 22, fontWeight: 800, color: activeTab.color }}>
-                     ₹{rentData[rentTab].reduce((acc, curr) => acc + (parseInt(String(curr.amount).replace(/,/g, '')) || 0), 0).toLocaleString('en-IN')}
+                     ₹{(rentTab === 'pending' && rentData.totalPendingAmount !== undefined ? rentData.totalPendingAmount : rentData[rentTab].reduce((acc, curr) => acc + (parseInt(String(curr.amount).replace(/,/g, '')) || 0), 0)).toLocaleString('en-IN')}
                   </span>
                </div>
+            )}
+
+            {/* Sub-view switcher for Pending vs Outstanding */}
+            {rentTab === 'pending' && (
+              <div style={{ display: 'flex', background: '#e2e8f0', borderRadius: 10, padding: 3, marginBottom: 16 }}>
+                <button
+                  onClick={() => setDuesView('month')}
+                  style={{
+                    flex: 1, padding: '8px 10px', borderRadius: 8, border: 'none',
+                    background: duesView === 'month' ? 'white' : 'transparent',
+                    color: duesView === 'month' ? '#0f172a' : '#64748b',
+                    fontWeight: duesView === 'month' ? 800 : 600,
+                    fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    boxShadow: duesView === 'month' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                  }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: duesView === 'month' ? '#e11d48' : '#64748b' }}>calendar_month</span>
+                  Sorted by Months (Pending)
+                </button>
+                <button
+                  onClick={() => setDuesView('people')}
+                  style={{
+                    flex: 1, padding: '8px 10px', borderRadius: 8, border: 'none',
+                    background: duesView === 'people' ? 'white' : 'transparent',
+                    color: duesView === 'people' ? '#0f172a' : '#64748b',
+                    fontWeight: duesView === 'people' ? 800 : 600,
+                    fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    boxShadow: duesView === 'people' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                  }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: duesView === 'people' ? '#e11d48' : '#64748b' }}>person</span>
+                  Sorted by Unpaid Date (Outstanding)
+                </button>
+              </div>
+            )}
+
+            {/* Month Filter Chips (for Pending Month View) */}
+            {rentTab === 'pending' && duesView === 'month' && rentData.pendingMonths && rentData.pendingMonths.length > 1 && (
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
+                <button
+                  onClick={() => setSelectedPendingMonth('all')}
+                  style={{
+                    padding: '6px 12px', borderRadius: 20, border: '1px solid #cbd5e1',
+                    background: selectedPendingMonth === 'all' ? '#0f172a' : 'white',
+                    color: selectedPendingMonth === 'all' ? 'white' : '#475569',
+                    fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap'
+                  }}>
+                  All Months ({rentData.pending?.length || 0})
+                </button>
+                {rentData.pendingMonths.map(m => (
+                  <button
+                    key={m.monthKey}
+                    onClick={() => setSelectedPendingMonth(m.monthKey)}
+                    style={{
+                      padding: '6px 12px', borderRadius: 20, border: '1px solid #cbd5e1',
+                      background: selectedPendingMonth === m.monthKey ? '#e11d48' : 'white',
+                      color: selectedPendingMonth === m.monthKey ? 'white' : '#475569',
+                      fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap'
+                    }}>
+                    {m.monthLabel} (₹{(m.totalAmount/1000).toFixed(1).replace('.0', '')}k)
+                  </button>
+                ))}
+              </div>
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {loadingRents ? (
                 <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Loading rent data...</div>
+              ) : rentTab === 'pending' && duesView === 'month' ? (
+                // ── PENDING VIEW: Grouped & Sorted by Months ──
+                rentData.pendingMonths && rentData.pendingMonths.length > 0 ? (
+                  (selectedPendingMonth === 'all' ? rentData.pendingMonths : rentData.pendingMonths.filter(m => m.monthKey === selectedPendingMonth)).map((m) => {
+                    const filteredItems = m.items.filter(it => 
+                      !search || 
+                      String(it.tenantName || '').toLowerCase().includes(search.toLowerCase()) || 
+                      String(it.room || '').toLowerCase().includes(search.toLowerCase()) ||
+                      String(it.title || '').toLowerCase().includes(search.toLowerCase())
+                    );
+                    if (filteredItems.length === 0) return null;
+
+                    return (
+                      <div key={m.monthKey} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                        {/* Month Header Banner */}
+                        <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 12, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#e11d48' }}>calendar_month</span>
+                            <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>{m.monthLabel}</span>
+                            <span style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+                              {filteredItems.length} {filteredItems.length === 1 ? 'due' : 'dues'}
+                            </span>
+                          </div>
+                          <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 16, color: '#e11d48' }}>
+                            ₹{m.totalAmount.toLocaleString('en-IN')}
+                          </span>
+                        </div>
+
+                        {/* Month Items */}
+                        {filteredItems.map((it, idx) => (
+                          <div key={idx} style={{ background: 'white', borderRadius: 14, padding: '14px 16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                              <div style={{ width: 42, height: 42, borderRadius: 12, background: it.color || '#e11d48', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                                {it.initials}
+                              </div>
+                              <div>
+                                <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: '0 0 2px' }}>{it.tenantName}</p>
+                                <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 4px' }}>Room {it.room} · {it.title}</p>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 15, color: '#e11d48' }}>
+                                    ₹{Number(it.amount || 0).toLocaleString('en-IN')}
+                                  </span>
+                                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: it.isOverdue ? '#fee2e2' : '#e0f2fe', color: it.isOverdue ? '#dc2626' : '#0369a1' }}>
+                                    {it.isOverdue ? `${it.daysOverdue}d overdue` : `Due: ${formatDateDisplay(it.dueDate)}`}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <button onClick={() => setCollectModalData({
+                                tenantId: it.tenantId,
+                                name: it.tenantName,
+                                room: `Room ${it.room}`,
+                                amount: Number(it.amount || 0),
+                                rent: Number(it.amount || 0),
+                                security: 0,
+                                month: it.rentMonth || m.monthLabel,
+                                docId: it.docId,
+                                source: it.source
+                              })}
+                              style={{ padding: '8px 14px', background: '#0891b2', color: 'white', border: 'none', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, boxShadow: '0 2px 6px rgba(8,145,178,0.2)' }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>payments</span>
+                              Mark Paid
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No pending dues found.</div>
+                )
+              ) : rentTab === 'pending' && duesView === 'people' ? (
+                // ── OUTSTANDING VIEW: People Sorted by Date & Time Unpaid ──
+                rentData.peopleWithOutstanding && rentData.peopleWithOutstanding.length > 0 ? (
+                  <>
+                    <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 6px', fontWeight: 600 }}>
+                      Residents sorted by unpaid date (oldest overdue debtor first):
+                    </p>
+                    {rentData.peopleWithOutstanding
+                      .filter(p => !search || String(p.name || '').toLowerCase().includes(search.toLowerCase()) || String(p.room || '').toLowerCase().includes(search.toLowerCase()))
+                      .map((p, idx) => (
+                        <div key={idx} style={{ background: 'white', borderRadius: 14, padding: '14px 16px', border: '1px solid #fee2e2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                            <div style={{ width: 42, height: 42, borderRadius: 12, background: p.color || '#e11d48', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: 13, flexShrink: 0, overflow: 'hidden' }}>
+                              {p.img ? <img src={p.img} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : p.initials}
+                            </div>
+                            <div>
+                              <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: '0 0 2px' }}>{p.name}</p>
+                              <p style={{ fontSize: 12, color: p.oldestDaysOverdue > 0 ? '#e11d48' : '#64748b', margin: '0 0 4px', fontWeight: p.oldestDaysOverdue > 0 ? 600 : 400 }}>
+                                Room {p.room} · {p.oldestDaysOverdue > 0 ? `Unpaid since ${formatDateDisplay(p.oldestUnpaidDate)} (${p.oldestDaysOverdue}d ago)` : `Due: ${formatDateDisplay(p.oldestUnpaidDate)}`}
+                              </p>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 15, color: '#e11d48' }}>₹{p.amount}</span>
+                                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: p.oldestDaysOverdue >= 4 ? '#fee2e2' : p.oldestDaysOverdue > 0 ? '#ffedd5' : '#e0f2fe', color: p.oldestDaysOverdue >= 4 ? '#dc2626' : p.oldestDaysOverdue > 0 ? '#ea580c' : '#0369a1' }}>
+                                  {p.oldestDaysOverdue >= 4 ? '🔴 Critical' : p.oldestDaysOverdue > 0 ? '🟠 Overdue' : '⚪ Current'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <button onClick={() => setCollectModalData({
+                              tenantId: p.id,
+                              name: p.name,
+                              room: `Room ${p.room}`,
+                              amount: p.rawAmount || 0,
+                              rent: p.rent || 0,
+                              security: p.security || 0,
+                              month: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+                              duesSummary: p.duesSummary
+                            })}
+                            style={{ padding: '8px 14px', background: '#0891b2', color: 'white', border: 'none', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, boxShadow: '0 2px 6px rgba(8,145,178,0.2)' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>payments</span>
+                            Mark Paid
+                          </button>
+                        </div>
+                      ))}
+                  </>
+                ) : (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No outstanding dues found.</div>
+                )
               ) : rentData[rentTab].length === 0 ? (
                 <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No records found.</div>
-              ) : rentData[rentTab]
+              ) : (
+                rentData[rentTab]
                   .filter(t => String(t.name || '').toLowerCase().includes(search.toLowerCase()) || String(t.room || '').toLowerCase().includes(search.toLowerCase()))
                   .map((t, i) => {
                 const amtVal = parseInt(String(t.amount).replace(/,/g, '')) || 8000;
@@ -2077,7 +2247,7 @@ export default function ManageAccount() {
                     )}
                   </div>
                 );
-              })}
+              }))}
             </div>
           </div>
         </div>
@@ -2446,10 +2616,59 @@ export default function ManageAccount() {
                 };
                 
                 await addDoc(collection(db, 'rent_receipts'), receiptPayload);
+
+                // If paying admission balance, reduce or clear remainingAmount
+                if (collectModalData.source === 'admission_balance' || collectModalData.month === 'Admission Balance') {
+                  try {
+                    const tRef = doc(db, 'tenants', collectModalData.tenantId);
+                    const tSnap = await getDoc(tRef);
+                    if (tSnap.exists()) {
+                      const curRem = Number(tSnap.data().remainingAmount || 0);
+                      const newRem = Math.max(0, curRem - Number(newReceipt.totalAmount || 0));
+                      await updateDoc(tRef, { remainingAmount: newRem });
+                    }
+                  } catch (e) {}
+                }
+
+                // If specific due item was paid
+                if (collectModalData.docId) {
+                  if (collectModalData.source === 'firestore_dues' || collectModalData.source === 'custom_due') {
+                    try {
+                      await updateDoc(doc(db, 'outstanding_dues', collectModalData.docId), { status: 'paid', isPaid: true, paidAt: new Date().toISOString() });
+                    } catch (e) {}
+                  } else if (collectModalData.source === 'meter_bill') {
+                    try {
+                      await updateDoc(doc(db, 'meter_bills', collectModalData.docId), { status: 'Paid', isPaid: true, paidAt: new Date().toISOString() });
+                    } catch (e) {}
+                  }
+                }
+
+                // If settling an entire person with duesSummary
+                if (collectModalData.duesSummary?.items) {
+                  for (const it of collectModalData.duesSummary.items) {
+                    if ((it.source === 'firestore_dues' || it.source === 'custom_due') && it.docId) {
+                      try {
+                        await updateDoc(doc(db, 'outstanding_dues', it.docId), { status: 'paid', isPaid: true, paidAt: new Date().toISOString() });
+                      } catch (e) {}
+                    }
+                    if (it.source === 'meter_bill' && it.docId) {
+                      try {
+                        await updateDoc(doc(db, 'meter_bills', it.docId), { status: 'Paid', isPaid: true, paidAt: new Date().toISOString() });
+                      } catch (e) {}
+                    }
+                    if (it.source === 'admission_balance') {
+                      try {
+                        const tRef = doc(db, 'tenants', collectModalData.tenantId);
+                        await updateDoc(tRef, { remainingAmount: 0 });
+                      } catch (e) {}
+                    }
+                  }
+                }
                 
                 setCollectModalData(null);
                 setActiveReceipt(receiptPayload);
                 setRentRefreshKey(prev => prev + 1);
+                setDuesRefreshKey(prev => prev + 1);
                 // If we're in the user-account drill down, we might want to refresh, but for now activeReceipt takes over the screen.
               } catch (e) {
                 console.error("Error saving receipt:", e);

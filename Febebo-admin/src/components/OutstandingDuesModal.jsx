@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { 
   BILL_TYPES, 
   formatCurrency, 
@@ -208,6 +208,16 @@ export default function OutstandingDuesModal({
           paymentMode: payForm.paymentMode,
           receivedBy: payForm.receivedBy
         });
+      } else if (payingItem.source === 'admission_balance') {
+        try {
+          const tRef = doc(db, 'tenants', tenantId);
+          const tSnap = await getDoc(tRef);
+          if (tSnap.exists()) {
+            const curRem = Number(tSnap.data().remainingAmount || 0);
+            const newRem = Math.max(0, curRem - Number(payingItem.amount || 0));
+            await updateDoc(tRef, { remainingAmount: newRem });
+          }
+        } catch (e) {}
       }
 
       // Add to rent_receipts for accounting
