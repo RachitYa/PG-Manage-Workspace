@@ -17,6 +17,7 @@ import ManagerStaffView from '../components/manager/ManagerStaffView';
 import ManagerMessHeadcountView from '../components/manager/ManagerMessHeadcountView';
 import ManagerApprovalsView from '../components/manager/ManagerApprovalsView';
 import ManagerVendorsView from '../components/manager/ManagerVendorsView';
+import { syncItemsToKitchenInventory, isKitchenRelatedCategory } from '../utils/inventorySync';
 
 // ─── Indian Kitchen Items Dataset ─────────────────────────────────────────────
 const INDIAN_KITCHEN_ITEMS = {
@@ -825,6 +826,36 @@ export default function StaffApp(){
     else if (hr >= 16 && hr < 19) setActiveMeal('snacks');
     else setActiveMeal('dinner');
   }, []);
+
+  // ── Kitchen Inventory Master State (Live Synced with Admin) ───────────────
+  const [kitchenInventoryList, setKitchenInventoryList] = useState([]);
+  const [kitchenInventoryLoading, setKitchenInventoryLoading] = useState(true);
+  const [inventoryTab, setInventoryTab] = useState('kitchen'); // 'kitchen' | 'petty_cash'
+  const [stockSearchQuery, setStockSearchQuery] = useState('');
+  const [showAddKitchenItemModal, setShowAddKitchenItemModal] = useState(false);
+  const [newKitchenItemForm, setNewKitchenItemForm] = useState({ name: '', qty: '', unit: 'kg' });
+  const [kitchenItemSaving, setKitchenItemSaving] = useState(false);
+
+  useEffect(() => {
+    const adminUid = staffProfile?.ownerUid || user?.ownerUid;
+    if (!adminUid) return;
+
+    const q = query(
+      collection(db, 'pg_inventory_master'),
+      where('adminId', '==', adminUid),
+      where('category', '==', 'kitchen')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const list = snap.docs.map(d => ({ docId: d.id, ...d.data() }));
+      setKitchenInventoryList(list);
+      setKitchenInventoryLoading(false);
+    }, (err) => {
+      console.error('Error listening to kitchen inventory in StaffApp:', err);
+      setKitchenInventoryLoading(false);
+    });
+
+    return () => unsub();
+  }, [user?.ownerUid, staffProfile?.ownerUid]);
 
   
   
@@ -1653,6 +1684,15 @@ export default function StaffApp(){
       };
       await addDoc(collection(db, 'vendor_transactions'), txnData);
 
+      // Automatically sync kitchen items into Kitchen Inventory
+      await syncItemsToKitchenInventory(db, {
+        adminId: adminUid,
+        pgId: targetPgId,
+        items: formattedItems,
+        source: 'Cook Purchase',
+        actorName: `${staffName} (Cook)`
+      });
+
       // 2. If paid using Petty Cash, record in petty_cash_transactions
       if (cookPaymentSource === 'petty_cash' && paidAmt > 0) {
         await addDoc(collection(db, 'petty_cash_transactions'), {
@@ -1894,8 +1934,19 @@ export default function StaffApp(){
         });
       }
       
+      // If requested by Cook or contains kitchen supplies, sync to Kitchen Inventory
+      if (staffRole === 'Cook' || isKitchenRelatedCategory('', selected)) {
+        await syncItemsToKitchenInventory(db, {
+          adminId: user?.ownerUid,
+          pgId: activePgId || 'primary',
+          items: selected,
+          source: 'Cook Requisition',
+          actorName: `${staffName} (${staffRole})`
+        });
+      }
+
       setShowItemRequestModal(false);
-      showToast('Supplies request sent to ' + itemReqSendTo + '!', 'success');
+      showToast('Supplies request sent and synced with Kitchen Inventory!', 'success');
     } catch (e) {
       console.error(e);
       showToast('Failed to send request.', 'error');
@@ -7976,26 +8027,323 @@ export default function StaffApp(){
       )}
 
       {view === 'inventory' && (
-        <div style={{padding:'16px 14px calc(96px + env(safe-area-inset-bottom, 0px))', display:'flex', flexDirection:'column', gap:16}}>
-          <div style={{background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', borderRadius:16, padding:20, color:'#fff', display:'flex', flexDirection:'column', gap:6, boxShadow:'0 8px 24px rgba(15,23,42,0.15)'}}>
-            <p style={{margin:0, fontSize:12, fontWeight:800, color:'#94a3b8', textTransform:'uppercase'}}>Available Petty Cash</p>
-            <h2 style={{margin:0, fontSize:32, fontWeight:900, color:'#fde047'}}>₹{availablePettyCash.toLocaleString('en-IN')}</h2>
-            <div style={{display:'flex', gap:10, marginTop:10}}>
-              <button onClick={()=>setShowExpenseModal(true)} style={{flex:1, padding:'10px', background:'#ef4444', border:'none', borderRadius:10, color:'#fff', fontWeight:800, cursor:'pointer'}}>- Expense</button>
-            </div>
+        <div style={{padding:'16px 14px calc(96px + env(safe-area-inset-bottom, 0px))', display:'flex', flexDirection:'column', gap:14}}>
+          
+          {/* Top Tab Switcher */}
+          <div style={{display:'flex', background:'#f1f5f9', padding:4, borderRadius:12, gap:4}}>
+            <button
+              onClick={() => setInventoryTab('kitchen')}
+              style={{
+                flex: 1,
+                padding: '9px 0',
+                borderRadius: 9,
+                border: 'none',
+                background: inventoryTab === 'kitchen' ? '#0891b2' : 'transparent',
+                color: inventoryTab === 'kitchen' ? '#fff' : '#64748b',
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                transition: 'all 0.15s'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{fontSize:18}}>kitchen</span>
+              <span>Kitchen Stock ({kitchenInventoryList.length})</span>
+            </button>
+
+            <button
+              onClick={() => setInventoryTab('petty_cash')}
+              style={{
+                flex: 1,
+                padding: '9px 0',
+                borderRadius: 9,
+                border: 'none',
+                background: inventoryTab === 'petty_cash' ? '#0891b2' : 'transparent',
+                color: inventoryTab === 'petty_cash' ? '#fff' : '#64748b',
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                transition: 'all 0.15s'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{fontSize:18}}>payments</span>
+              <span>Petty Cash</span>
+            </button>
           </div>
-          <p style={{margin:0, fontSize:15, fontWeight:900, color:C.text}}>Recent Logs</p>
-          {pettyCashLogs?.map(log => (
-            <div key={log.id} style={{background:'#fff', borderRadius:14, padding:14, border:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-              <div>
-                <p style={{margin:0, fontSize:14, fontWeight:800, color:'#1e293b'}}>{log.title}</p>
-                <p style={{margin:'2px 0 0', fontSize:11, color:'#64748b'}}>{log.date} · {log.party}</p>
+
+          {/* ── TAB 1: KITCHEN INVENTORY ────────────────────────── */}
+          {inventoryTab === 'kitchen' && (
+            <div style={{display:'flex', flexDirection:'column', gap:12}}>
+              
+              {/* Header Card */}
+              <div style={{background:'#fff', borderRadius:16, border:`1px solid ${C.border}`, padding:14, display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 2px 8px rgba(15,23,42,0.03)'}}>
+                <div>
+                  <span style={{fontSize:10, fontWeight:800, color:'#0891b2', textTransform:'uppercase', letterSpacing:0.5}}>Kitchen Inventory</span>
+                  <h3 style={{margin:'2px 0 0', fontSize:18, fontWeight:900, color:'#0f172a'}}>{kitchenInventoryList.length} Items In Stock</h3>
+                  <span style={{fontSize:11, color:'#16a34a', fontWeight:700}}>✓ Synced with Cook, Manager & Admin</span>
+                </div>
+                <button
+                  onClick={() => setShowAddKitchenItemModal(true)}
+                  style={{display:'flex', alignItems:'center', gap:4, background:'#0891b2', color:'#fff', border:'none', borderRadius:10, padding:'8px 12px', fontSize:12, fontWeight:800, cursor:'pointer'}}
+                >
+                  <span className="material-symbols-outlined" style={{fontSize:16}}>add</span>
+                  <span>Add Item</span>
+                </button>
               </div>
-              <p style={{margin:0, fontSize:15, fontWeight:900, color: log.type === 'credit' ? '#16a34a' : '#ef4444'}}>
-                {log.type === 'credit' ? '+' : '-'}₹{log.amount}
-              </p>
+
+              {/* Search input */}
+              <div style={{display:'flex', alignItems:'center', gap:8, background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 12px'}}>
+                <span className="material-symbols-outlined" style={{fontSize:18, color:'#94a3b8'}}>search</span>
+                <input
+                  type="text"
+                  value={stockSearchQuery}
+                  onChange={(e) => setStockSearchQuery(e.target.value)}
+                  placeholder="Search kitchen supplies, dal, rice, oil..."
+                  style={{border:'none', outline:'none', width:'100%', fontSize:13, fontFamily:'inherit'}}
+                />
+                {stockSearchQuery && (
+                  <button onClick={() => setStockSearchQuery('')} style={{background:'none', border:'none', cursor:'pointer', color:'#94a3b8', padding:0}}>
+                    <span className="material-symbols-outlined" style={{fontSize:16}}>close</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Items List */}
+              {kitchenInventoryLoading ? (
+                <div style={{textAlign:'center', padding:30, color:'#64748b'}}>
+                  <span className="material-symbols-outlined" style={{fontSize:30, color:'#0891b2', animation:'spin 1s linear infinite'}}>progress_activity</span>
+                  <p style={{margin:'6px 0 0', fontSize:12, fontWeight:700}}>Loading kitchen stock...</p>
+                </div>
+              ) : kitchenInventoryList.length === 0 ? (
+                <div style={{background:'#fff', borderRadius:16, border:'1px dashed #cbd5e1', padding:32, textAlign:'center', color:'#94a3b8'}}>
+                  <span className="material-symbols-outlined" style={{fontSize:40, color:'#cbd5e1', marginBottom:6}}>kitchen</span>
+                  <p style={{margin:0, fontSize:14, fontWeight:800, color:'#475569'}}>Kitchen Inventory is Empty</p>
+                  <p style={{margin:'4px 0 14px', fontSize:12}}>Any kitchen items requested by Cook or purchased by Cook/Manager/Admin will appear here automatically.</p>
+                  <button
+                    onClick={() => setShowAddKitchenItemModal(true)}
+                    style={{background:'#0891b2', color:'#fff', border:'none', borderRadius:10, padding:'8px 16px', fontSize:12, fontWeight:800, cursor:'pointer'}}
+                  >
+                    + Add Item to Stock
+                  </button>
+                </div>
+              ) : (
+                <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                  {kitchenInventoryList
+                    .filter(it => (it.name || '').toLowerCase().includes(stockSearchQuery.toLowerCase()))
+                    .map(item => (
+                      <div key={item.docId} style={{background:'#fff', borderRadius:14, border:`1px solid ${C.border}`, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 1px 4px rgba(15,23,42,0.02)'}}>
+                        <div style={{display:'flex', alignItems:'center', gap:10}}>
+                          <div style={{width:36, height:36, borderRadius:10, background:'#ecfeff', display:'flex', alignItems:'center', justifyContent:'center', color:'#0891b2'}}>
+                            <span className="material-symbols-outlined" style={{fontSize:20}}>{item.icon || 'kitchen'}</span>
+                          </div>
+                          <div>
+                            <p style={{margin:0, fontSize:14, fontWeight:800, color:'#0f172a'}}>{item.name}</p>
+                            <span style={{fontSize:11, color:'#64748b', fontWeight:600}}>
+                              {item.lastUpdatedBy ? `By: ${item.lastUpdatedBy}` : 'Kitchen Stock'}
+                              {item.lastSource ? ` · ${item.lastSource}` : ''}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div style={{display:'flex', alignItems:'center', gap:10}}>
+                          {/* Qty +/- adjust */}
+                          <div style={{display:'flex', alignItems:'center', background:'#f1f5f9', borderRadius:8, overflow:'hidden', border:'1px solid #e2e8f0'}}>
+                            <button
+                              onClick={async () => {
+                                const newQty = Math.max(0, (parseFloat(item.totalQty) || 0) - 1);
+                                try {
+                                  await updateDoc(doc(db, 'pg_inventory_master', item.docId), {
+                                    totalQty: newQty,
+                                    lastUpdated: new Date().toISOString(),
+                                    lastUpdatedBy: `${staffName} (${staffRole})`
+                                  });
+                                } catch (e) { console.error(e); }
+                              }}
+                              style={{width:28, height:28, border:'none', background:'transparent', cursor:'pointer', fontSize:16, fontWeight:800, color:'#64748b', display:'flex', alignItems:'center', justifyContent:'center'}}
+                            >
+                              -
+                            </button>
+                            <span style={{minWidth:36, textAlign:'center', fontSize:13, fontWeight:900, color:'#0f172a', padding:'0 4px'}}>
+                              {item.totalQty} {item.unit || 'kg'}
+                            </span>
+                            <button
+                              onClick={async () => {
+                                const newQty = (parseFloat(item.totalQty) || 0) + 1;
+                                try {
+                                  await updateDoc(doc(db, 'pg_inventory_master', item.docId), {
+                                    totalQty: newQty,
+                                    lastUpdated: new Date().toISOString(),
+                                    lastUpdatedBy: `${staffName} (${staffRole})`
+                                  });
+                                } catch (e) { console.error(e); }
+                              }}
+                              style={{width:28, height:28, border:'none', background:'transparent', cursor:'pointer', fontSize:16, fontWeight:800, color:'#64748b', display:'flex', alignItems:'center', justifyContent:'center'}}
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          <button
+                            onClick={async () => {
+                              if (window.confirm(`Delete ${item.name} from kitchen inventory?`)) {
+                                try {
+                                  await deleteDoc(doc(db, 'pg_inventory_master', item.docId));
+                                  showToast('Item removed from inventory', 'success');
+                                } catch (e) { console.error(e); }
+                              }
+                            }}
+                            style={{background:'#fee2e2', border:'none', borderRadius:8, width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#ef4444', padding:0}}
+                          >
+                            <span className="material-symbols-outlined" style={{fontSize:16}}>delete</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {/* Add Kitchen Item Modal */}
+              {showAddKitchenItemModal && (
+                <div style={{position:'fixed', inset:0, background:'rgba(15,23,42,0.6)', zIndex:200, display:'flex', alignItems:'flex-end', justifyContent:'center', backdropFilter:'blur(3px)'}}
+                  onClick={e => { if (e.target === e.currentTarget) setShowAddKitchenItemModal(false); }}>
+                  <div style={{background:'#fff', width:'100%', maxWidth:480, borderRadius:'24px 24px 0 0', padding:'20px 20px 32px'}}>
+                    <div style={{width:40, height:4, background:'#e2e8f0', borderRadius:99, margin:'0 auto 16px'}} />
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
+                      <h3 style={{margin:0, fontSize:17, fontWeight:900, color:'#0f172a'}}>Add Kitchen Stock Item</h3>
+                      <button onClick={() => setShowAddKitchenItemModal(false)} style={{background:'#f1f5f9', border:'none', borderRadius:8, padding:6, cursor:'pointer'}}>
+                        <span className="material-symbols-outlined" style={{fontSize:18, color:'#64748b'}}>close</span>
+                      </button>
+                    </div>
+
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!newKitchenItemForm.name.trim()) return;
+                      setKitchenItemSaving(true);
+                      try {
+                        const adminUid = staffProfile?.ownerUid || user?.ownerUid;
+                        await addDoc(collection(db, 'pg_inventory_master'), {
+                          adminId: adminUid,
+                          pgId: activePgId || 'primary',
+                          category: 'kitchen',
+                          name: newKitchenItemForm.name.trim(),
+                          totalQty: parseFloat(newKitchenItemForm.qty) || 1,
+                          unit: newKitchenItemForm.unit || 'kg',
+                          icon: 'kitchen',
+                          createdAt: new Date().toISOString(),
+                          lastUpdated: new Date().toISOString(),
+                          lastUpdatedBy: `${staffName} (${staffRole})`,
+                          lastSource: 'Manual Add'
+                        });
+                        showToast('Item added to kitchen inventory!', 'success');
+                        setShowAddKitchenItemModal(false);
+                        setNewKitchenItemForm({ name: '', qty: '', unit: 'kg' });
+                      } catch (err) {
+                        console.error('Error adding kitchen item:', err);
+                        alert('Failed to add item: ' + err.message);
+                      } finally {
+                        setKitchenItemSaving(false);
+                      }
+                    }} style={{display:'flex', flexDirection:'column', gap:12}}>
+                      <div>
+                        <label style={{display:'block', fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', marginBottom:4}}>Item Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={newKitchenItemForm.name}
+                          onChange={e => setNewKitchenItemForm({ ...newKitchenItemForm, name: e.target.value })}
+                          placeholder="e.g. Toor Dal, Basmati Rice, Mustard Oil..."
+                          style={{width:'100%', padding:'11px 14px', border:'1.5px solid #e2e8f0', borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box'}}
+                        />
+                      </div>
+
+                      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
+                        <div>
+                          <label style={{display:'block', fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', marginBottom:4}}>Quantity</label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={newKitchenItemForm.qty}
+                            onChange={e => setNewKitchenItemForm({ ...newKitchenItemForm, qty: e.target.value })}
+                            placeholder="e.g. 10"
+                            style={{width:'100%', padding:'11px 14px', border:'1.5px solid #e2e8f0', borderRadius:10, fontSize:14, outline:'none', boxSizing:'border-box'}}
+                          />
+                        </div>
+                        <div>
+                          <label style={{display:'block', fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase', marginBottom:4}}>Unit</label>
+                          <select
+                            value={newKitchenItemForm.unit}
+                            onChange={e => setNewKitchenItemForm({ ...newKitchenItemForm, unit: e.target.value })}
+                            style={{width:'100%', padding:'11px 14px', border:'1.5px solid #e2e8f0', borderRadius:10, fontSize:14, outline:'none', background:'#fff', boxSizing:'border-box'}}
+                          >
+                            <option value="kg">kg</option>
+                            <option value="g">g</option>
+                            <option value="litre">litre</option>
+                            <option value="piece">piece</option>
+                            <option value="pack">pack</option>
+                            <option value="can">can</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={kitchenItemSaving}
+                        style={{
+                          marginTop:8,
+                          width:'100%',
+                          padding:'14px',
+                          background:'#0891b2',
+                          color:'#fff',
+                          border:'none',
+                          borderRadius:12,
+                          fontSize:15,
+                          fontWeight:800,
+                          cursor:'pointer',
+                          boxShadow:'0 4px 12px rgba(8,145,178,0.25)'
+                        }}
+                      >
+                        {kitchenItemSaving ? 'Saving...' : 'Add to Kitchen Inventory'}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              )}
+
             </div>
-          ))}
+          )}
+
+          {/* ── TAB 2: PETTY CASH ───────────────────────────────── */}
+          {inventoryTab === 'petty_cash' && (
+            <div style={{display:'flex', flexDirection:'column', gap:16}}>
+              <div style={{background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', borderRadius:16, padding:20, color:'#fff', display:'flex', flexDirection:'column', gap:6, boxShadow:'0 8px 24px rgba(15,23,42,0.15)'}}>
+                <p style={{margin:0, fontSize:12, fontWeight:800, color:'#94a3b8', textTransform:'uppercase'}}>Available Petty Cash</p>
+                <h2 style={{margin:0, fontSize:32, fontWeight:900, color:'#fde047'}}>₹{availablePettyCash.toLocaleString('en-IN')}</h2>
+                <div style={{display:'flex', gap:10, marginTop:10}}>
+                  <button onClick={()=>setShowExpenseModal(true)} style={{flex:1, padding:'10px', background:'#ef4444', border:'none', borderRadius:10, color:'#fff', fontWeight:800, cursor:'pointer'}}>- Expense</button>
+                </div>
+              </div>
+              <p style={{margin:0, fontSize:15, fontWeight:900, color:C.text}}>Recent Logs</p>
+              {pettyCashLogs?.map(log => (
+                <div key={log.id} style={{background:'#fff', borderRadius:14, padding:14, border:`1px solid ${C.border}`, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                  <div>
+                    <p style={{margin:0, fontSize:14, fontWeight:800, color:'#1e293b'}}>{log.title}</p>
+                    <p style={{margin:'2px 0 0', fontSize:11, color:'#64748b'}}>{log.date} · {log.party}</p>
+                  </div>
+                  <p style={{margin:0, fontSize:15, fontWeight:900, color: log.type === 'credit' ? '#16a34a' : '#ef4444'}}>
+                    {log.type === 'credit' ? '+' : '-'}₹{log.amount}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
         </div>
       )}
 

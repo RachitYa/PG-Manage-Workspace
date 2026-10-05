@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, addDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { syncItemsToKitchenInventory, isKitchenRelatedCategory } from '../../utils/inventorySync';
 
 const CATEGORY_ITEMS = {
   Groceries: [
@@ -275,7 +276,19 @@ export default function ManagerVendorsView({ adminId, onBack, showToast, current
       };
 
       await addDoc(collection(db, 'vendor_transactions'), newTxn);
-      showToast?.('Purchase order saved and synced with Admin!', 'success');
+
+      // Automatically sync kitchen items to Kitchen Inventory
+      if (isKitchenRelatedCategory(purchaseVendor.category, items)) {
+        await syncItemsToKitchenInventory(db, {
+          adminId,
+          pgId: 'primary',
+          items,
+          source: 'Manager Purchase',
+          actorName: `${currentStaffName} (Manager)`
+        });
+      }
+
+      showToast?.('Purchase order saved and added to Kitchen Inventory!', 'success');
       setPurchaseVendor(null);
     } catch (err) {
       console.error('Error saving purchase order:', err);

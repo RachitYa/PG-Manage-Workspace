@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, addDoc, doc, setDoc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, doc, setDoc, getDoc, deleteDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 
@@ -75,7 +75,14 @@ function ItemRow({ item, onQtyChange, onRemove }) {
             </div>
           )}
           <div>
-            <p style={{ fontWeight: 600, fontSize: 15, color: '#0f172a', margin: 0 }}>{item.itemName}</p>
+            <p style={{ fontWeight: 600, fontSize: 15, color: '#0f172a', margin: 0 }}>
+              {item.itemName} {item.unit ? <span style={{ fontSize: 12, fontWeight: 700, color: cyan }}>({item.unit})</span> : ''}
+            </p>
+            {item.lastUpdatedBy && (
+              <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                Updated by: {item.lastUpdatedBy}
+              </p>
+            )}
             {item.conditionImage && (
               <p onClick={() => setShowImg(s => !s)} style={{ margin: '2px 0 0', fontSize: 11, color: cyan, fontWeight: 600, cursor: 'pointer' }}>
                 {showImg ? 'Hide photo ▲' : 'View condition photo ▼'}
@@ -212,74 +219,111 @@ function MasterInventoryView({ category, title, onBack }) {
   const { user, activePgId } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!user?.uid) return;
-    const fetchMaster = async () => {
-      try {
-        const q = query(collection(db, 'pg_inventory_master'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('category', '==', category));
-        const snap = await getDocs(q);
-        setItems(snap.docs.map(d => ({ docId: d.id, itemName: d.data().name, qty: d.data().totalQty, icon: d.data().icon })));
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchMaster();
-  }, [user, category]);
-
-  const saveMaster = async () => {
-    setSaving(true);
-    try {
-      const q = query(collection(db, 'pg_inventory_master'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('category', '==', category));
-      const snap = await getDocs(q);
-      const batch = snap.docs.map(d => deleteDoc(d.ref));
-      await Promise.all(batch);
-
-      const adds = items.map(it => addDoc(collection(db, 'pg_inventory_master'), {
-        adminId: user.uid, pgId: activePgId, 
-        category,
-        name: it.itemName,
-        totalQty: it.qty,
-        icon: it.icon || 'inventory_2'
+    const q = query(
+      collection(db, 'pg_inventory_master'), 
+      where('adminId', '==', user.uid), 
+      where('category', '==', category)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      let mapped = snap.docs.map(d => ({
+        docId: d.id,
+        itemName: d.data().name,
+        qty: d.data().totalQty,
+        unit: d.data().unit || '',
+        icon: d.data().icon || (category === 'kitchen' ? 'kitchen' : 'inventory_2'),
+        pgId: d.data().pgId,
+        lastUpdatedBy: d.data().lastUpdatedBy
       }));
-      await Promise.all(adds);
-      alert('Inventory saved!');
-    } catch (e) {
-      console.error(e);
-      alert('Failed to save');
-    } finally {
-      setSaving(false);
+      if (activePgId && activePgId !== 'all') {
+        mapped = mapped.filter(d => !d.pgId || d.pgId === activePgId || d.pgId === 'primary');
+      }
+      setItems(mapped);
+      setLoading(false);
+    }, (err) => {
+      console.error(err);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [user?.uid, category, activePgId]);
+
+  const updateQty = async (idx, val) => {
+    const target = items[idx];
+    if (!target) return;
+    const newQty = Math.max(0, val);
+    setItems(p => p.map((it, i) => i === idx ? { ...it, qty: newQty } : it));
+    if (target.docId) {
+      try {
+        await updateDoc(doc(db, 'pg_inventory_master', target.docId), {
+          totalQty: newQty,
+          lastUpdated: new Date().toISOString(),
+          lastUpdatedBy: 'Admin'
+        });
+      } catch (e) {
+        console.error('Error updating inventory item qty:', e);
+      }
     }
   };
 
-  const updateQty = (idx, val) => setItems(p => p.map((it, i) => i === idx ? { ...it, qty: Math.max(0, val) } : it));
+  const handleRemove = async (idx) => {
+    const target = items[idx];
+    if (!target) return;
+    if (window.confirm(`Delete ${target.itemName} from inventory?`)) {
+      setItems(p => p.filter((_, i) => i !== idx));
+      if (target.docId) {
+        try {
+          await deleteDoc(doc(db, 'pg_inventory_master', target.docId));
+        } catch (e) {
+          console.error('Error deleting inventory item:', e);
+        }
+      }
+    }
+  };
+
+  const handleAddItem = async () => {
+    const name = window.prompt("Enter new item name:");
+    if (!name || !name.trim()) return;
+    const unit = window.prompt("Enter unit (e.g. kg, litre, pack, piece):", "kg") || "kg";
+    const qtyStr = window.prompt("Enter initial quantity:", "1") || "1";
+    const qty = parseFloat(qtyStr) || 1;
+    try {
+      await addDoc(collection(db, 'pg_inventory_master'), {
+        adminId: user.uid,
+        pgId: activePgId || 'primary',
+        category,
+        name: name.trim(),
+        totalQty: qty,
+        unit: unit.trim(),
+        icon: category === 'kitchen' ? 'kitchen' : 'inventory_2',
+        createdAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        lastUpdatedBy: 'Admin'
+      });
+    } catch (e) {
+      console.error('Error adding inventory item:', e);
+    }
+  };
 
   return (
     <div style={BASE}>
-      <Header title={title} onBack={onBack} action={<SaveBtn onClick={saveMaster} loading={saving} />} />
+      <Header title={title} onBack={onBack} action={<span style={{fontSize:12, fontWeight:800, color:cyan}}>✓ Live Synced</span>} />
       <div style={{ padding: 16 }}>
         {loading ? <Loader /> : (
           <div style={{ background: 'white', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
             {items.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>No items in inventory.</div>
+              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>No items in inventory. Add an item or purchase kitchen supplies to see them here!</div>
             ) : (
               items.map((item, idx) => (
-                <ItemRow key={idx} item={item} 
+                <ItemRow key={item.docId || idx} item={item} 
                   onQtyChange={val => updateQty(idx, val)}
-                  onRemove={() => setItems(p => p.filter((_, i) => i !== idx))} />
+                  onRemove={() => handleRemove(idx)} />
               ))
             )}
           </div>
         )}
-        <Fab onClick={() => {
-          const name = window.prompt("Enter new item name:");
-          if (name && name.trim()) {
-            setItems(p => [...p, { itemName: name.trim(), qty: 1, icon: 'inventory_2' }]);
-          }
-        }} />
+        <Fab onClick={handleAddItem} />
       </div>
     </div>
   );

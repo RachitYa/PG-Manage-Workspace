@@ -4,6 +4,7 @@ import { db, auth } from '../firebase';
 import { collection, addDoc, getDocs, onSnapshot, query, where, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { fetchAllAdminPgs } from '../utils/pgUtils';
+import { syncItemsToKitchenInventory, isKitchenRelatedCategory } from '../utils/inventorySync';
 
 // ─── Category-specific item lists (alphabetical) ──────────────────────────────
 const CATEGORY_ITEMS = {
@@ -622,6 +623,18 @@ export default function VendorTransactions() {
       };
       const docRef = await addDoc(collection(db, 'vendor_transactions'), newTxn);
       setVendorTransactions(prev => [...prev, { id: docRef.id, ...newTxn }]);
+
+      // Automatically sync kitchen items into Kitchen Inventory
+      const vObj = vendorsList.find(v => v.id === vendorId);
+      if (isKitchenRelatedCategory(vObj?.category, items)) {
+        await syncItemsToKitchenInventory(db, {
+          adminId: auth.currentUser.uid,
+          pgId: pgId || activePgId || 'primary',
+          items,
+          source: 'Admin Purchase',
+          actorName: 'Admin'
+        });
+      }
     } catch (e) {
       console.error('Error saving purchase:', e);
       alert('Failed to save purchase');
