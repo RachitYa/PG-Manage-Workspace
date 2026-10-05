@@ -16,6 +16,7 @@ import ManagerVisitorsView from '../components/manager/ManagerVisitorsView';
 import ManagerStaffView from '../components/manager/ManagerStaffView';
 import ManagerMessHeadcountView from '../components/manager/ManagerMessHeadcountView';
 import ManagerApprovalsView from '../components/manager/ManagerApprovalsView';
+import ManagerVendorsView from '../components/manager/ManagerVendorsView';
 
 // ─── Indian Kitchen Items Dataset ─────────────────────────────────────────────
 const INDIAN_KITCHEN_ITEMS = {
@@ -3487,7 +3488,7 @@ export default function StaffApp(){
             <span className="material-symbols-outlined" style={{fontSize:16}}>{activeContact.reminder ? 'notifications_active' : 'notifications'}</span>
           </button>
         </div>
-      ) : ['foodMenu', 'manage_tenants', 'manage_rooms', 'complaints', 'student_leaves', 'visitor_log', 'manage_staff', 'mess_headcount', 'approvals'].includes(view) ? null : (
+      ) : ['foodMenu', 'manage_tenants', 'manage_rooms', 'complaints', 'student_leaves', 'visitor_log', 'manage_staff', 'mess_headcount', 'approvals', 'manage_vendors'].includes(view) ? null : (
         // Inner page header
         <div style={{display:'flex',alignItems:'center',gap:10,padding:'0 16px',height:58,background:'#fff',borderBottom: '1px solid #e2e8f0',position:'sticky',top:0,zIndex:50,boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
           <button onClick={()=>setView('home')} style={{background:'#fff',border: '1px solid #e2e8f0',borderRadius:10,width:36,height:36,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
@@ -3518,6 +3519,7 @@ export default function StaffApp(){
               {id:'manage_rooms',   label:'Rooms & Beds',  icon:'meeting_room',           bg:'#ecfdf5', c:'#059669'},
               {id:'complaints',     label:'Complaints',    icon:'report_problem',         bg:'#fff1f2', c:'#e11d48'},
               {id:'mess_headcount', label:'Live Mess',     icon:'restaurant',             bg:'#ede9fe', c:'#7c3aed'},
+              {id:'manage_vendors', label:'Vendors',       icon:'storefront',             bg:'#ecfeff', c:'#0891b2'},
               {id:'student_leaves', label:'Leaves',        icon:'event_busy',             bg:'#ecfeff', c:'#0891b2'},
               {id:'visitor_log',    label:'Visitors',      icon:'recent_actors',          bg:'#f0fdf4', c:'#16a34a'},
               {id:'manage_staff',   label:'Staff & Work',  icon:'badge',                  bg:'#fdf4ff', c:'#c026d3'},
@@ -3904,6 +3906,15 @@ export default function StaffApp(){
           adminId={user?.ownerUid}
           onBack={() => setView('home')}
           showToast={showToast}
+        />
+      )}
+
+      {view === 'manage_vendors' && (
+        <ManagerVendorsView
+          adminId={user?.ownerUid}
+          onBack={() => setView('home')}
+          showToast={showToast}
+          currentStaffName={staffName}
         />
       )}
 
