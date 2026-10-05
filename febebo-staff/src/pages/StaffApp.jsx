@@ -8,6 +8,14 @@ import { Scanner } from '@yudiel/react-qr-scanner';
 import QRCode from 'react-qr-code';
 import { isStudentOnVacation, getStudentActiveVacation, formatDateDisplay, isMealPausedOnDate, ALL_MEALS } from '../utils/vacationUtils';
 import { COMMON_PG_DISHES, DISH_CATEGORIES, getDishPresetImage, DEFAULT_FOOD_PLACEHOLDER } from '../data/commonFoodDishes';
+import ManagerTenantsView from '../components/manager/ManagerTenantsView';
+import ManagerRoomsView from '../components/manager/ManagerRoomsView';
+import ManagerComplaintsView from '../components/manager/ManagerComplaintsView';
+import ManagerLeavesView from '../components/manager/ManagerLeavesView';
+import ManagerVisitorsView from '../components/manager/ManagerVisitorsView';
+import ManagerStaffView from '../components/manager/ManagerStaffView';
+import ManagerMessHeadcountView from '../components/manager/ManagerMessHeadcountView';
+import ManagerApprovalsView from '../components/manager/ManagerApprovalsView';
 
 // ─── Indian Kitchen Items Dataset ─────────────────────────────────────────────
 const INDIAN_KITCHEN_ITEMS = {
@@ -3478,7 +3486,7 @@ export default function StaffApp(){
             <span className="material-symbols-outlined" style={{fontSize:16}}>{activeContact.reminder ? 'notifications_active' : 'notifications'}</span>
           </button>
         </div>
-      ) : (
+      ) : ['foodMenu', 'manage_tenants', 'manage_rooms', 'complaints', 'student_leaves', 'visitor_log', 'manage_staff', 'mess_headcount', 'approvals'].includes(view) ? null : (
         // Inner page header
         <div style={{display:'flex',alignItems:'center',gap:10,padding:'0 16px',height:58,background:'#fff',borderBottom: '1px solid #e2e8f0',position:'sticky',top:0,zIndex:50,boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
           <button onClick={()=>setView('home')} style={{background:'#fff',border: '1px solid #e2e8f0',borderRadius:10,width:36,height:36,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0,boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
@@ -3524,10 +3532,18 @@ export default function StaffApp(){
                 {id:'cookVendor', label:'Vendor Order', icon:'storefront', bg:'#ecfeff', c:'#0891b2'},
               ] : []),
               ...(staffRole === 'Manager' ? [
-                {id:'foodMenu',   label:'Food Menu',    icon:'restaurant_menu',        bg:'#ede9fe', c:'#a78bfa'},
-                {id:'menu_history', label:'Menu History', icon:'history',              bg:'#fdf4ff', c:'#c026d3'},
-                {id:'enquiry',    label:'Enquiry',      icon:'contact_support',        bg:'#ecfeff', c:'#0891b2'},
-                {id:'add_tenant', label:'Add Tenant',   icon:'person_add',             bg:'#f0fdf4', c:'#16a34a'},
+                {id:'manage_tenants', label:'Tenants',       icon:'groups',                 bg:'#fef3c7', c:'#d97706'},
+                {id:'manage_rooms',   label:'Rooms & Beds',  icon:'meeting_room',           bg:'#ecfdf5', c:'#059669'},
+                {id:'complaints',     label:'Complaints',    icon:'report_problem',         bg:'#fff1f2', c:'#e11d48'},
+                {id:'student_leaves', label:'Leaves',        icon:'event_busy',             bg:'#ecfeff', c:'#0891b2'},
+                {id:'visitor_log',    label:'Visitors',      icon:'recent_actors',          bg:'#f0fdf4', c:'#16a34a'},
+                {id:'mess_headcount', label:'Live Mess',     icon:'restaurant',             bg:'#ede9fe', c:'#7c3aed'},
+                {id:'foodMenu',       label:'Food Menu',     icon:'restaurant_menu',        bg:'#ede9fe', c:'#a78bfa'},
+                {id:'manage_staff',   label:'Staff & Work',  icon:'badge',                  bg:'#fdf4ff', c:'#c026d3'},
+                {id:'approvals',      label:'Approvals',     icon:'verified',               bg:'#fefce8', c:'#ca8a04'},
+                {id:'cookVendor',     label:'Kitchen POs',   icon:'storefront',             bg:'#ecfeff', c:'#0891b2'},
+                {id:'enquiry',        label:'Leads',         icon:'contact_support',        bg:'#ecfeff', c:'#0891b2'},
+                {id:'add_tenant',     label:'Add Tenant',    icon:'person_add',             bg:'#f0fdf4', c:'#16a34a'},
               ] : []),
             ].map(m => (
               <button key={m.id} onClick={() => {
@@ -3762,6 +3778,80 @@ export default function StaffApp(){
           </div>
         );
       })()}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          MANAGER VIEWS: TENANTS, ROOMS, COMPLAINTS, LEAVES, VISITORS, STAFF, MESS, APPROVALS
+         ══════════════════════════════════════════════════════════════════════ */}
+      {view === 'manage_tenants' && (
+        <ManagerTenantsView
+          adminId={user?.ownerUid}
+          onBack={() => setView('home')}
+          onAddTenant={() => {
+            setMgr_serviceModal(true);
+            setMgr_addTenantStep(1);
+            setMgr_addTenantForm(prev => ({...prev, serviceType: 'all_services'}));
+            setView('add_tenant');
+          }}
+          showToast={showToast}
+        />
+      )}
+
+      {view === 'manage_rooms' && (
+        <ManagerRoomsView
+          adminId={user?.ownerUid}
+          onBack={() => setView('home')}
+          showToast={showToast}
+        />
+      )}
+
+      {view === 'complaints' && (
+        <ManagerComplaintsView
+          adminId={user?.ownerUid}
+          onBack={() => setView('home')}
+          showToast={showToast}
+        />
+      )}
+
+      {view === 'student_leaves' && (
+        <ManagerLeavesView
+          adminId={user?.ownerUid}
+          onBack={() => setView('home')}
+          showToast={showToast}
+        />
+      )}
+
+      {view === 'visitor_log' && (
+        <ManagerVisitorsView
+          adminId={user?.ownerUid}
+          onBack={() => setView('home')}
+          showToast={showToast}
+        />
+      )}
+
+      {view === 'manage_staff' && (
+        <ManagerStaffView
+          adminId={user?.ownerUid}
+          onBack={() => setView('home')}
+          showToast={showToast}
+        />
+      )}
+
+      {view === 'mess_headcount' && (
+        <ManagerMessHeadcountView
+          adminId={user?.ownerUid}
+          onBack={() => setView('home')}
+          onOpenFoodMenu={() => setView('foodMenu')}
+          showToast={showToast}
+        />
+      )}
+
+      {view === 'approvals' && (
+        <ManagerApprovalsView
+          adminId={user?.ownerUid}
+          onBack={() => setView('home')}
+          showToast={showToast}
+        />
+      )}
 
       {/* ══════════════════════════════════════════════════════════════════════
           WEEKLY FOOD MENU
@@ -5341,21 +5431,21 @@ export default function StaffApp(){
             {/* Department KPI Grid */}
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
               {[
-                {label:'Staff On Duty', value:`${staffOnDuty} / ${totalStaff}`, icon:'groups', bg:'#eef2ff', color:'#78350f', sub:`${totalStaff - staffOnDuty} not punched in`},
-                
-                {label:'Vacant Rooms', value: String(Math.max(0, totalCapacity - students.length)), icon:'meeting_room', bg:'#fef3c7', color:'#92400e', sub:`Out of ${totalCapacity} total seats`},
-                {label:'Pending POs', value: String(demands.filter(d=>d.status==='Pending').length), icon:'pending_actions', bg:'#f0fdf4', color:'#166534', sub:'Supplier action needed'},
-                {label:'New Leads', value: String(enquiries.filter(e=>e.status==='New' || e.status==='New Lead').length), icon:'contact_phone', bg:'#ecfdf5', color:'#065f46', sub:'Room enquiries'},
-                {label:'Mess Covers', value:`${students.filter(s=>s['status'+(mealTab||'Lunch').charAt(0)]!=='notEaten').length} / ${students.length}`, icon:'restaurant', bg:'#ede9fe', color:'#7c3aed', sub:`Today ${mealTab||'Lunch'}`},
+                {label:'Staff On Duty', value:`${staffOnDuty} / ${totalStaff}`, icon:'groups', bg:'#eef2ff', color:'#78350f', sub:`${totalStaff - staffOnDuty} not punched in`, view:'manage_staff'},
+                {label:'Vacant Rooms', value: String(Math.max(0, totalCapacity - students.length)), icon:'meeting_room', bg:'#fef3c7', color:'#92400e', sub:`Out of ${totalCapacity} total seats`, view:'manage_rooms'},
+                {label:'Active Tenants', value: String(students.length), icon:'person', bg:'#f0fdf4', color:'#166534', sub:'Current residents', view:'manage_tenants'},
+                {label:'Open Issues', value: String(tickets.filter(t => t.status === 'Active' || t.status === 'Pending' || t.status === 'Open').length), icon:'report_problem', bg:'#fff1f2', color:'#e11d48', sub:'Maintenance complaints', view:'complaints'},
+                {label:'New Leads', value: String(enquiries.filter(e=>e.status==='New' || e.status==='New Lead').length), icon:'contact_phone', bg:'#ecfdf5', color:'#065f46', sub:'Room enquiries', view:'enquiry'},
+                {label:'Mess Covers', value:`${students.filter(s=>s['status'+(mealTab||'Lunch').charAt(0)]!=='notEaten').length} / ${students.length}`, icon:'restaurant', bg:'#ede9fe', color:'#7c3aed', sub:`Today ${mealTab||'Lunch'}`, view:'mess_headcount'},
               ].map(k => (
-                <div key={k.label} style={{background:k.bg, borderRadius:14, border:'1px solid #e2e8f0', padding:14, boxShadow:'0 3px 10px rgba(15,23,42,0.04)'}}>
+                <div key={k.label} onClick={() => k.view && setView(k.view)} style={{background:k.bg, borderRadius:14, border:'1px solid #e2e8f0', padding:14, boxShadow:'0 3px 10px rgba(15,23,42,0.04)', cursor:'pointer'}}>
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
                     <div>
                       <p style={{fontSize:11, fontWeight:800, color:k.color, margin:0, textTransform:'uppercase', letterSpacing:0.3}}>{k.label}</p>
                       <p style={{fontSize:24, fontWeight:900, color:k.color, margin:'4px 0 2px'}}>{k.value}</p>
                       <p style={{fontSize:10, fontWeight:700, color:k.color, margin:0, opacity:0.7}}>{k.sub}</p>
                     </div>
-                    <span className="material-symbols-outlined" style={{fontSize:22, color:k.color, opacity:0.5}}>{k.icon}</span>
+                    <span className="material-symbols-outlined" style={{fontSize:22, color:k.color, opacity:0.6}}>{k.icon}</span>
                   </div>
                 </div>
               ))}
@@ -5373,25 +5463,46 @@ export default function StaffApp(){
                     <p style={{margin:'2px 0 0', fontSize:11, color:C.muted}}>Pause / resume meals & manage food menu</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setView('foodMenu')}
-                  style={{
-                    background: '#ede9fe',
-                    color: '#6d28d9',
-                    border: '1px solid #ddd6fe',
-                    borderRadius: 10,
-                    padding: '6px 12px',
-                    fontSize: 12,
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4
-                  }}
-                >
-                  <span className="material-symbols-outlined" style={{fontSize:16}}>edit</span>
-                  Edit Menu
-                </button>
+                <div style={{display:'flex', gap:6}}>
+                  <button
+                    onClick={() => setView('mess_headcount')}
+                    style={{
+                      background: '#ede9fe',
+                      color: '#6d28d9',
+                      border: '1px solid #ddd6fe',
+                      borderRadius: 10,
+                      padding: '6px 10px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{fontSize:16}}>restaurant</span>
+                    Live Mess
+                  </button>
+                  <button
+                    onClick={() => setView('foodMenu')}
+                    style={{
+                      background: '#f8fafc',
+                      color: '#475569',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 10,
+                      padding: '6px 10px',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{fontSize:16}}>edit</span>
+                    Menu
+                  </button>
+                </div>
               </div>
 
               {/* Pause/Resume Meals Grid */}
