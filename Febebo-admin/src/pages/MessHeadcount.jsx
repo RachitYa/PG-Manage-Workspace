@@ -1154,6 +1154,68 @@ export default function MessHeadcount() {
             );
           })()}
 
+          {/* If the current meal is paused by Admin, hide menu, headcount stats & student roster */}
+          {(() => {
+            const isMealPaused = !!(pausedMeals?.[selectedDate]?.[mealTab.toLowerCase()]);
+            if (isMealPaused) {
+              return (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  border: '1.5px dashed #fecaca',
+                  padding: '48px 24px',
+                  textAlign: 'center',
+                  marginBottom: '20px',
+                  boxShadow: '0 4px 16px rgba(225,29,72,0.04)'
+                }}>
+                  <div style={{
+                    width: '64px',
+                    height: '64px',
+                    borderRadius: '20px',
+                    background: '#ffe4e6',
+                    color: '#e11d48',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px'
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '36px' }}>pause_circle</span>
+                  </div>
+                  <h3 style={{ margin: '0 0 8px', fontSize: '18px', fontWeight: 900, color: '#9f1239', textTransform: 'capitalize' }}>
+                    {mealTab} is Currently Paused
+                  </h3>
+                  <p style={{ margin: '0 auto 20px', fontSize: '13px', color: '#64748b', maxWidth: '340px', lineHeight: 1.5 }}>
+                    This meal is paused for {selectedDate}. Students cannot view the menu or mark attendance, and headcount roster is hidden.
+                  </p>
+                  <button
+                    onClick={() => handleToggleMealPause(mealTab)}
+                    style={{
+                      background: '#10b981',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '12px',
+                      padding: '10px 20px',
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      boxShadow: '0 4px 12px rgba(16,185,129,0.3)'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>play_arrow</span>
+                    Resume {mealTab} Now
+                  </button>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          {/* Show Menu, Stats & Student Roster only when meal is NOT paused */}
+          {!pausedMeals?.[selectedDate]?.[mealTab.toLowerCase()] && (
+            <>
           {/* Current Menu Item Pill with Per-Item Photos */}
           {(() => {
             const rawDishStr = currentDayMenu[currentActiveMealKey] || '';
@@ -1603,6 +1665,8 @@ export default function MessHeadcount() {
               </div>
             )}
           </div>
+            </>
+          )}
         </div>
       )}
 

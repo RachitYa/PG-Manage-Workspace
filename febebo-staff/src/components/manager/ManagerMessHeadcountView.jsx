@@ -374,37 +374,59 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
           </button>
         </div>
 
-        {/* Headcount Stat Counters */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 5, marginTop: 10 }}>
-          {[
-            { id: 'all', l: 'Eating', v: counts.requested + counts.eaten, c: '#0891b2', bg: '#ecfeff' },
-            { id: 'pack', l: 'To Pack', v: counts.pack, c: '#d97706', bg: '#fef3c7' },
-            { id: 'delivery', l: 'Delivery', v: counts.delivery, c: '#7c3aed', bg: '#ede9fe' },
-            { id: 'extra', l: 'Extra Plate', v: counts.extra, c: '#0284c7', bg: '#e0f2fe' },
-            { id: 'eaten', l: 'Eaten', v: counts.eaten, c: '#16a34a', bg: '#dcfce7' },
-            { id: 'onVacation', l: 'On Leave', v: counts.onVacation, c: '#dc2626', bg: '#fee2e2' },
-          ].map(k => (
-            <div
-              key={k.id}
-              onClick={() => setFilterStat(k.id === filterStat ? 'all' : k.id)}
-              style={{
-                background: filterStat === k.id ? k.c : k.bg,
-                color: filterStat === k.id ? '#fff' : k.c,
-                borderRadius: 10,
-                padding: '6px 2px',
-                textAlign: 'center',
-                cursor: 'pointer',
-                border: `1px solid ${filterStat === k.id ? k.c : '#e2e8f0'}`
-              }}
-            >
-              <p style={{ margin: 0, fontSize: 15, fontWeight: 900 }}>{k.v}</p>
-              <p style={{ margin: '2px 0 0', fontSize: 8.5, fontWeight: 800, textTransform: 'uppercase' }}>{k.l}</p>
-            </div>
-          ))}
-        </div>
+        {/* Headcount Stat Counters - Hidden when meal is paused */}
+        {!isPaused && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 5, marginTop: 10 }}>
+            {[
+              { id: 'all', l: 'Eating', v: counts.requested + counts.eaten, c: '#0891b2', bg: '#ecfeff' },
+              { id: 'pack', l: 'To Pack', v: counts.pack, c: '#d97706', bg: '#fef3c7' },
+              { id: 'delivery', l: 'Delivery', v: counts.delivery, c: '#7c3aed', bg: '#ede9fe' },
+              { id: 'extra', l: 'Extra Plate', v: counts.extra, c: '#0284c7', bg: '#e0f2fe' },
+              { id: 'eaten', l: 'Eaten', v: counts.eaten, c: '#16a34a', bg: '#dcfce7' },
+              { id: 'onVacation', l: 'On Leave', v: counts.onVacation, c: '#dc2626', bg: '#fee2e2' },
+            ].map(k => (
+              <div
+                key={k.id}
+                onClick={() => setFilterStat(k.id === filterStat ? 'all' : k.id)}
+                style={{
+                  background: filterStat === k.id ? k.c : k.bg,
+                  color: filterStat === k.id ? '#fff' : k.c,
+                  borderRadius: 10,
+                  padding: '6px 2px',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  border: `1px solid ${filterStat === k.id ? k.c : '#e2e8f0'}`
+                }}
+              >
+                <p style={{ margin: 0, fontSize: 15, fontWeight: 900 }}>{k.v}</p>
+                <p style={{ margin: '2px 0 0', fontSize: 8.5, fontWeight: 800, textTransform: 'uppercase' }}>{k.l}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Student Eating Checklist */}
+      {/* When meal is paused, show notice and hide student checklist */}
+      {isPaused ? (
+        <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+          <div style={{ width: 56, height: 56, borderRadius: 16, background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 32 }}>pause_circle</span>
+          </div>
+          <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 900, color: '#991b1b', textTransform: 'capitalize' }}>
+            {mealTab} is Paused for Today
+          </h3>
+          <p style={{ margin: '0 auto 16px', fontSize: 13, color: '#64748b', maxWidth: 280, lineHeight: 1.4 }}>
+            Meal orders and headcount checklist are currently hidden while this meal is paused.
+          </p>
+          <button
+            onClick={handleTogglePause}
+            style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
+          >
+            Resume {mealTab.toUpperCase()}
+          </button>
+        </div>
+      ) : (
+      /* Student Eating Checklist */
       <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* Search */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '8px 12px' }}>
@@ -510,6 +532,7 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
           })
         )}
       </div>
+      )}
 
       {/* Headcount Audit History Modal */}
       {showAuditModal && (

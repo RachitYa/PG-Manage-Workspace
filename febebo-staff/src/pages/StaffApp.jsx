@@ -5067,6 +5067,37 @@ export default function StaffApp(){
 
             {/* Menu Display */}
             {(() => {
+              const mKey = (mealTab || 'lunch').toLowerCase();
+              const targetDate = workDate || new Date().toISOString().split('T')[0];
+              const isPaused = !!(pausedMeals?.[targetDate]?.[mKey]);
+              if (isPaused) {
+                return (
+                  <div style={{background: '#fff', borderRadius: 16, border: '1.5px dashed #fecaca', padding: '36px 16px', textAlign: 'center', marginTop: 12}}>
+                    <div style={{width: 52, height: 52, borderRadius: 16, background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px'}}>
+                      <span className="material-symbols-outlined" style={{fontSize: 30}}>pause_circle</span>
+                    </div>
+                    <h3 style={{margin: '0 0 6px', fontSize: 16, fontWeight: 900, color: '#991b1b', textTransform: 'capitalize'}}>
+                      {mealTab} is Paused for Today
+                    </h3>
+                    <p style={{margin: '0 auto 16px', fontSize: 13, color: '#64748b', maxWidth: 280, lineHeight: 1.4}}>
+                      Headcount and student eating list are hidden while this meal is paused.
+                    </p>
+                    <button
+                      onClick={() => handleToggleMealPause(mealTab, targetDate)}
+                      style={{background: '#10b981', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 12, fontWeight: 800, cursor: 'pointer'}}
+                    >
+                      Resume {mealTab} Now
+                    </button>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            {!pausedMeals?.[workDate || new Date().toISOString().split('T')[0]]?.[(mealTab || 'lunch').toLowerCase()] && (
+              <>
+            {/* Menu Display */}
+            {(() => {
               const currentRawStr = weeklyFoodMenu?.[todayName]?.[mealTab] || '';
               const todayDishes = currentRawStr.split(/[,;]/).map(s => s.trim()).filter(Boolean);
               const dishImgs = foodItemImages?.[todayName]?.[mealTab] || {};
@@ -5315,6 +5346,8 @@ export default function StaffApp(){
                  </>
                )
             })()}
+          </>
+          )}
           </>)}
 
           {/* CLEANER ROLE - REDESIGNED */}

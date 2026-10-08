@@ -1278,6 +1278,10 @@ const Food = () => {
   const [selectedWeeklyDay, setSelectedWeeklyDay] = useState(currentDayStr);
 
   const renderTodayMealCard = (title, icon, mealsList) => {
+    // Filter out meals that are paused by Admin or on Food Vacation
+    const activeMeals = mealsList.filter(meal => !isMealPausedByAdmin(meal) && !isMealPausedToday(meal));
+    if (activeMeals.length === 0) return null;
+
     return (
       <div className="today-meal-block">
         <div className="today-meal-header">
@@ -1285,7 +1289,7 @@ const Food = () => {
           <h4>{title}</h4>
         </div>
         
-        {mealsList.map(meal => {
+        {activeMeals.map(meal => {
           const foodItem = foodData[currentDayStr]?.[meal] || 'Not set yet';
           const status = todayRequests[meal]; // 'pack', 'cancel', or null
           const isPaused = isMealPausedToday(meal);

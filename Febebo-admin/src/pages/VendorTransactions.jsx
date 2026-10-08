@@ -346,7 +346,7 @@ export default function VendorTransactions() {
   const [showStaffReqModal, setShowStaffReqModal] = useState(false);
   
   const [showAddVendor, setShowAddVendor] = useState(false);
-  const [newVendor, setNewVendor] = useState({ name: '', store: '', category: 'Groceries', phone: '', upi: '', amount: '' });
+  const [newVendor, setNewVendor] = useState({ name: '', store: '', category: 'Groceries', phone: '', upi: '', amount: '', pgId: 'primary' });
 
   // Staff requisitions fetched from Firestore
   const [staffRequests, setStaffRequests] = useState([]);
@@ -441,15 +441,18 @@ export default function VendorTransactions() {
     if (!newVendor.name || !newVendor.store || !newVendor.category || !newVendor.amount) return alert('Name, Store, Category, and Total Amount are required!');
     setIsAddingVendor(true);
     try {
+      const selectedPgObj = pgList.find(p => p.id === newVendor.pgId);
       const vendorDataToSave = {
         ...newVendor,
+        pgId: newVendor.pgId || activePgId || 'primary',
+        pgName: selectedPgObj?.pgName || (newVendor.pgId === 'primary' ? 'Main Branch' : 'PG Property'),
         amount: parseFloat(newVendor.amount) || 0,
         adminId: auth.currentUser.uid,
         createdAt: new Date().toISOString()
       };
       await addDoc(collection(db, 'vendors'), vendorDataToSave);
       setShowAddVendor(false);
-      setNewVendor({ name: '', store: '', category: 'Groceries', phone: '', upi: '', amount: '' });
+      setNewVendor({ name: '', store: '', category: 'Groceries', phone: '', upi: '', amount: '', pgId: activePgId || 'primary' });
       setActiveCategory(newVendor.category);
     } catch (e) {
       console.error('Error adding vendor:', e);
@@ -494,8 +497,13 @@ export default function VendorTransactions() {
 
   // Dynamically build currentVendorData from the flat vendorTransactions array
   let currentVendorData = null;
-  let totalPurchasedAmount = selectedVendor ? (parseFloat(selectedVendor.amount) || 0) : 0;
-  let totalPaidAmount = selectedVendor ? (parseFloat(selectedVendor.amount) || 0) : 0;
+  // selectedVendor.amount is only included if viewing all properties OR if the vendor belongs to the selected property
+  const vendorPg = selectedVendor?.pgId || 'primary';
+  const shouldIncludeVendorBaseAmount = selectedVendor && (selectedPgFilter === 'all' || vendorPg === selectedPgFilter);
+  const vendorBaseAmount = shouldIncludeVendorBaseAmount ? (parseFloat(selectedVendor.amount) || 0) : 0;
+
+  let totalPurchasedAmount = vendorBaseAmount;
+  let totalPaidAmount = vendorBaseAmount;
   let runningPending = 0;
 
   if (selectedVendor) {
@@ -740,7 +748,10 @@ export default function VendorTransactions() {
   // ── Detail View 4: Item Analytics ──
   if (selectedVendor && showAnalytics) {
     const allItemsMap = {};
-    const rawTxns = vendorTransactions.filter(t => t.vendorId === selectedVendor.id);
+    let rawTxns = vendorTransactions.filter(t => t.vendorId === selectedVendor.id);
+    if (selectedPgFilter && selectedPgFilter !== 'all') {
+      rawTxns = rawTxns.filter(t => (t.pgId || 'primary') === selectedPgFilter);
+    }
     
     const now = new Date();
     let cutOffDate = new Date(0);
@@ -1427,6 +1438,16 @@ export default function VendorTransactions() {
               style={{ width: '100%', padding: '12px 14px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 15, marginBottom: 16, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', background: 'white' }}>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
+
+            {pgList.length > 0 && (
+              <>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>Branch / Property</label>
+                <select value={newVendor.pgId || 'primary'} onChange={e => setNewVendor({...newVendor, pgId: e.target.value})}
+                  style={{ width: '100%', padding: '12px 14px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 15, marginBottom: 16, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', background: 'white' }}>
+                  {pgList.map(p => <option key={p.id} value={p.id}>🏢 {p.pgName || 'PG Property'}</option>)}
+                </select>
+              </>
+            )}
             
             <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
               <div style={{ flex: 1 }}>
