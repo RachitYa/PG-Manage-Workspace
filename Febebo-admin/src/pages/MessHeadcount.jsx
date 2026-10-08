@@ -918,83 +918,90 @@ export default function MessHeadcount() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: '6px' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                  <h1 style={{ margin: 0, fontSize: '48px', fontWeight: 900, lineHeight: 1, color: '#fde047' }}>
-                    {statsCount.eaten}
-                  </h1>
-                  <span style={{ fontSize: '15px', fontWeight: 700, color: '#94a3b8' }}>
-                    / {students.length - statsCount.onVacation} active eating ({statsCount.onVacation} on leave)
-                  </span>
-                </div>
+            <div style={{ marginTop: '10px', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+                <h1 style={{ margin: 0, fontSize: '44px', fontWeight: 900, lineHeight: 1, color: '#fde047' }}>
+                  {statsCount.eaten}
+                </h1>
+                <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#94a3b8' }}>
+                  / {students.length - statsCount.onVacation} active eating ({statsCount.onVacation} on leave)
+                </span>
               </div>
+            </div>
 
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  onClick={() => navigate('/delivery-orders')}
-                  style={{
-                    background: '#ffedd5',
-                    color: '#c2410c',
-                    border: '1px solid #fed7aa',
-                    padding: '9px 12px',
-                    borderRadius: '12px',
-                    fontSize: '12px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '5px'
-                  }}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>two_wheeler</span>
-                  Delivery
-                </button>
+            {/* Quick Action Buttons Row - Guaranteed Mobile Responsive Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+              <button
+                onClick={() => navigate('/delivery-orders')}
+                style={{
+                  background: 'linear-gradient(135deg, #ffedd5, #fed7aa)',
+                  color: '#9a3412',
+                  border: '1.5px solid #fdba74',
+                  padding: '10px 4px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 6px rgba(234,88,12,0.15)'
+                }}
+                title="Open Tiffin & Food Delivery Operations"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#ea580c' }}>two_wheeler</span>
+                Delivery
+              </button>
 
-                <button
-                  onClick={() => navigate('/meal-audit-log', { state: { date: selectedDate, meal: mealTab } })}
-                  style={{
-                    background: '#ede9fe',
-                    color: '#6d28d9',
-                    border: '1px solid #ddd6fe',
-                    padding: '9px 13px',
-                    borderRadius: '12px',
-                    fontSize: '12px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>fact_check</span>
-                  Audit Log
-                </button>
+              <button
+                onClick={() => navigate('/meal-audit-log', { state: { date: selectedDate, meal: mealTab } })}
+                style={{
+                  background: 'linear-gradient(135deg, #ede9fe, #ddd6fe)',
+                  color: '#5b21b6',
+                  border: '1.5px solid #c4b5fd',
+                  padding: '10px 4px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 6px rgba(124,58,237,0.15)'
+                }}
+                title="View Full Meal Verification Audit Trail"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#7c3aed' }}>fact_check</span>
+                Audit Log
+              </button>
 
-                <button
-                  onClick={() => {
-                    setBroadcastMeal(mealTab.charAt(0).toUpperCase() + mealTab.slice(1));
-                    setShowBroadcastModal(true);
-                  }}
-                  style={{
-                    background: '#10b981',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '9px 14px',
-                    borderRadius: '12px',
-                    fontSize: '12px',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: '0 4px 12px rgba(16,185,129,0.3)'
-                  }}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>notifications_active</span>
-                  Alert All
-                </button>
-              </div>
+              <button
+                onClick={() => {
+                  setBroadcastMeal(mealTab.charAt(0).toUpperCase() + mealTab.slice(1));
+                  setShowBroadcastModal(true);
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '10px 4px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 8px rgba(16,185,129,0.3)'
+                }}
+                title="Send notification to all active students"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>notifications_active</span>
+                Alert All
+              </button>
             </div>
           </div>
 
@@ -1402,23 +1409,46 @@ export default function MessHeadcount() {
                 </p>
               </div>
 
-              {selectedStatFilter !== 'all' && (
-                <button
-                  onClick={() => setSelectedStatFilter('all')}
-                  style={{
-                    background: '#f1f5f9',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '4px 8px',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    color: '#64748b',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Clear filter ✕
-                </button>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {selectedStatFilter === 'delivery' && (
+                  <button
+                    onClick={() => navigate('/delivery-orders')}
+                    style={{
+                      background: '#ffedd5',
+                      border: '1px solid #fed7aa',
+                      borderRadius: '8px',
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      color: '#c2410c',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>two_wheeler</span>
+                    Open Delivery Module
+                  </button>
+                )}
+                {selectedStatFilter !== 'all' && (
+                  <button
+                    onClick={() => setSelectedStatFilter('all')}
+                    style={{
+                      background: '#f1f5f9',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '4px 8px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: '#64748b',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Clear Filter
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Search Input */}

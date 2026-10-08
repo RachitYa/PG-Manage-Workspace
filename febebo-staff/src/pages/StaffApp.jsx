@@ -4637,6 +4637,7 @@ export default function StaffApp(){
           staffRole={staffRole}
           onBack={() => setView('home')}
           onOpenFoodMenu={() => setView('foodMenu')}
+          onOpenDelivery={() => setView('delivery_orders')}
           showToast={showToast}
         />
       )}

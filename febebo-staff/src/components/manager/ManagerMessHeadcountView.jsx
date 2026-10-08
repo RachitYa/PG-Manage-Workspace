@@ -3,7 +3,7 @@ import { collection, query, where, onSnapshot, doc, setDoc, addDoc } from 'fireb
 import { db } from '../../firebase';
 import { isStudentOnVacation, isMealPausedOnDate } from '../../utils/vacationUtils';
 
-export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager', staffRole = 'Manager', onBack, onOpenFoodMenu, showToast }) {
+export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager', staffRole = 'Manager', onBack, onOpenFoodMenu, onOpenDelivery, showToast }) {
   const [mealTab, setMealTab] = useState(() => {
     const hr = new Date().getHours();
     if (hr < 11) return 'breakfast';
@@ -240,6 +240,28 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
+            {onOpenDelivery && (
+              <button
+                onClick={onOpenDelivery}
+                style={{
+                  background: '#ffedd5',
+                  color: '#c2410c',
+                  border: '1px solid #fed7aa',
+                  borderRadius: 10,
+                  padding: '7px 11px',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+                title="Tiffin & Food Delivery Operations"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>two_wheeler</span>
+                Delivery
+              </button>
+            )}
             <button
               onClick={() => setShowAuditModal(true)}
               style={{
