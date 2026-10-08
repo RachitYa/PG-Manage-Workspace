@@ -330,6 +330,7 @@ export default function VendorTransactions() {
   const [search, setSearch]                     = useState('');
   const [categories, setCategories]             = useState(['Groceries', 'Laundry', 'Vegetables', 'Dairy', 'Water']);
   const [activeCategory, setActiveCategory]     = useState('Groceries');
+  const [isAddingVendor, setIsAddingVendor] = useState(false);
   
   const [purchaseModalVendor, setPurchaseModalVendor] = useState(null);
   const [selectedMonth, setSelectedMonth]       = useState(null);
@@ -341,7 +342,7 @@ export default function VendorTransactions() {
   const [pendingModal, setPendingModal]         = useState(null);
   
   const [showAnalytics, setShowAnalytics]       = useState(false);
-  const [analyticsPeriod, setAnalyticsPeriod]   = useState('Monthly');
+  const [analyticsPeriod, setAnalyticsPeriod]   = useState('All Time');
   const [showStaffReqModal, setShowStaffReqModal] = useState(false);
   
   const [showAddVendor, setShowAddVendor] = useState(false);
@@ -424,7 +425,7 @@ export default function VendorTransactions() {
         }
       }
       setVendorsList(prev => prev.filter(v => v.id !== vId));
-      setVendorTransactions(prev => prev.filter(t => t.vendorId !== vId));
+      
       setSelectedVendor(null);
       setDeleteVendorModal(null);
       showToast(`Vendor "${vName}" deleted successfully!`, 'success');
@@ -438,6 +439,7 @@ export default function VendorTransactions() {
 
   const handleAddVendorSubmit = async () => {
     if (!newVendor.name || !newVendor.store || !newVendor.category || !newVendor.amount) return alert('Name, Store, Category, and Total Amount are required!');
+    setIsAddingVendor(true);
     try {
       const vendorDataToSave = {
         ...newVendor,
@@ -445,14 +447,15 @@ export default function VendorTransactions() {
         adminId: auth.currentUser.uid,
         createdAt: new Date().toISOString()
       };
-      const docRef = await addDoc(collection(db, 'vendors'), vendorDataToSave);
-      setVendorsList(prev => [...prev, { id: docRef.id, ...vendorDataToSave }]);
+      await addDoc(collection(db, 'vendors'), vendorDataToSave);
       setShowAddVendor(false);
       setNewVendor({ name: '', store: '', category: 'Groceries', phone: '', upi: '', amount: '' });
       setActiveCategory(newVendor.category);
     } catch (e) {
       console.error('Error adding vendor:', e);
       alert('Failed to add vendor');
+    } finally {
+      setIsAddingVendor(false);
     }
   };
 
@@ -622,7 +625,7 @@ export default function VendorTransactions() {
         createdAt: new Date().toISOString()
       };
       const docRef = await addDoc(collection(db, 'vendor_transactions'), newTxn);
-      setVendorTransactions(prev => [...prev, { id: docRef.id, ...newTxn }]);
+      
 
       // Automatically sync kitchen items into Kitchen Inventory
       const vObj = vendorsList.find(v => v.id === vendorId);
@@ -658,7 +661,7 @@ export default function VendorTransactions() {
         createdAt: new Date().toISOString()
       };
       const docRef = await addDoc(collection(db, 'vendor_transactions'), newTxn);
-      setVendorTransactions(prev => [...prev, { id: docRef.id, ...newTxn }]);
+      
       setPendingModal(null);
     } catch (e) {
       console.error('Error clearing pending:', e);
@@ -737,19 +740,35 @@ export default function VendorTransactions() {
   // ── Detail View 4: Item Analytics ──
   if (selectedVendor && showAnalytics) {
     const allItemsMap = {};
-    if (currentVendorData) {
-      Object.values(currentVendorData.months).forEach(m => {
-        Object.values(m.days).forEach(d => {
-          d.items.forEach(it => {
-            if (!allItemsMap[it.item]) {
-              allItemsMap[it.item] = { qty: 0, unit: it.unit, total: 0 };
-            }
-            allItemsMap[it.item].qty += parseFloat(it.qty) || 0;
-            allItemsMap[it.item].total += it.price || 0;
-          });
-        });
-      });
+    const rawTxns = vendorTransactions.filter(t => t.vendorId === selectedVendor.id);
+    
+    const now = new Date();
+    let cutOffDate = new Date(0);
+    if (analyticsPeriod === 'Weekly') {
+      cutOffDate = new Date();
+      cutOffDate.setDate(now.getDate() - 7);
+    } else if (analyticsPeriod === 'Monthly') {
+      cutOffDate = new Date();
+      cutOffDate.setMonth(now.getMonth() - 1);
+    } else if (analyticsPeriod === 'Yearly') {
+      cutOffDate = new Date();
+      cutOffDate.setFullYear(now.getFullYear() - 1);
     }
+
+    rawTxns.forEach(txn => {
+      const txnDate = txn.date ? new Date(txn.date) : new Date(0);
+      if (txnDate >= cutOffDate && txn.items && Array.isArray(txn.items)) {
+        txn.items.forEach(it => {
+          if (!it || !it.item || it.item === 'Cleared Pending Balance') return;
+          const itemName = String(it.item);
+          if (!allItemsMap[itemName]) {
+            allItemsMap[itemName] = { qty: 0, unit: it.unit || '', total: 0 };
+          }
+          allItemsMap[itemName].qty += parseFloat(it.qty) || 0;
+          allItemsMap[itemName].total += parseFloat(it.price) || 0;
+        });
+      }
+    });
 
     const aggregatedItems = Object.keys(allItemsMap)
       .sort((a, b) => a.localeCompare(b))
@@ -775,7 +794,7 @@ export default function VendorTransactions() {
         <div style={{ padding: 16 }}>
           {/* Period Toggle */}
           <div style={{ display: 'flex', background: '#e2e8f0', borderRadius: 12, padding: 4, marginBottom: 20 }}>
-            {['Weekly', 'Monthly', 'Yearly'].map(p => (
+            {['Weekly', 'Monthly', 'Yearly', 'All Time'].map(p => (
               <button key={p} onClick={() => setAnalyticsPeriod(p)}
                 style={{ flex: 1, padding: '8px 0', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', background: analyticsPeriod === p ? 'white' : 'transparent', color: analyticsPeriod === p ? '#0f172a' : '#64748b', boxShadow: analyticsPeriod === p ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s' }}>
                 {p}
@@ -1364,7 +1383,7 @@ export default function VendorTransactions() {
                         const reqRef = doc(db, 'staff_requisitions', req.id);
                         await updateDoc(reqRef, { rate: req.rate || 0, status: 'Approved' });
                         showToast(`Rate ₹${req.rate || 0} saved for ${req.item}! Approved & sent to vendor.`, 'success');
-                        setStaffRequests(prev => prev.filter((_, i) => i !== idx));
+                        
                       } catch (e) {
                         console.error('Error approving request:', e);
                         showToast('Failed to approve request.', 'error');
@@ -1426,8 +1445,12 @@ export default function VendorTransactions() {
             <input type="number" value={newVendor.amount} onChange={e => setNewVendor({...newVendor, amount: e.target.value})} placeholder="e.g. 5000"
               style={{ width: '100%', padding: '12px 14px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 15, marginBottom: 24, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }} />
 
-            <button onClick={handleAddVendorSubmit} style={{ width: '100%', padding: '14px', background: '#0891b2', border: 'none', borderRadius: 12, color: 'white', fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 4px 14px rgba(8,145,178,0.25)' }}>
-              Add Vendor
+            <button disabled={isAddingVendor} onClick={handleAddVendorSubmit} style={{ width: '100%', padding: '14px', background: '#0891b2', border: 'none', borderRadius: 12, color: 'white', fontSize: 16, fontWeight: 700, cursor: isAddingVendor ? 'not-allowed' : 'pointer', fontFamily: 'inherit', boxShadow: '0 4px 14px rgba(8,145,178,0.25)', opacity: isAddingVendor ? 0.7 : 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              {isAddingVendor ? (
+                <div className="febebo-spinner" style={{ width: 20, height: 20, border: '3px solid rgba(255,255,255,0.3)', borderTop: '3px solid white', borderRadius: '50%' }} />
+              ) : (
+                'Add Vendor'
+              )}
             </button>
           </div>
         </div>

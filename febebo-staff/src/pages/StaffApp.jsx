@@ -17,6 +17,7 @@ import ManagerStaffView from '../components/manager/ManagerStaffView';
 import ManagerMessHeadcountView from '../components/manager/ManagerMessHeadcountView';
 import ManagerApprovalsView from '../components/manager/ManagerApprovalsView';
 import ManagerVendorsView from '../components/manager/ManagerVendorsView';
+import ManagerMeterView from '../components/manager/ManagerMeterView';
 import { syncItemsToKitchenInventory, isKitchenRelatedCategory } from '../utils/inventorySync';
 
 // ─── Indian Kitchen Items Dataset ─────────────────────────────────────────────
@@ -6490,62 +6491,12 @@ export default function StaffApp(){
           METER READING (Electrician / Manager)
          ══════════════════════════════════════════════════════════════════════ */}
       {view === 'meter_reading' && (
-        <div style={{padding:'14px 14px calc(32px + env(safe-area-inset-bottom, 0px))',display:'flex',flexDirection:'column',gap:16}}>
-          
-          <div style={{background: 'linear-gradient(to right, #ecfeff, #cffafe)', borderRadius:16, padding:'16px', border:'1px solid #a5f3fc', display:'flex', alignItems:'center', gap:12}}>
-            <div style={{width:48, height:48, borderRadius:24, background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', color:'#0891b2'}}>
-               <span className="material-symbols-outlined" style={{fontSize:24}}>electric_meter</span>
-            </div>
-            <div>
-               <h3 style={{margin:0, fontSize:16, fontWeight:900, color:'#164e63'}}>Utility Meters</h3>
-               <p style={{margin:'2px 0 0', fontSize:12, fontWeight:700, color:'#0891b2'}}>Log reading for accurate billing</p>
-            </div>
-          </div>
-
-          <div style={{background:'#fff', borderRadius:16, padding:'16px', border:'1px solid #f1f5f9', boxShadow:'0 2px 10px rgba(0,0,0,0.02)', display:'flex', flexDirection:'column', gap:12}}>
-             <div style={{display:'flex', flexDirection:'column', gap:6}}>
-                <label style={{fontSize:12, fontWeight:800, color:'#64748b'}}>Room / Area</label>
-                <select value={meterRoom} onChange={e=>setMeterRoom(e.target.value)} style={{padding:'14px', borderRadius:12, border:'1.5px solid #e2e8f0', fontFamily:'inherit', fontSize:15, fontWeight:700}}>
-                   <option value="101">Room 101</option>
-                   <option value="102">Room 102</option>
-                   <option value="103">Room 103</option>
-                   <option value="Ground Floor Lobby">Ground Floor Lobby</option>
-                </select>
-             </div>
-             <div style={{display:'flex', flexDirection:'column', gap:6}}>
-                <label style={{fontSize:12, fontWeight:800, color:'#64748b'}}>Electricity Reading (kWh)</label>
-                <input type="number" value={meterElec} onChange={e=>setMeterElec(e.target.value)} placeholder="e.g. 4502" style={{padding:'14px', borderRadius:12, border:'1.5px solid #e2e8f0', fontFamily:'inherit', fontSize:15, fontWeight:700}} />
-             </div>
-             <div style={{display:'flex', flexDirection:'column', gap:6}}>
-                <label style={{fontSize:12, fontWeight:800, color:'#64748b'}}>Water Reading (Liters/Units)</label>
-                <input type="number" value={meterWater} onChange={e=>setMeterWater(e.target.value)} placeholder="e.g. 120" style={{padding:'14px', borderRadius:12, border:'1.5px solid #e2e8f0', fontFamily:'inherit', fontSize:15, fontWeight:700}} />
-             </div>
-             <button 
-                onClick={()=>{
-                   if(!meterElec && !meterWater) return showToast("Please enter at least one reading", "warning");
-                   setMeterReadings([{id:Date.now(), room:meterRoom, elec:meterElec, water:meterWater, date:'Today'}, ...meterReadings]);
-                   setMeterElec(''); setMeterWater('');
-                   showToast("⚡ Reading synced to Admin successfully!", "success");
-                }}
-                style={{marginTop:8, padding:'14px', background:'#0891b2', color:'#fff', border:'none', borderRadius:12, fontSize:15, fontWeight:800, cursor:'pointer', fontFamily:'inherit'}}>
-                Sync to Admin ☁️
-             </button>
-          </div>
-
-          <h3 style={{margin:'8px 0 0 4px', fontSize:16, fontWeight:900, color:'#1a1500'}}>Recent Logs</h3>
-          <div style={{display:'flex', flexDirection:'column', gap:8}}>
-             {meterReadings.map(mr => (
-                <div key={mr.id} style={{background:'#f8fafc', borderRadius:12, padding:'12px', border:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                   <div>
-                      <p style={{margin:0, fontSize:14, fontWeight:900, color:'#0f172a'}}>{mr.room.startsWith('Room') ? mr.room : 'Area: ' + mr.room}</p>
-                      <p style={{margin:'4px 0 0', fontSize:12, fontWeight:700, color:'#64748b'}}>⚡ {mr.elec||'N/A'} &nbsp; 💧 {mr.water||'N/A'}</p>
-                   </div>
-                   <span style={{fontSize:11, fontWeight:700, color:'#94a3b8'}}>{mr.date}</span>
-                </div>
-             ))}
-          </div>
-
-        </div>
+        <ManagerMeterView 
+          adminId={user?.ownerUid || staffProfile?.ownerUid} 
+          pgId={activePgId || 'primary'} 
+          onBack={() => setView('home')} 
+          showToast={showToast} 
+        />
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════
