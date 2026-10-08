@@ -14,47 +14,61 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user && user.id) {
-      // Fetch latest assigned properties and ownerUid from staff_tokens
-      import('firebase/firestore').then(({ getDoc, doc, getFirestore }) => {
-        const tempDb = getFirestore();
-        getDoc(doc(tempDb, 'staff_tokens', user.id)).then(d => {
-          if (d.exists()) {
-            const data = d.data();
-            const assignedIds = Array.isArray(data.assignedPgs) && data.assignedPgs.length > 0 
-              ? data.assignedPgs 
-              : [data.pgId || 'primary'];
-            const assignedNames = Array.isArray(data.assignedPgNames) && data.assignedPgNames.length > 0 
-              ? data.assignedPgNames 
-              : [data.pgName || 'Primary PG'];
-            
-            const props = assignedIds.map((id, idx) => ({
-              id,
-              name: assignedNames[idx] || (id === 'primary' ? 'Primary PG' : `PG ${id.substring(0, 6)}`)
-            }));
+    if (!user || !user.id) return;
+    let unsub = () => {};
 
-            setAssignedProperties(props);
+    // Listen to real-time updates for staff token (e.g. delivery duty toggles, role updates, property assignment)
+    import('firebase/firestore').then(({ onSnapshot, doc, getFirestore }) => {
+      const tempDb = getFirestore();
+      unsub = onSnapshot(doc(tempDb, 'staff_tokens', user.id), (d) => {
+        if (d.exists()) {
+          const data = d.data();
+          const assignedIds = Array.isArray(data.assignedPgs) && data.assignedPgs.length > 0 
+            ? data.assignedPgs 
+            : [data.pgId || 'primary'];
+          const assignedNames = Array.isArray(data.assignedPgNames) && data.assignedPgNames.length > 0 
+            ? data.assignedPgNames 
+            : [data.pgName || 'Primary PG'];
+          
+          const props = assignedIds.map((id, idx) => ({
+            id,
+            name: assignedNames[idx] || (id === 'primary' ? 'Primary PG' : `PG ${id.substring(0, 6)}`)
+          }));
 
-            // Default activePgId if current one not in assigned
-            if (!assignedIds.includes(activePgId)) {
-              const defaultId = assignedIds[0] || 'primary';
-              setActivePgId(defaultId);
-              localStorage.setItem('febebo_staff_active_pg', defaultId);
-            }
+          setAssignedProperties(props);
 
-            const updated = { 
-              ...user, 
-              ownerUid: data.ownerUid || user.ownerUid,
-              assignedPgs: assignedIds,
-              assignedPgNames: assignedNames,
-              photoUrl: data.photoUrl || user.photoUrl
-            };
-            setUser(updated);
-            localStorage.setItem('febebo_user', JSON.stringify(updated));
+          // Default activePgId if current one not in assigned
+          if (!assignedIds.includes(activePgId)) {
+            const defaultId = assignedIds[0] || 'primary';
+            setActivePgId(defaultId);
+            localStorage.setItem('febebo_staff_active_pg', defaultId);
           }
-        });
+
+          const updated = { 
+            ...user, 
+            ownerUid: data.ownerUid || user.ownerUid,
+            assignedPgs: assignedIds,
+            assignedPgNames: assignedNames,
+            photoUrl: data.photoUrl || user.photoUrl,
+            staffRole: data.role || user.staffRole,
+            role: user.role || 'staff',
+            isDeliveryBoy: data.isDeliveryBoy ?? user.isDeliveryBoy,
+            name: data.name || user.name,
+            phone: data.phone || user.phone,
+            salary: data.salary ?? user.salary,
+            payDate: data.payDate ?? user.payDate,
+            hasProfile: data.hasProfile ?? user.hasProfile,
+            profileData: data.profileData || user.profileData || {}
+          };
+          setUser(updated);
+          localStorage.setItem('febebo_user', JSON.stringify(updated));
+        }
+      }, (err) => {
+        console.warn('Real-time staff token listener warning:', err.message);
       });
-    }
+    });
+
+    return () => unsub();
   }, [user?.id]);
 
   const switchPg = (newPgId) => {

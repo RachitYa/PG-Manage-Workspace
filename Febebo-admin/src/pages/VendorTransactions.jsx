@@ -4,7 +4,7 @@ import { db, auth } from '../firebase';
 import { collection, addDoc, getDocs, onSnapshot, query, where, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
 import { fetchAllAdminPgs } from '../utils/pgUtils';
-import { syncItemsToKitchenInventory, isKitchenRelatedCategory } from '../utils/inventorySync';
+import { syncItemsToKitchenInventory, isKitchenRelatedCategory, calculateItemTotal } from '../utils/inventorySync';
 
 // ─── Category-specific item lists (alphabetical) ──────────────────────────────
 const CATEGORY_ITEMS = {
@@ -155,7 +155,7 @@ function PurchaseModal({ vendor, pgList = [], defaultPgId = 'primary', onClose, 
   };
 
   const validRows = Object.entries(selected).filter(([, v]) => v.qty && v.rate);
-  const grandTotal = validRows.reduce((s, [, v]) => s + (parseFloat(v.qty) || 0) * (parseFloat(v.rate) || 0), 0);
+  const grandTotal = validRows.reduce((s, [, v]) => s + calculateItemTotal(v.qty, v.unit, v.rate), 0);
 
   const handleMakePurchase = () => {
     if (!validRows.length) return;
@@ -165,7 +165,7 @@ function PurchaseModal({ vendor, pgList = [], defaultPgId = 'primary', onClose, 
   const handlePaymentConfirm = (payInfo) => {
     const items = validRows.map(([name, v]) => ({
       item: name, qty: v.qty, unit: v.unit, rate: parseFloat(v.rate),
-      price: parseFloat(v.qty) * parseFloat(v.rate),
+      price: calculateItemTotal(v.qty, v.unit, v.rate),
     }));
     const matchedPg = pgList.find(p => p.id === selectedPgId);
     const pgName = matchedPg?.pgName || (selectedPgId === 'primary' ? 'Primary PG' : 'PG Property');
@@ -230,7 +230,7 @@ function PurchaseModal({ vendor, pgList = [], defaultPgId = 'primary', onClose, 
             {allItems.map(name => {
               const isSelected = !!selected[name];
               const v = selected[name] || {};
-              const rowTotal = isSelected ? (parseFloat(v.qty) || 0) * (parseFloat(v.rate) || 0) : 0;
+              const rowTotal = isSelected ? calculateItemTotal(v.qty, v.unit, v.rate) : 0;
               return (
                 <div key={name} style={{ display: 'grid', gridTemplateColumns: '28px 1fr 72px 60px 60px', gap: 6, alignItems: 'center', padding: '6px 4px', borderRadius: 8, background: isSelected ? '#f0fdfe' : 'transparent', border: isSelected ? '1px solid #a5f3fc' : '1px solid transparent', transition: 'all 0.15s' }}>
                   {/* Checkbox */}
@@ -257,7 +257,7 @@ function PurchaseModal({ vendor, pgList = [], defaultPgId = 'primary', onClose, 
                       style={{ padding: '5px 6px', border: '1.5px solid #e2e8f0', borderRadius: 7, fontSize: 12, fontWeight: 700, textAlign: 'center', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
                   ) : <span />}
                   {/* Total */}
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', textAlign: 'right' }}>{rowTotal > 0 ? `₹${rowTotal.toFixed(0)}` : '-'}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', textAlign: 'right' }}>{rowTotal > 0 ? (rowTotal % 1 === 0 ? `₹${rowTotal.toFixed(0)}` : `₹${rowTotal.toFixed(2)}`) : '-'}</span>
                 </div>
               );
             })}

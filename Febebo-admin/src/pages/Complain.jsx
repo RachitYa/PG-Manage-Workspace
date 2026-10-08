@@ -232,7 +232,9 @@ export default function Complain() {
 
       const matchesPg = (itemPgId) => {
         if (!activePgId || activePgId === 'all') return true;
-        if (!itemPgId || itemPgId === 'primary') return true;
+        if (activePgId === 'primary') {
+          return !itemPgId || itemPgId === 'primary' || itemPgId === user?.uid;
+        }
         return itemPgId === activePgId;
       };
 

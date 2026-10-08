@@ -161,6 +161,11 @@ export default function MessHeadcount() {
   const [menuHistoryList, setMenuHistoryList] = useState([]);
   const [loadingMenuHistory, setLoadingMenuHistory] = useState(false);
 
+  // Audit History Modal state
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const [auditSearchQuery, setAuditSearchQuery] = useState('');
+  const [deliveryOrders, setDeliveryOrders] = useState([]);
+
   // Broadcast modal state
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
   const [broadcastMeal, setBroadcastMeal] = useState('Lunch');
@@ -359,6 +364,20 @@ export default function MessHeadcount() {
     return () => unsub();
   }, [user?.uid]);
 
+  // ── 4c. Listen to delivery_orders collection for selectedDate ──────────────
+  useEffect(() => {
+    if (!user?.uid) return;
+    const qDeliv = query(
+      collection(db, 'delivery_orders'),
+      where('adminId', '==', user.uid),
+      where('date', '==', selectedDate)
+    );
+    const unsub = onSnapshot(qDeliv, (snap) => {
+      setDeliveryOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error('MessHeadcount delivery_orders error:', err));
+    return () => unsub();
+  }, [user?.uid, selectedDate]);
+
   // ── 5. Build Unified Student Meal Attendance List ──────────────────────────
   const students = useMemo(() => {
     return rawTenants.map(t => {
@@ -368,6 +387,16 @@ export default function MessHeadcount() {
       const isEatenS = !!eatenData[`${t.id}_snacks_eaten`];
       const isEatenD = !!eatenData[`${t.id}_dinner_eaten`];
 
+      const auditB = eatenData[`${t.id}_breakfast_audit`] || null;
+      const auditL = eatenData[`${t.id}_lunch_audit`] || null;
+      const auditS = eatenData[`${t.id}_snacks_audit`] || null;
+      const auditD = eatenData[`${t.id}_dinner_audit`] || null;
+
+      const delivB = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'breakfast') || null;
+      const delivL = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'lunch') || null;
+      const delivS = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'snacks') || null;
+      const delivD = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'dinner') || null;
+
       const isVacB = isStudentOnVacation(vacations, t.id, selectedDate, 'breakfast') || isMealPausedOnDate(t.foodVacation, selectedDate, 'breakfast');
       const isVacL = isStudentOnVacation(vacations, t.id, selectedDate, 'lunch') || isMealPausedOnDate(t.foodVacation, selectedDate, 'lunch');
       const isVacS = isStudentOnVacation(vacations, t.id, selectedDate, 'snacks') || isMealPausedOnDate(t.foodVacation, selectedDate, 'snacks');
@@ -376,11 +405,12 @@ export default function MessHeadcount() {
       const currentVac = getStudentActiveVacation(vacations, t.id, selectedDate) || t.foodVacation || null;
       const isFoodIncluded = t.foodIncluded !== false;
 
-      const getStatus = (isVac, isEaten, val) => {
+      const getStatus = (isVac, isEaten, val, delivOrder) => {
         if (!isFoodIncluded) return 'selfCooking';
         if (isVac) return 'onVacation';
         if (isEaten) return 'eaten';
         if (val === 'not_eating') return 'notEaten';
+        if (delivOrder || val === 'delivery') return 'delivery';
         if (val === 'pack') return 'pack';
         if (val === 'extra') return 'extra';
         return 'requested';
@@ -396,27 +426,38 @@ export default function MessHeadcount() {
         foodIncluded: isFoodIncluded,
         includedFoodPersons: t.includedFoodPersons || 1,
         foodVacation: currentVac,
-        statusB: getStatus(isVacB, isEatenB, mealLog?.breakfast),
-        statusL: getStatus(isVacL, isEatenL, mealLog?.lunch),
-        statusS: getStatus(isVacS, isEatenS, mealLog?.snacks),
-        statusD: getStatus(isVacD, isEatenD, mealLog?.dinner),
-        detailsB: mealLog?.breakfastDetails || '',
-        detailsL: mealLog?.lunchDetails || '',
-        detailsS: mealLog?.snacksDetails || '',
-        detailsD: mealLog?.dinnerDetails || '',
+        statusB: getStatus(isVacB, isEatenB, mealLog?.breakfast, delivB),
+        statusL: getStatus(isVacL, isEatenL, mealLog?.lunch, delivL),
+        statusS: getStatus(isVacS, isEatenS, mealLog?.snacks, delivS),
+        statusD: getStatus(isVacD, isEatenD, mealLog?.dinner, delivD),
+        auditB,
+        auditL,
+        auditS,
+        auditD,
+        delivB,
+        delivL,
+        delivS,
+        delivD,
+        detailsB: mealLog?.breakfastDetails || (delivB ? `🛵 Delivery: ${delivB.destination || delivB.destinationType}` : ''),
+        detailsL: mealLog?.lunchDetails || (delivL ? `🛵 Delivery: ${delivL.destination || delivL.destinationType}` : ''),
+        detailsS: mealLog?.snacksDetails || (delivS ? `🛵 Delivery: ${delivS.destination || delivS.destinationType}` : ''),
+        detailsD: mealLog?.dinnerDetails || (delivD ? `🛵 Delivery: ${delivD.destination || delivD.destinationType}` : ''),
       };
     });
-  }, [rawTenants, mealStatusLogs, eatenData, vacations, selectedDate]);
+  }, [rawTenants, mealStatusLogs, eatenData, vacations, deliveryOrders, selectedDate]);
 
   // ── 6. Filter Students for Current Meal Tab ────────────────────────────────
   const mealKey = mealTab === 'breakfast' ? 'statusB' : mealTab === 'lunch' ? 'statusL' : mealTab === 'snacks' ? 'statusS' : 'statusD';
   const detailsKey = mealTab === 'breakfast' ? 'detailsB' : mealTab === 'lunch' ? 'detailsL' : mealTab === 'snacks' ? 'detailsS' : 'detailsD';
+  const auditKey = mealTab === 'breakfast' ? 'auditB' : mealTab === 'lunch' ? 'auditL' : mealTab === 'snacks' ? 'auditS' : 'auditD';
+  const delivKey = mealTab === 'breakfast' ? 'delivB' : mealTab === 'lunch' ? 'delivL' : mealTab === 'snacks' ? 'delivS' : 'delivD';
 
   const statsCount = useMemo(() => {
     return {
       all: students.length,
       requested: students.filter(s => s[mealKey] === 'requested').length,
       pack: students.filter(s => s[mealKey] === 'pack').length,
+      delivery: students.filter(s => s[mealKey] === 'delivery').length,
       extra: students.filter(s => s[mealKey] === 'extra').length,
       eaten: students.filter(s => s[mealKey] === 'eaten').length,
       notEaten: students.filter(s => s[mealKey] === 'notEaten').length,
@@ -446,7 +487,18 @@ export default function MessHeadcount() {
     try {
       const docRef = doc(db, 'mess_headcount', `${pgDocId}_${selectedDate}`);
       const nextVal = !currentIsEaten;
-      await setDoc(docRef, { [`${studentId}_${mealTab}_eaten`]: nextVal }, { merge: true });
+      const updatePayload = { [`${studentId}_${mealTab}_eaten`]: nextVal };
+      if (nextVal) {
+        updatePayload[`${studentId}_${mealTab}_audit`] = {
+          confirmedVia: 'manual_admin',
+          markedByName: user?.name || user?.displayName || user?.email?.split('@')[0] || 'Admin',
+          markedByRole: 'Admin',
+          timestamp: new Date().toISOString()
+        };
+      } else {
+        updatePayload[`${studentId}_${mealTab}_audit`] = null;
+      }
+      await setDoc(docRef, updatePayload, { merge: true });
 
       // If marked eaten, send student a confirmation notification
       if (nextVal) {
@@ -878,29 +930,71 @@ export default function MessHeadcount() {
                 </div>
               </div>
 
-              <button
-                onClick={() => {
-                  setBroadcastMeal(mealTab.charAt(0).toUpperCase() + mealTab.slice(1));
-                  setShowBroadcastModal(true);
-                }}
-                style={{
-                  background: '#10b981',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '9px 14px',
-                  borderRadius: '12px',
-                  fontSize: '12px',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  boxShadow: '0 4px 12px rgba(16,185,129,0.3)'
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>notifications_active</span>
-                Alert All
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => navigate('/delivery-orders')}
+                  style={{
+                    background: '#ffedd5',
+                    color: '#c2410c',
+                    border: '1px solid #fed7aa',
+                    padding: '9px 12px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>two_wheeler</span>
+                  Delivery
+                </button>
+
+                <button
+                  onClick={() => navigate('/meal-audit-log', { state: { date: selectedDate, meal: mealTab } })}
+                  style={{
+                    background: '#ede9fe',
+                    color: '#6d28d9',
+                    border: '1px solid #ddd6fe',
+                    padding: '9px 13px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>fact_check</span>
+                  Audit Log
+                </button>
+
+                <button
+                  onClick={() => {
+                    setBroadcastMeal(mealTab.charAt(0).toUpperCase() + mealTab.slice(1));
+                    setShowBroadcastModal(true);
+                  }}
+                  style={{
+                    background: '#10b981',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '9px 14px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 4px 12px rgba(16,185,129,0.3)'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>notifications_active</span>
+                  Alert All
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1141,22 +1235,40 @@ export default function MessHeadcount() {
           })()}
 
           {/* Interactive Stat Breakdown Cards (Cook App style) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '8px' }}>
             <div
               onClick={() => setSelectedStatFilter(selectedStatFilter === 'pack' ? 'all' : 'pack')}
               style={{
                 background: selectedStatFilter === 'pack' ? '#fef08a' : '#ffffff',
                 border: `2px solid ${selectedStatFilter === 'pack' ? '#000' : '#e2e8f0'}`,
                 borderRadius: '14px',
-                padding: '12px',
+                padding: '12px 6px',
                 textAlign: 'center',
                 cursor: 'pointer',
                 transition: 'all 0.15s ease'
               }}
             >
-              <p style={{ fontSize: '24px', fontWeight: 900, color: '#000', margin: 0 }}>{statsCount.pack}</p>
-              <p style={{ fontSize: '11px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
-                📦 To Pack
+              <p style={{ fontSize: '22px', fontWeight: 900, color: '#000', margin: 0 }}>{statsCount.pack}</p>
+              <p style={{ fontSize: '10.5px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
+                📦 To Pack (Later)
+              </p>
+            </div>
+
+            <div
+              onClick={() => setSelectedStatFilter(selectedStatFilter === 'delivery' ? 'all' : 'delivery')}
+              style={{
+                background: selectedStatFilter === 'delivery' ? '#ede9fe' : '#ffffff',
+                border: `2px solid ${selectedStatFilter === 'delivery' ? '#000' : '#e2e8f0'}`,
+                borderRadius: '14px',
+                padding: '12px 6px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <p style={{ fontSize: '22px', fontWeight: 900, color: '#6d28d9', margin: 0 }}>{statsCount.delivery}</p>
+              <p style={{ fontSize: '10.5px', fontWeight: 800, color: '#6d28d9', margin: '2px 0 0', textTransform: 'uppercase' }}>
+                🛵 Delivery (Tiffin)
               </p>
             </div>
 
@@ -1166,14 +1278,14 @@ export default function MessHeadcount() {
                 background: selectedStatFilter === 'extra' ? '#cffafe' : '#ffffff',
                 border: `2px solid ${selectedStatFilter === 'extra' ? '#000' : '#e2e8f0'}`,
                 borderRadius: '14px',
-                padding: '12px',
+                padding: '12px 6px',
                 textAlign: 'center',
                 cursor: 'pointer',
                 transition: 'all 0.15s ease'
               }}
             >
-              <p style={{ fontSize: '24px', fontWeight: 900, color: '#000', margin: 0 }}>{statsCount.extra}</p>
-              <p style={{ fontSize: '11px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
+              <p style={{ fontSize: '22px', fontWeight: 900, color: '#000', margin: 0 }}>{statsCount.extra}</p>
+              <p style={{ fontSize: '10.5px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
                 ➕ Extra Plate
               </p>
             </div>
@@ -1303,6 +1415,8 @@ export default function MessHeadcount() {
                   const currentStatus = s[mealKey];
                   const isEaten = currentStatus === 'eaten';
                   const details = s[detailsKey];
+                  const audit = s[auditKey];
+                  const deliv = s[delivKey];
 
                   return (
                     <div
@@ -1368,12 +1482,36 @@ export default function MessHeadcount() {
                               textTransform: 'uppercase',
                               padding: '2px 8px',
                               borderRadius: '6px',
-                              background: isEaten ? '#dcfce7' : currentStatus === 'selfCooking' ? '#fff7ed' : currentStatus === 'onVacation' ? '#f5f3ff' : currentStatus === 'notEaten' ? '#fee2e2' : currentStatus === 'pack' ? '#fef08a' : currentStatus === 'extra' ? '#cffafe' : '#fef9c3',
-                              color: isEaten ? '#166534' : currentStatus === 'selfCooking' ? '#ea580c' : currentStatus === 'onVacation' ? '#7c3aed' : currentStatus === 'notEaten' ? '#991b1b' : currentStatus === 'pack' ? '#854d0e' : currentStatus === 'extra' ? '#0e7490' : '#854d0e',
-                              border: currentStatus === 'selfCooking' ? '1px solid #fed7aa' : currentStatus === 'onVacation' ? '1px solid #ddd6fe' : 'none'
+                              background: isEaten ? '#dcfce7' : currentStatus === 'selfCooking' ? '#fff7ed' : currentStatus === 'onVacation' ? '#f5f3ff' : currentStatus === 'delivery' ? '#ede9fe' : currentStatus === 'notEaten' ? '#fee2e2' : currentStatus === 'pack' ? '#fef08a' : currentStatus === 'extra' ? '#cffafe' : '#fef9c3',
+                              color: isEaten ? '#166534' : currentStatus === 'selfCooking' ? '#ea580c' : currentStatus === 'onVacation' ? '#7c3aed' : currentStatus === 'delivery' ? '#6d28d9' : currentStatus === 'notEaten' ? '#991b1b' : currentStatus === 'pack' ? '#854d0e' : currentStatus === 'extra' ? '#0e7490' : '#854d0e',
+                              border: currentStatus === 'selfCooking' ? '1px solid #fed7aa' : currentStatus === 'onVacation' ? '1px solid #ddd6fe' : currentStatus === 'delivery' ? '1px solid #c4b5fd' : 'none'
                             }}>
-                              {isEaten ? 'Eaten ✅' : currentStatus === 'selfCooking' ? '🍳 Self-Cooking' : currentStatus === 'onVacation' ? '🏖️ On Leave' : currentStatus === 'notEaten' ? 'Not Eaten' : currentStatus === 'pack' ? 'To Pack 📦' : currentStatus === 'extra' ? 'Extra Plate ➕' : 'Requested'}
+                              {isEaten ? 'Eaten ✅' : currentStatus === 'selfCooking' ? '🍳 Self-Cooking' : currentStatus === 'onVacation' ? '🏖️ On Leave' : currentStatus === 'delivery' ? '🛵 Tiffin Delivery' : currentStatus === 'notEaten' ? 'Not Eaten' : currentStatus === 'pack' ? 'To Pack 📦' : currentStatus === 'extra' ? 'Extra Plate ➕' : 'Requested'}
                             </span>
+
+                            {/* Audit verification badge if eaten */}
+                            {isEaten && audit && (
+                              <span style={{
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                padding: '2px 7px',
+                                borderRadius: '6px',
+                                background: audit.confirmedVia === 'counter_qr' ? '#ecfdf5' : audit.confirmedVia === 'delivery_qr' ? '#f5f3ff' : audit.confirmedVia === 'delivery_boy' ? '#eff6ff' : audit.confirmedVia === 'manual_cook' ? '#fffbeb' : audit.confirmedVia === 'manual_manager' ? '#eef2ff' : '#f8fafc',
+                                color: audit.confirmedVia === 'counter_qr' ? '#047857' : audit.confirmedVia === 'delivery_qr' ? '#6d28d9' : audit.confirmedVia === 'delivery_boy' ? '#0284c7' : audit.confirmedVia === 'manual_cook' ? '#b45309' : audit.confirmedVia === 'manual_manager' ? '#4338ca' : '#334155',
+                                border: `1px solid ${audit.confirmedVia === 'counter_qr' ? '#a7f3d0' : audit.confirmedVia === 'delivery_qr' ? '#ddd6fe' : audit.confirmedVia === 'delivery_boy' ? '#bae6fd' : audit.confirmedVia === 'manual_cook' ? '#fde68a' : audit.confirmedVia === 'manual_manager' ? '#c7d2fe' : '#cbd5e1'}`,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>
+                                  {audit.confirmedVia === 'counter_qr' ? 'qr_code_scanner' : audit.confirmedVia === 'delivery_qr' ? 'two_wheeler' : audit.confirmedVia === 'delivery_boy' ? 'local_shipping' : audit.confirmedVia === 'manual_cook' ? 'soup_kitchen' : audit.confirmedVia === 'manual_manager' ? 'shield_person' : 'admin_panel_settings'}
+                                </span>
+                                <span>
+                                  {audit.confirmedVia === 'counter_qr' ? 'Mess QR Scan' : audit.confirmedVia === 'delivery_qr' ? `Delivery QR (${audit.markedByName || 'Staff'})` : audit.confirmedVia === 'delivery_boy' ? `Delivered: ${audit.markedByName || 'Staff'}` : audit.confirmedVia === 'manual_cook' ? `Cook: ${audit.markedByName || 'Cook'}` : audit.confirmedVia === 'manual_manager' ? `Manager: ${audit.markedByName || 'Manager'}` : `Admin: ${audit.markedByName || 'Admin'}`}
+                                  {audit.timestamp ? ` · ${new Date(audit.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                </span>
+                              </span>
+                            )}
 
                             {s.includedFoodPersons > 1 && s.foodIncluded && (
                               <span style={{ fontSize: '10px', fontWeight: 800, color: '#0369a1', background: '#e0f2fe', padding: '2px 6px', borderRadius: '4px', border: '1px solid #bae6fd' }}>
@@ -2535,6 +2673,207 @@ export default function MessHeadcount() {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* ── HEADCOUNT AUDIT & VERIFICATION HISTORY MODAL ─────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {showAuditModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15,23,42,0.6)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 1001,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '24px',
+            width: '100%',
+            maxWidth: '620px',
+            maxHeight: '88vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+            overflow: 'hidden',
+            animation: 'fadeInDown 0.2s ease'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '18px 20px',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: '#ffffff'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#ecfdf5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '24px' }}>fact_check</span>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
+                    Meal Audit Log: {mealTab.toUpperCase()}
+                  </h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b' }}>
+                    {selectedDate} · Verification trail (Counter QR, Delivery QR, Cook & Admin)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAuditModal(false)}
+                style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>close</span>
+              </button>
+            </div>
+
+            {/* Verification Stats Summary */}
+            <div style={{ padding: '14px 20px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                <div style={{ background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#16a34a' }}>{statsCount.eaten}</p>
+                  <p style={{ margin: '2px 0 0', fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Total Eaten</p>
+                </div>
+                <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#047857' }}>
+                    {students.filter(s => s[auditKey]?.confirmedVia === 'counter_qr').length}
+                  </p>
+                  <p style={{ margin: '2px 0 0', fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Mess QR</p>
+                </div>
+                <div style={{ background: '#ffffff', border: '1px solid #ddd6fe', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#7c3aed' }}>
+                    {students.filter(s => s[auditKey]?.confirmedVia === 'delivery_qr' || s[auditKey]?.confirmedVia === 'delivery_boy').length}
+                  </p>
+                  <p style={{ margin: '2px 0 0', fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Delivery Scans</p>
+                </div>
+                <div style={{ background: '#ffffff', border: '1px solid #fed7aa', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#ea580c' }}>
+                    {students.filter(s => s[auditKey]?.confirmedVia && s[auditKey]?.confirmedVia.startsWith('manual_')).length}
+                  </p>
+                  <p style={{ margin: '2px 0 0', fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Manual Staff</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Search within Audit */}
+            <div style={{ padding: '12px 20px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f1f5f9', borderRadius: '10px', padding: '6px 12px', border: '1px solid #e2e8f0' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#94a3b8' }}>search</span>
+                <input
+                  type="text"
+                  placeholder="Filter student in audit log..."
+                  value={auditSearchQuery}
+                  onChange={e => setAuditSearchQuery(e.target.value)}
+                  style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '12px', fontWeight: 600, width: '100%' }}
+                />
+              </div>
+            </div>
+
+            {/* Audit Log Entries List */}
+            <div style={{ padding: '14px 20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {(() => {
+                const list = students.filter(s => {
+                  if (!auditSearchQuery.trim()) return true;
+                  const q = auditSearchQuery.toLowerCase();
+                  return (s.name || '').toLowerCase().includes(q) || String(s.room || '').toLowerCase().includes(q);
+                });
+
+                if (list.length === 0) {
+                  return (
+                    <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>
+                      <p style={{ margin: 0, fontSize: '13px', fontWeight: 600 }}>No matching students</p>
+                    </div>
+                  );
+                }
+
+                return list.map(s => {
+                  const currentStatus = s[mealKey];
+                  const isEaten = currentStatus === 'eaten';
+                  const audit = s[auditKey];
+                  const deliv = s[delivKey];
+
+                  return (
+                    <div
+                      key={s.id}
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '12px',
+                        padding: '10px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px'
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a' }}>{s.name}</span>
+                          <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>R-{s.room}</span>
+                        </div>
+
+                        <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          {isEaten && audit ? (
+                            <span style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              padding: '2px 7px',
+                              borderRadius: '6px',
+                              background: audit.confirmedVia === 'counter_qr' ? '#ecfdf5' : audit.confirmedVia === 'delivery_qr' ? '#f5f3ff' : audit.confirmedVia === 'delivery_boy' ? '#eff6ff' : '#fffbeb',
+                              color: audit.confirmedVia === 'counter_qr' ? '#047857' : audit.confirmedVia === 'delivery_qr' ? '#6d28d9' : audit.confirmedVia === 'delivery_boy' ? '#0284c7' : '#b45309',
+                              border: '1px solid rgba(0,0,0,0.06)'
+                            }}>
+                              {audit.confirmedVia === 'counter_qr' ? '🤳 Counter QR Scanned' : audit.confirmedVia === 'delivery_qr' ? `🛵 Delivery QR (${audit.markedByName || 'Staff'})` : audit.confirmedVia === 'delivery_boy' ? `📦 Marked Delivered: ${audit.markedByName || 'Staff'}` : `✍️ ${audit.markedByRole || 'Staff'}: ${audit.markedByName || 'User'}`}
+                              {audit.timestamp ? ` · ${new Date(audit.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                            </span>
+                          ) : isEaten ? (
+                            <span style={{ fontSize: '10px', fontWeight: 700, background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: '4px' }}>
+                              ✅ Eaten (Legacy / Untracked)
+                            </span>
+                          ) : currentStatus === 'delivery' ? (
+                            <span style={{ fontSize: '10px', fontWeight: 700, background: '#ede9fe', color: '#6d28d9', padding: '2px 6px', borderRadius: '4px' }}>
+                              🛵 Tiffin Delivery {deliv ? `(${deliv.destination || deliv.destinationType})` : ''}
+                            </span>
+                          ) : currentStatus === 'pack' ? (
+                            <span style={{ fontSize: '10px', fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px' }}>
+                              📦 Pack for Later (Takeaway)
+                            </span>
+                          ) : currentStatus === 'onVacation' ? (
+                            <span style={{ fontSize: '10px', fontWeight: 700, background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px' }}>
+                              🏖️ On Food Leave
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '10px', fontWeight: 700, background: '#f1f5f9', color: '#64748b', padding: '2px 6px', borderRadius: '4px' }}>
+                              {currentStatus === 'extra' ? '➕ Extra Plate' : currentStatus === 'notEaten' ? '❌ Not Eating' : '⏳ Requested (Not Eaten)'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          padding: '4px 8px',
+                          borderRadius: '8px',
+                          background: isEaten ? '#dcfce7' : '#f1f5f9',
+                          color: isEaten ? '#166534' : '#64748b'
+                        }}>
+                          {isEaten ? 'CONFIRMED' : 'PENDING'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         </div>

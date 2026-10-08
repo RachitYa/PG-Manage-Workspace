@@ -11,6 +11,17 @@ import {
 import { Geolocation } from '@capacitor/geolocation';
 import { doc, getDoc, setDoc, addDoc, collection } from 'firebase/firestore';
 import { db } from '../firebase';
+import { fetchAllAdminPgs } from '../utils/pgUtils';
+
+function cleanPhone(raw) {
+  if (!raw) return '';
+  const digits = String(raw).replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
+  if (digits.length === 11 && digits.startsWith('0')) return digits.slice(1);
+  if (digits.length > 10) return digits.slice(-10);
+  return digits;
+}
+
 
 // ── Custom Dropdown ────────────────────────────────────────────────────────────
 function CustomSelect({ options, value, onChange, placeholder }) {
@@ -173,6 +184,7 @@ export default function CreatePGProfile() {
   const { user, completeProfile, activePgId } = useAuth();
   const [searchParams] = useSearchParams();
   const isNewPgMode = searchParams.get('mode') === 'new'; // Adding a 2nd/3rd PG, not first-time setup
+  const isAdditionalPg = isNewPgMode || Boolean(user?.hasProfile);
 
   const [isOnLease, setIsOnLease] = useState(false);
   const [selectedAmenities, setSelectedAmenities] = useState([]);
@@ -202,12 +214,13 @@ export default function CreatePGProfile() {
   const [description, setDescription] = useState('');
   const [rules, setRules] = useState('');
 
-  // Admin Personal Info
-  const [adminName, setAdminName] = useState(user?.name || '');
-  const [profileImage, setProfileImage] = useState(null);
-  const [adminPhone, setAdminPhone] = useState('');
+  // Admin Personal Info (Pre-filled from old data)
+  const [adminName, setAdminName] = useState(user?.name && user.name !== 'Admin User' ? user.name : '');
+  const [profileImage, setProfileImage] = useState(user?.photoURL || null);
+  const [adminPhone, setAdminPhone] = useState(cleanPhone(user?.phone || user?.phoneNumber || ''));
   const [adminEmail, setAdminEmail] = useState(user?.email || '');
-  const [adminDob, setAdminDob] = useState('');
+  const [adminDob, setAdminDob] = useState(user?.dob || '');
+  const [showEditPersonalDetails, setShowEditPersonalDetails] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [lat, setLat] = useState(null);
   const [lng, setLng] = useState(null);
@@ -220,42 +233,105 @@ export default function CreatePGProfile() {
 
   // Auto-fill existing admin personal details from previous registrations/profile
   React.useEffect(() => {
+    let isMounted = true;
+
     const loadAdminDetails = async () => {
       if (!user?.uid) return;
       try {
-        // 1. Try primary PG owner document
-        const pgSnap = await getDoc(doc(db, 'pg_owners', user.uid));
-        if (pgSnap.exists()) {
-          const d = pgSnap.data();
-          if (d.adminName) setAdminName(prev => prev || d.adminName);
-          if (d.phone) setAdminPhone(prev => prev || d.phone);
-          if (d.email) setAdminEmail(prev => prev || d.email);
-          if (d.dob) setAdminDob(prev => prev || d.dob);
-          if (d.profileImage) setProfileImage(prev => prev || d.profileImage);
+        let foundName = '';
+        let foundPhone = '';
+        let foundEmail = '';
+        let foundDob = '';
+        let foundPhoto = null;
+
+        const ingest = (d) => {
+          if (!d) return;
+          const candidateName = d.adminName || d.name || d.ownerName || d.fullName;
+          if (candidateName && candidateName.trim() && candidateName.trim() !== 'Admin User') {
+            if (!foundName || foundName === 'Admin User') {
+              foundName = candidateName.trim();
+            }
+          } else if (!foundName && candidateName) {
+            foundName = candidateName.trim();
+          }
+
+          const rawPhone = d.phone || d.adminPhone || d.phoneNumber || d.contact || d.mobile;
+          const cleaned = cleanPhone(rawPhone);
+          if (cleaned && cleaned.length === 10) {
+            foundPhone = cleaned;
+          } else if (!foundPhone && cleaned) {
+            foundPhone = cleaned;
+          }
+
+          if (d.email || d.adminEmail) {
+            foundEmail = foundEmail || d.email || d.adminEmail;
+          }
+          if (d.dob || d.adminDob || d.dateOfBirth) {
+            foundDob = foundDob || d.dob || d.adminDob || d.dateOfBirth;
+          }
+          if (d.profileImage || d.photoURL) {
+            foundPhoto = foundPhoto || d.profileImage || d.photoURL;
+          }
+        };
+
+        // 1. Try active PG document if available
+        if (activePgId && activePgId !== 'primary') {
+          try {
+            const activeSnap = await getDoc(doc(db, 'pg_owners', activePgId));
+            if (activeSnap.exists()) ingest(activeSnap.data());
+          } catch (e) {}
         }
 
-        // 2. Also check admins doc
-        const adminSnap = await getDoc(doc(db, 'admins', user.uid));
-        if (adminSnap.exists()) {
-          const d = adminSnap.data();
-          if (d.name) setAdminName(prev => prev || d.name);
-          if (d.phone) setAdminPhone(prev => prev || d.phone);
-          if (d.email) setAdminEmail(prev => prev || d.email);
-          if (d.dob) setAdminDob(prev => prev || d.dob);
-        }
+        // 2. Try primary pg_owners document
+        try {
+          const pgSnap = await getDoc(doc(db, 'pg_owners', user.uid));
+          if (pgSnap.exists()) ingest(pgSnap.data());
+        } catch (e) {}
 
-        // 3. Fallback to auth user object
-        if (user.name) setAdminName(prev => prev || user.name);
-        if (user.phone || user.phoneNumber) setAdminPhone(prev => prev || user.phone || user.phoneNumber);
-        if (user.email) setAdminEmail(prev => prev || user.email);
-        if (user.dob) setAdminDob(prev => prev || user.dob);
+        // 3. Try admins collection document
+        try {
+          const adminSnap = await getDoc(doc(db, 'admins', user.uid));
+          if (adminSnap.exists()) ingest(adminSnap.data());
+        } catch (e) {}
+
+        // 4. Try pg_profiles document
+        try {
+          const profSnap = await getDoc(doc(db, 'pg_profiles', user.uid));
+          if (profSnap.exists()) ingest(profSnap.data());
+        } catch (e) {}
+
+        // 5. Try all registered PGs by this admin via fetchAllAdminPgs
+        try {
+          const allPgs = await fetchAllAdminPgs(user);
+          for (const p of allPgs) {
+            if (p.raw) ingest(p.raw);
+          }
+        } catch (e) {}
+
+        // 6. Ingest auth user object
+        ingest({
+          name: user.name || user.displayName,
+          phone: user.phone || user.phoneNumber,
+          email: user.email,
+          dob: user.dob,
+          profileImage: user.photoURL || user.profileImage
+        });
+
+        if (!isMounted) return;
+
+        if (foundName) setAdminName(foundName);
+        if (foundPhone) setAdminPhone(foundPhone);
+        if (foundEmail) setAdminEmail(foundEmail);
+        if (foundDob) setAdminDob(foundDob);
+        if (foundPhoto) setProfileImage(foundPhoto);
       } catch (err) {
         console.warn("Could not auto-fill admin details:", err);
       }
     };
 
     loadAdminDetails();
-  }, [user]);
+    return () => { isMounted = false; };
+  }, [user, activePgId]);
 
   const handleGetLocation = async () => {
     try {
@@ -439,8 +515,10 @@ export default function CreatePGProfile() {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (adminPhone.replace(/\D/g, '').length !== 10) {
-       setErrorMsg("Phone number must be exactly 10 digits.");
+    const cleanedPhone = cleanPhone(adminPhone);
+    if (!cleanedPhone || cleanedPhone.length !== 10) {
+       setShowEditPersonalDetails(true);
+       setErrorMsg("Please provide a valid 10-digit phone number.");
        setTimeout(() => setErrorMsg(''), 4000);
        window.scrollTo({ top: 0, behavior: 'smooth' });
        return;
@@ -459,13 +537,18 @@ export default function CreatePGProfile() {
 
     setIsSaving(true);
     try {
+      const effectiveAdminName = adminName?.trim() || (user?.name !== 'Admin User' ? user?.name : '') || user?.displayName || 'Admin';
+      const effectiveEmail = adminEmail?.trim() || user?.email || '';
+
       const pgData = {
         adminId: user.uid,
-        adminName: adminName,
-        profileImage: profileImage,
-        phone: adminPhone,
-        email: adminEmail,
-        dob: adminDob,
+        ownerUid: user.uid,
+        userId: user.uid,
+        adminName: effectiveAdminName,
+        profileImage: profileImage || null,
+        phone: cleanedPhone,
+        email: effectiveEmail,
+        dob: adminDob || '',
         pgName: pgName,
         pgType: pgType,
         description: description,
@@ -495,12 +578,16 @@ export default function CreatePGProfile() {
         createdAt: new Date().toISOString()
       };
 
-      if (isNewPgMode) {
+      // Safeguard: Check if primary doc already exists in Firestore
+      const primaryDocSnap = await getDoc(doc(db, 'pg_owners', user.uid)).catch(() => null);
+      const isActuallyAdditional = isAdditionalPg || (primaryDocSnap && primaryDocSnap.exists());
+
+      if (isActuallyAdditional) {
         // Adding a new additional PG → save to top-level collection so Student App can see it
         await addDoc(collection(db, 'pg_owners'), pgData);
         setShowPgSuccess(true); // Show themed success screen instead of browser alert
       } else {
-        // First-time PG setup → overwrite primary doc as before
+        // First-time PG setup → save primary doc
         await setDoc(doc(db, 'pg_owners', user.uid), pgData);
         if (completeProfile) {
           completeProfile();
@@ -703,10 +790,10 @@ export default function CreatePGProfile() {
         backdropFilter: 'blur(16px)',
         borderBottom: '1px solid rgba(255,255,255,0.3)',
         padding: '20px 24px',
-         display: 'flex', alignItems: 'center', gap: 12
-      , paddingTop: 'calc(44px + env(safe-area-inset-top, 0px))'}}>
-        {isNewPgMode && (
-          <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}>
+        display: 'flex', alignItems: 'center', gap: 12,
+        paddingTop: 'calc(44px + env(safe-area-inset-top, 0px))'}}>
+        {isAdditionalPg && (
+          <button type="button" onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#0891b2' }}>arrow_back</span>
           </button>
         )}
@@ -714,7 +801,7 @@ export default function CreatePGProfile() {
           fontFamily: "'Bricolage Grotesque',sans-serif",
           fontSize: 24, fontWeight: 900, color: '#0891b2',
           margin: 0, letterSpacing: -0.5
-        }}>{isNewPgMode ? 'Add New PG' : 'Profile Setup'}</h1>
+        }}>{isAdditionalPg ? 'Add New PG' : 'Profile Setup'}</h1>
       </div>
 
       {errorMsg && (
@@ -743,41 +830,141 @@ export default function CreatePGProfile() {
         <form onSubmit={handleSave}>
 
           {/* 0. Personal Information */}
-          <div className="card-container">
-            <h2 className="section-title">Personal Information</h2>
+          {isAdditionalPg ? (
+            <div className="card-container" style={{
+              background: 'linear-gradient(135deg, #ffffff 0%, #f0fdfa 100%)',
+              border: '1.5px solid #ccfbf1',
+              boxShadow: '0 4px 16px rgba(13,148,136,0.06)',
+              marginBottom: 24
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  {profileImage ? (
+                    <img 
+                      src={profileImage} 
+                      alt={adminName} 
+                      style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', border: '2px solid #0891b2' }} 
+                    />
+                  ) : (
+                    <div style={{ 
+                      width: 48, height: 48, borderRadius: '50%', 
+                      background: 'linear-gradient(135deg, #0891b2, #0e7490)', 
+                      color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                      fontWeight: 800, fontSize: 18, boxShadow: '0 4px 12px rgba(8,145,178,0.25)' 
+                    }}>
+                      {(adminName || 'A')[0]?.toUpperCase()}
+                    </div>
+                  )}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
+                        {adminName || 'Admin'}
+                      </span>
+                      <span style={{ 
+                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, 
+                        background: '#dcfce7', color: '#15803d', display: 'inline-flex', alignItems: 'center', gap: 4 
+                      }}>
+                        <Check size={12} strokeWidth={3} /> Pre-filled from profile
+                      </span>
+                    </div>
+                    <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b', fontWeight: 500 }}>
+                      {[adminPhone ? `+91 ${cleanPhone(adminPhone)}` : '', adminEmail].filter(Boolean).join(' • ')}
+                    </p>
+                  </div>
+                </div>
 
-            <div style={{ marginBottom: 20 }}>
-              <label className="label">Admin Name <span style={{color: '#ef4444'}}>*</span></label>
-              <div className="input-icon-wrapper">
-                <input type="text" className="aesthetic-input" placeholder="Your Full Name" value={adminName} onChange={e => setAdminName(e.target.value)} required />
-                <User size={20} className="icon" />
+                <button
+                  type="button"
+                  onClick={() => setShowEditPersonalDetails(prev => !prev)}
+                  style={{
+                    background: showEditPersonalDetails ? '#e2e8f0' : '#f0fdf4',
+                    border: '1px solid #bbf7d0',
+                    color: '#166534',
+                    padding: '6px 12px',
+                    borderRadius: 10,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    flexShrink: 0
+                  }}
+                >
+                  {showEditPersonalDetails ? 'Hide' : 'Edit'}
+                </button>
+              </div>
+
+              {showEditPersonalDetails && (
+                <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px dashed #cbd5e1' }}>
+                  <div style={{ marginBottom: 16 }}>
+                    <label className="label">Admin Name</label>
+                    <div className="input-icon-wrapper">
+                      <input type="text" className="aesthetic-input" placeholder="Your Full Name" value={adminName} onChange={e => setAdminName(e.target.value)} />
+                      <User size={20} className="icon" />
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 16 }}>
+                    <label className="label">Phone Number</label>
+                    <div className="input-icon-wrapper">
+                      <input type="tel" className="aesthetic-input" placeholder="10-digit mobile number" value={adminPhone} onChange={e => setAdminPhone(e.target.value)} />
+                      <Phone size={20} className="icon" />
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 16 }}>
+                    <label className="label">Email Address (Read-Only)</label>
+                    <div className="input-icon-wrapper">
+                      <input type="email" className="aesthetic-input" value={adminEmail} readOnly style={{ background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }} />
+                      <Mail size={20} className="icon" style={{ color: '#cbd5e1' }} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label">Date of Birth</label>
+                    <div className="input-icon-wrapper">
+                      <input type="date" className="aesthetic-input" value={adminDob} onChange={e => setAdminDob(e.target.value)} />
+                      <Calendar size={20} className="icon" />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="card-container">
+              <h2 className="section-title">Personal Information</h2>
+
+              <div style={{ marginBottom: 20 }}>
+                <label className="label">Admin Name <span style={{color: '#ef4444'}}>*</span></label>
+                <div className="input-icon-wrapper">
+                  <input type="text" className="aesthetic-input" placeholder="Your Full Name" value={adminName} onChange={e => setAdminName(e.target.value)} required />
+                  <User size={20} className="icon" />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label className="label">Phone Number <span style={{color: '#ef4444'}}>*</span></label>
+                <div className="input-icon-wrapper">
+                  <input type="tel" className="aesthetic-input" placeholder="+91 XXXXX XXXXX" value={adminPhone} onChange={e => setAdminPhone(e.target.value)} required />
+                  <Phone size={20} className="icon" />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label className="label">Email Address (Read-Only)</label>
+                <div className="input-icon-wrapper">
+                  <input type="email" className="aesthetic-input" value={adminEmail} readOnly style={{ background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }} />
+                  <Mail size={20} className="icon" style={{ color: '#cbd5e1' }} />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <label className="label">Date of Birth</label>
+                <div className="input-icon-wrapper">
+                  <input type="date" className="aesthetic-input" value={adminDob} onChange={e => setAdminDob(e.target.value)} />
+                  <Calendar size={20} className="icon" />
+                </div>
               </div>
             </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <label className="label">Phone Number <span style={{color: '#ef4444'}}>*</span></label>
-              <div className="input-icon-wrapper">
-                <input type="tel" className="aesthetic-input" placeholder="+91 XXXXX XXXXX" value={adminPhone} onChange={e => setAdminPhone(e.target.value)} required />
-                <Phone size={20} className="icon" />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <label className="label">Email Address (Read-Only)</label>
-              <div className="input-icon-wrapper">
-                <input type="email" className="aesthetic-input" value={adminEmail} readOnly style={{ background: '#f1f5f9', color: '#94a3b8', cursor: 'not-allowed' }} />
-                <Mail size={20} className="icon" style={{ color: '#cbd5e1' }} />
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <label className="label">Date of Birth</label>
-              <div className="input-icon-wrapper">
-                <input type="date" className="aesthetic-input" value={adminDob} onChange={e => setAdminDob(e.target.value)} />
-                <Calendar size={20} className="icon" />
-              </div>
-            </div>
-          </div>
+          )}
 
           {/* PG DETAILS CARD */}
           <div className="card-container">

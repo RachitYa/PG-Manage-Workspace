@@ -244,8 +244,10 @@ function UserListView({ onBack, onAdd, onSelect, initialTab = 'Current User' }) 
     const fetchUsers = async () => {
       try {
         const matchesPg = (itemPgId) => {
-          if (!activePgId || activePgId === 'primary') return true;
-          return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+          if (!activePgId || activePgId === 'primary') {
+            return !itemPgId || itemPgId === 'primary' || itemPgId === user.uid;
+          }
+          return itemPgId === activePgId;
         };
 
         const rSnap = await getDocs(query(collection(db, 'rooms'), where('adminId', '==', user.uid)));

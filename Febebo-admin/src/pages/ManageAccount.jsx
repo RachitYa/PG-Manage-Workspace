@@ -149,8 +149,10 @@ function PettyCashView({ onBack }) {
     if (!user?.uid) return;
     
     const matchesPg = (itemPgId) => {
-      if (!activePgId || activePgId === 'primary') return true;
-      return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+      if (!activePgId || activePgId === 'primary') {
+        return !itemPgId || itemPgId === 'primary' || itemPgId === user.uid;
+      }
+      return itemPgId === activePgId;
     };
 
     // Fetch Staff List
@@ -461,8 +463,10 @@ export default function ManageAccount() {
         setLoadingRents(true);
         try {
           const matchesPg = (itemPgId) => {
-            if (!activePgId || activePgId === 'primary') return true;
-            return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+            if (!activePgId || activePgId === 'primary') {
+              return !itemPgId || itemPgId === 'primary' || itemPgId === user.uid;
+            }
+            return itemPgId === activePgId;
           };
 
           const now = new Date();
@@ -925,8 +929,10 @@ export default function ManageAccount() {
         setLoadingUsers(true);
         try {
           const matchesPg = (itemPgId) => {
-            if (!activePgId || activePgId === 'primary') return true;
-            return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+            if (!activePgId || activePgId === 'primary') {
+              return !itemPgId || itemPgId === 'primary' || itemPgId === user.uid;
+            }
+            return itemPgId === activePgId;
           };
           const q = query(collection(db, 'tenants'), where('adminId', '==', user.uid));
           const snap = await getDocs(q);
@@ -989,8 +995,10 @@ export default function ManageAccount() {
         setLoadingStaff(true);
         try {
           const matchesPg = (itemPgId) => {
-            if (!activePgId || activePgId === 'primary') return true;
-            return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+            if (!activePgId || activePgId === 'primary') {
+              return !itemPgId || itemPgId === 'primary' || itemPgId === user.uid;
+            }
+            return itemPgId === activePgId;
           };
           const q = query(collection(db, 'staff_tokens'), where('ownerUid', '==', user.uid));
           const snap = await getDocs(q);
@@ -1011,8 +1019,10 @@ export default function ManageAccount() {
       const fetchData = async () => {
         try {
           const matchesPg = (itemPgId) => {
-            if (!activePgId || activePgId === 'primary') return true;
-            return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+            if (!activePgId || activePgId === 'primary') {
+              return !itemPgId || itemPgId === 'primary' || itemPgId === user.uid;
+            }
+            return itemPgId === activePgId;
           };
           // Fetch Salaries
           const qSalaries = query(collection(db, 'staff_salaries'), where('adminId', '==', user.uid), where('staffId', '==', selectedStaff.id));
@@ -1044,8 +1054,10 @@ export default function ManageAccount() {
     setLoadingProfitLoss(true);
 
     const matchesPgItem = (itemPgId) => {
-      if (!activePgId || activePgId === 'primary') return true;
-      return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+      if (!activePgId || activePgId === 'primary') {
+        return !itemPgId || itemPgId === 'primary' || itemPgId === user.uid;
+      }
+      return itemPgId === activePgId;
     };
 
     let rentDocs = [];

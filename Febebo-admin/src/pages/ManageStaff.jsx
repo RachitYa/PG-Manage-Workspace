@@ -19,6 +19,7 @@ const ROLE_GROUPS = [
     label: 'Daily Services',
     roles: [
       { value: 'Cook',             icon: 'restaurant',             color: '#d97706', bg: '#fef3c7' },
+      { value: 'Delivery Boy',     icon: 'two_wheeler',            color: '#ea580c', bg: '#ffedd5' },
       { value: 'Cleaner',          icon: 'mop',                    color: '#059669', bg: '#d1fae5' },
       { value: 'House Keeping',    icon: 'cleaning_services',      color: '#0284c7', bg: '#dbeafe' },
       { value: 'Laundry',          icon: 'local_laundry_service',  color: '#0891b2', bg: '#e0f2fe' },
@@ -67,7 +68,7 @@ export default function ManageStaff() {
   const [savingAssign, setSavingAssign] = useState(false);
 
   // Form State
-  const [newStaff, setNewStaff] = useState({ name: '', role: '', phone: '', salary: '', payDate: '1', joinDate: new Date().toISOString().split('T')[0] });
+  const [newStaff, setNewStaff] = useState({ name: '', role: '', phone: '', salary: '', payDate: '1', joinDate: new Date().toISOString().split('T')[0], isDeliveryBoy: false });
   const [generatedToken, setGeneratedToken] = useState(null);
 
   useEffect(() => {
@@ -172,6 +173,7 @@ export default function ManageStaff() {
         pgName: defaultPgName,
         assignedPgs: [defaultPgId],
         assignedPgNames: [defaultPgName],
+        isDeliveryBoy: !!newStaff.isDeliveryBoy || newStaff.role === 'Delivery Boy',
         createdAt: new Date(newStaff.joinDate || Date.now()).toISOString()
       };
 
@@ -306,17 +308,44 @@ export default function ManageStaff() {
                       )}
                     </div>
                     
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSelectStaffForAssign(s);
-                        setShowAssignModal(true);
-                      }}
-                      style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '4px 10px', color: '#0891b2', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>tune</span>
-                      {assignedCount > 1 ? `${assignedCount} PGs` : 'Assign PGs'}
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      <button 
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const nextVal = !(s.isDeliveryBoy || s.role === 'Delivery Boy');
+                          try {
+                            await updateDoc(doc(db, 'staff_tokens', s.id), { isDeliveryBoy: nextVal });
+                            setStaffList(prev => prev.map(item => item.id === s.id ? { ...item, isDeliveryBoy: nextVal } : item));
+                          } catch (err) {
+                            console.error('Failed to toggle delivery duty:', err);
+                            alert('Failed to update delivery duty: ' + err.message);
+                          }
+                        }}
+                        title="Toggle Delivery Duty (Tiffins & Packaged Food)"
+                        style={{
+                          background: (s.isDeliveryBoy || s.role === 'Delivery Boy') ? '#ffedd5' : '#f8fafc',
+                          border: `1px solid ${(s.isDeliveryBoy || s.role === 'Delivery Boy') ? '#fed7aa' : '#cbd5e1'}`,
+                          borderRadius: 8, padding: '4px 8px',
+                          color: (s.isDeliveryBoy || s.role === 'Delivery Boy') ? '#c2410c' : '#64748b',
+                          fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 14, color: (s.isDeliveryBoy || s.role === 'Delivery Boy') ? '#ea580c' : '#94a3b8' }}>two_wheeler</span>
+                        {(s.isDeliveryBoy || s.role === 'Delivery Boy') ? 'Delivery' : '+ Delivery'}
+                      </button>
+
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectStaffForAssign(s);
+                          setShowAssignModal(true);
+                        }}
+                        style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '4px 10px', color: '#0891b2', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>tune</span>
+                        {assignedCount > 1 ? `${assignedCount} PGs` : 'Assign PGs'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -560,6 +589,23 @@ export default function ManageStaff() {
                 <div style={{ marginBottom: 24 }}>
                   <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#0f172a', marginBottom: 6 }}>Pay Date (1-31) <span style={{ color: '#e11d48' }}>*</span></label>
                   <input type="number" min="1" max="31" placeholder="e.g. 1" required value={newStaff.payDate} onChange={(e) => setNewStaff({ ...newStaff, payDate: e.target.value })} style={{ width: '100%', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', background: 'white', outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+
+                <div style={{ marginBottom: 24, padding: '12px 14px', background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#ea580c' }}>two_wheeler</span>
+                    <div>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#9a3412' }}>Assign Delivery Duty</p>
+                      <p style={{ margin: 0, fontSize: 11, color: '#c2410c' }}>Deliver packaged tiffins to other PGs, colleges & workplaces</p>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={newStaff.isDeliveryBoy || newStaff.role === 'Delivery Boy'}
+                    disabled={newStaff.role === 'Delivery Boy'}
+                    onChange={(e) => setNewStaff({ ...newStaff, isDeliveryBoy: e.target.checked })}
+                    style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#ea580c' }}
+                  />
                 </div>
 
                 <button type="submit" disabled={loading || !newStaff.role} style={{ width: '100%', padding: '16px', background: !newStaff.role ? '#94a3b8' : '#0891b2', color: 'white', border: 'none', borderRadius: 12, fontSize: 16, fontWeight: 700, cursor: !newStaff.role ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>

@@ -56,8 +56,10 @@ export default function AdminDashboard() {
         const safeGetDoc = (ref, name) => getDoc(ref).catch(e => { console.error(`Error fetching ${name}:`, e); return { exists: () => false, data: () => ({}) }; });
 
         const matchesPg = (itemPgId) => {
-          if (!activePgId || activePgId === 'primary') return true;
-          return !itemPgId || itemPgId === activePgId || itemPgId === user.uid;
+          if (!activePgId || activePgId === 'primary') {
+            return !itemPgId || itemPgId === 'primary' || itemPgId === user.uid;
+          }
+          return itemPgId === activePgId;
         };
 
         // 🔥 Massive Parallel Data Fetching! Execute all network requests simultaneously.
@@ -274,6 +276,7 @@ export default function AdminDashboard() {
     { id: 'visitor',        label: 'Visitors',       desc: 'Gate Log',       icon: 'recent_actors',          gradient: 'linear-gradient(135deg,#10b981,#047857)', badgeCount: visitorCount },
     { id: 'meter',          label: 'Meters',         desc: 'Readings',       icon: 'electric_meter',         gradient: 'linear-gradient(135deg,#f59e0b,#b45309)' },
     { id: 'mess',           label: 'Food & Mess',    desc: 'Menu & Students',icon: 'restaurant',             gradient: 'linear-gradient(135deg,#f59e0b,#d97706)' },
+    { id: 'delivery',       label: 'Delivery',       desc: 'Tiffins & Food', icon: 'two_wheeler',            gradient: 'linear-gradient(135deg,#ffedd5,#ea580c)' },
     { id: 'transportation', label: 'Transport',      desc: 'Drivers',        icon: 'directions_car',         gradient: 'linear-gradient(135deg,#16a34a,#15803d)' },
     { id: 'chat',           label: 'Chat',           desc: 'Messages',       icon: 'chat',                   gradient: 'linear-gradient(135deg,#ec4899,#db2777)', badgeCount: chatCount },
     { id: 'approvals',      label: 'Approvals',      desc: 'Room changes',   icon: 'verified',               gradient: 'linear-gradient(135deg,#eab308,#ca8a04)' },
@@ -292,6 +295,7 @@ export default function AdminDashboard() {
     approvals: '/approvals', hired_workers: '/hired-workers', reports: '/reports',
     leave: '/leave', complain: '/complain', price: '/price-menu', subscription: '/subscription',
     visitor: '/visitor-log', meter: '/meter-reading', mess: '/mess-headcount', staff_app: '/staff-app',
+    delivery: '/delivery-orders',
   };
 
   const STAT_ROUTES = {

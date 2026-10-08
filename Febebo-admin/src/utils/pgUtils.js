@@ -7,13 +7,15 @@ import { db } from '../firebase';
  * schemas: primary doc (pg_owners/{uid}), sub-collection (pg_owners/{uid}/pgs),
  * top-level pg_owners (adminId, ownerUid, userId, email), and pg_profiles.
  */
-export const fetchAllAdminPgs = async (user) => {
-  if (!user?.uid) return [];
+export const fetchAllAdminPgs = async (userOrUid) => {
+  const uid = typeof userOrUid === 'string' ? userOrUid : userOrUid?.uid;
+  const user = typeof userOrUid === 'object' ? userOrUid : { uid };
+  if (!uid) return [];
   const pgsMap = new Map();
 
   const addPg = (id, data, source = 'main') => {
     if (!data) return;
-    const effectiveId = (id === user.uid || id === 'primary') ? 'primary' : id;
+    const effectiveId = (id === uid || id === 'primary') ? 'primary' : id;
     const pgName = data.pgName || data.name || data.fullName || 'PG Property';
     const pgType = data.pgType || data.type || '';
     const status = data.status || 'Active';
@@ -34,7 +36,7 @@ export const fetchAllAdminPgs = async (user) => {
     } else {
       // Merge extra details if available
       const existing = pgsMap.get(effectiveId);
-      if ((!existing.pgName || existing.pgName === 'My PG') && pgName) {
+      if ((!existing.pgName || existing.pgName === 'My PG' || existing.pgName === 'PG Property') && pgName) {
         existing.pgName = pgName;
       }
       if (!existing.pgType && pgType) existing.pgType = pgType;
@@ -43,16 +45,16 @@ export const fetchAllAdminPgs = async (user) => {
   };
 
   try {
-    // 1. Primary PG from pg_owners/{user.uid}
-    const primarySnap = await getDoc(doc(db, 'pg_owners', user.uid)).catch(() => null);
+    // 1. Primary PG from pg_owners/{uid}
+    const primarySnap = await getDoc(doc(db, 'pg_owners', uid)).catch(() => null);
     if (primarySnap?.exists()) {
       addPg('primary', primarySnap.data(), 'primary');
     }
   } catch (e) {}
 
   try {
-    // 2. PG from pg_profiles/{user.uid}
-    const profileSnap = await getDoc(doc(db, 'pg_profiles', user.uid)).catch(() => null);
+    // 2. PG from pg_profiles/{uid}
+    const profileSnap = await getDoc(doc(db, 'pg_profiles', uid)).catch(() => null);
     if (profileSnap?.exists()) {
       addPg('primary', profileSnap.data(), 'profile');
     }
@@ -60,21 +62,21 @@ export const fetchAllAdminPgs = async (user) => {
 
   // Parallel fetch from multiple collections & query keys
   const promises = [
-    // Top-level pg_owners with adminId == user.uid
-    getDocs(query(collection(db, 'pg_owners'), where('adminId', '==', user.uid))).catch(() => ({ docs: [] })),
-    // Top-level pg_owners with ownerUid == user.uid
-    getDocs(query(collection(db, 'pg_owners'), where('ownerUid', '==', user.uid))).catch(() => ({ docs: [] })),
-    // Top-level pg_owners with userId == user.uid
-    getDocs(query(collection(db, 'pg_owners'), where('userId', '==', user.uid))).catch(() => ({ docs: [] })),
+    // Top-level pg_owners with adminId == uid
+    getDocs(query(collection(db, 'pg_owners'), where('adminId', '==', uid))).catch(() => ({ docs: [] })),
+    // Top-level pg_owners with ownerUid == uid
+    getDocs(query(collection(db, 'pg_owners'), where('ownerUid', '==', uid))).catch(() => ({ docs: [] })),
+    // Top-level pg_owners with userId == uid
+    getDocs(query(collection(db, 'pg_owners'), where('userId', '==', uid))).catch(() => ({ docs: [] })),
     // Sub-collection pg_owners/{uid}/pgs (legacy multi-PG location)
-    getDocs(collection(db, 'pg_owners', user.uid, 'pgs')).catch(() => ({ docs: [] })),
-    // Top-level pg_profiles with adminId == user.uid
-    getDocs(query(collection(db, 'pg_profiles'), where('adminId', '==', user.uid))).catch(() => ({ docs: [] })),
-    // Top-level pg_profiles with ownerUid == user.uid
-    getDocs(query(collection(db, 'pg_profiles'), where('ownerUid', '==', user.uid))).catch(() => ({ docs: [] }))
+    getDocs(collection(db, 'pg_owners', uid, 'pgs')).catch(() => ({ docs: [] })),
+    // Top-level pg_profiles with adminId == uid
+    getDocs(query(collection(db, 'pg_profiles'), where('adminId', '==', uid))).catch(() => ({ docs: [] })),
+    // Top-level pg_profiles with ownerUid == uid
+    getDocs(query(collection(db, 'pg_profiles'), where('ownerUid', '==', uid))).catch(() => ({ docs: [] }))
   ];
 
-  if (user.email) {
+  if (user?.email) {
     promises.push(
       getDocs(query(collection(db, 'pg_owners'), where('email', '==', user.email))).catch(() => ({ docs: [] })),
       getDocs(query(collection(db, 'pg_profiles'), where('email', '==', user.email))).catch(() => ({ docs: [] }))
@@ -88,10 +90,27 @@ export const fetchAllAdminPgs = async (user) => {
     });
   });
 
-  const pgs = Array.from(pgsMap.values());
-  if (pgs.length === 0) {
-    pgs.push({ id: 'primary', pgName: 'My PG', pgType: '', status: 'Active', location: '' });
+  // Guarantee: Primary/Main PG must ALWAYS be present in the switcher!
+  if (!pgsMap.has('primary')) {
+    let mainPgName = 'Main Branch';
+    try {
+      const adminSnap = await getDoc(doc(db, 'admins', uid)).catch(() => null);
+      if (adminSnap?.exists() && adminSnap.data().pgName) {
+        mainPgName = adminSnap.data().pgName;
+      }
+    } catch (e) {}
+    pgsMap.set('primary', {
+      id: 'primary',
+      actualDocId: uid,
+      pgName: mainPgName,
+      pgType: 'Main',
+      status: 'Active',
+      location: '',
+      source: 'primary',
+      raw: {}
+    });
   }
 
+  const pgs = Array.from(pgsMap.values());
   return pgs;
 };

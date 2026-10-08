@@ -24,6 +24,26 @@ export const isKitchenRelatedCategory = (category = '', items = []) => {
 };
 
 /**
+ * Calculates item purchase total considering units (e.g. grams/ml conversion against standard per-kg/per-litre rates)
+ */
+export const calculateItemTotal = (qty, unit, rate) => {
+  const q = parseFloat(qty) || 0;
+  const r = parseFloat(rate) || 0;
+  if (q <= 0 || r <= 0) return 0;
+
+  const u = String(unit || '').toLowerCase().trim();
+  if (u === 'g' || u === 'gm' || u === 'gram' || u === 'grams') {
+    // Rate is per kg (e.g. 500 g at ₹30/kg = 0.5 * 30 = ₹15)
+    return Math.round(((q / 1000) * r) * 100) / 100;
+  }
+  if (u === 'ml' || u === 'millilitre' || u === 'milliliter') {
+    // Rate is per litre (e.g. 500 ml at ₹60/L = 0.5 * 60 = ₹30)
+    return Math.round(((q / 1000) * r) * 100) / 100;
+  }
+  return Math.round((q * r) * 100) / 100;
+};
+
+/**
  * Synchronizes purchased or requested items directly into pg_inventory_master under category: 'kitchen'
  */
 export const syncItemsToKitchenInventory = async (db, { adminId, pgId = 'primary', items = [], source = 'Purchase', actorName = 'Admin' }) => {
@@ -53,10 +73,23 @@ export const syncItemsToKitchenInventory = async (db, { adminId, pgId = 'primary
 
       if (matched) {
         const currentQty = parseFloat(matched.totalQty) || 0;
-        const newQty = Math.round((currentQty + parsedQty) * 100) / 100;
+        const matchedUnit = (matched.unit || 'kg').toLowerCase();
+
+        // Normalize quantity if units differ between inventory and purchase (e.g. inventory in kg, purchase in g)
+        let normalizedIncomingQty = parsedQty;
+        if ((unit === 'g' || unit === 'gm') && (matchedUnit === 'kg')) {
+          normalizedIncomingQty = parsedQty / 1000;
+        } else if ((unit === 'kg') && (matchedUnit === 'g' || matchedUnit === 'gm')) {
+          normalizedIncomingQty = parsedQty * 1000;
+        } else if ((unit === 'ml') && (matchedUnit === 'litre' || matchedUnit === 'l')) {
+          normalizedIncomingQty = parsedQty / 1000;
+        } else if ((unit === 'litre' || unit === 'l') && (matchedUnit === 'ml')) {
+          normalizedIncomingQty = parsedQty * 1000;
+        }
+
+        const newQty = Math.round((currentQty + normalizedIncomingQty) * 100) / 100;
         await updateDoc(doc(db, 'pg_inventory_master', matched.docId), {
           totalQty: newQty,
-          unit: unit || matched.unit || 'kg',
           lastUpdated: new Date().toISOString(),
           lastUpdatedBy: actorName,
           lastSource: source

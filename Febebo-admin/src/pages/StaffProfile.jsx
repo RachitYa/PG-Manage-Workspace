@@ -108,6 +108,16 @@ export default function StaffProfile() {
     setPoliceVerLoading(false);
   };
 
+  // Toggle delivery duty
+  const handleToggleDeliveryDuty = async () => {
+    const staffDocId = staff.id;
+    if (!staffDocId) return;
+    try {
+      const current = !!(staff.isDeliveryBoy || staff.role === 'Delivery Boy');
+      await updateDoc(doc(db, 'staff_tokens', staffDocId), { isDeliveryBoy: !current });
+    } catch (e) { console.error('Error toggling delivery duty:', e); }
+  };
+
   // Delete staff
   const handleDeleteStaff = async () => {
     const staffDocId = staff.id;
@@ -582,6 +592,30 @@ export default function StaffProfile() {
             }}
           >
             {(staff.policeVerification || 'unverified') === 'verified' ? '✓ Verified' : '✗ Unverified'}
+          </button>
+        </div>
+
+        {/* Delivery Duty Toggle */}
+        <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 12, display: 'flex', alignItems: 'center', padding: '16px', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, borderRadius: '50%', background: '#ffedd5', color: '#ea580c' }}>
+            <span className="material-symbols-outlined">two_wheeler</span>
+          </div>
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontWeight: 600, fontSize: 15, color: '#0f172a' }}>Delivery Duty</p>
+            <span style={{ fontSize: 11, color: '#64748b' }}>Deliver tiffins & pack orders</span>
+          </div>
+          <button
+            onClick={handleToggleDeliveryDuty}
+            style={{
+              background: (staff.isDeliveryBoy || staff.role === 'Delivery Boy') ? '#ffedd5' : '#f1f5f9',
+              color: (staff.isDeliveryBoy || staff.role === 'Delivery Boy') ? '#c2410c' : '#64748b',
+              border: `1px solid ${(staff.isDeliveryBoy || staff.role === 'Delivery Boy') ? '#fed7aa' : '#cbd5e1'}`,
+              padding: '6px 14px', borderRadius: 16, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 4
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14, color: (staff.isDeliveryBoy || staff.role === 'Delivery Boy') ? '#ea580c' : '#94a3b8' }}>two_wheeler</span>
+            {(staff.isDeliveryBoy || staff.role === 'Delivery Boy') ? 'Active' : 'Inactive'}
           </button>
         </div>
 

@@ -18,7 +18,8 @@ import ManagerMessHeadcountView from '../components/manager/ManagerMessHeadcount
 import ManagerApprovalsView from '../components/manager/ManagerApprovalsView';
 import ManagerVendorsView from '../components/manager/ManagerVendorsView';
 import ManagerMeterView from '../components/manager/ManagerMeterView';
-import { syncItemsToKitchenInventory, isKitchenRelatedCategory } from '../utils/inventorySync';
+import StaffDeliveryView from '../components/delivery/StaffDeliveryView';
+import { syncItemsToKitchenInventory, isKitchenRelatedCategory, calculateItemTotal } from '../utils/inventorySync';
 
 // ─── Indian Kitchen Items Dataset ─────────────────────────────────────────────
 const INDIAN_KITCHEN_ITEMS = {
@@ -50,6 +51,60 @@ const INDIAN_KITCHEN_ITEMS = {
     'Aluminium Foil & Napkins', 'Matchbox'
   ]
 };
+
+// ─── Period-based Meter Bill Distribution ─────────────────────────────────────
+// ─── Period-based Meter Bill Distribution ─────────────────────────────────────
+function calculateMeterBills(tenants, lastReading, currReading, ratePerUnit) {
+  if (!tenants || tenants.length === 0 || currReading <= lastReading) return [];
+
+  // Check if every tenant's join reading is above currReading (scale mismatch / meter reset)
+  const allAhead = tenants.every(t => (Number(t.meterReadingAtJoin) || 0) > currReading);
+
+  const withEffective = tenants.map(t => ({
+    ...t,
+    effectiveStart: allAhead
+      ? lastReading
+      : Math.max(Number(t.meterReadingAtJoin) || lastReading, lastReading)
+  }));
+
+  const milestoneSet = new Set([
+    lastReading,
+    ...withEffective.map(t => t.effectiveStart),
+    currReading
+  ]);
+  const milestones = [...milestoneSet]
+    .filter(m => m >= lastReading && m <= currReading)
+    .sort((a, b) => a - b);
+
+  const unitMap = {};
+  withEffective.forEach(t => { unitMap[t.id || t.tenantId] = 0; });
+
+  for (let i = 0; i < milestones.length - 1; i++) {
+    const pStart = milestones[i];
+    const pEnd   = milestones[i + 1];
+    const pUnits = pEnd - pStart;
+    const active = withEffective.filter(t => t.effectiveStart <= pStart);
+    if (!active.length) {
+      // If no tenant joined before this milestone, distribute equally to all current tenants
+      const share = pUnits / withEffective.length;
+      withEffective.forEach(t => { unitMap[t.id || t.tenantId] += share; });
+      continue;
+    }
+    const share = pUnits / active.length;
+    active.forEach(t => { unitMap[t.id || t.tenantId] += share; });
+  }
+
+  return withEffective.map(t => {
+    const tid = t.id || t.tenantId;
+    const units = Math.round((unitMap[tid] || 0) * 100) / 100;
+    const money = Math.round(units * ratePerUnit * 100) / 100;
+    return {
+      ...t,
+      consumedUnits: units,
+      totalAmount: money
+    };
+  });
+}
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -124,6 +179,7 @@ const ROLE_META = {
   'Carpenter':        { emoji:'🪚',   accent:'#a3a3a3', accentBg:'#fafafa', dept:'Carpentry & Fixtures',    grad:'#d4a574' },
   'Sales Manager':    { emoji:'📈',   accent:'#34d399', accentBg:'#ecfdf5', dept:'Sales & Admissions',      grad:'#34d399' },
   'Manager':          { emoji:'🏢',   accent:'#818cf8', accentBg:'#eef2ff', dept:'Operations Management',   grad:'#818cf8' },
+  'Delivery Boy':     { emoji:'🛵',   accent:'#ea580c', accentBg:'#ffedd5', dept:'Tiffin & Delivery',        grad:'#ea580c' },
   'Others':           { emoji:'⚙️',   accent:'#9ca3af', accentBg:'#f9fafb', dept:'General Staff',           grad:'#9ca3af' },
 };
 
@@ -754,7 +810,7 @@ export default function StaffApp(){
     setTimeout(() => setToast(null), 3200);
   };
 
-  const rawRole = user?.staffRole || 'Cook';
+  const rawRole = (user?.staffRole || (user?.role !== 'staff' ? user?.role : null) || 'Cook');
   const roleAlias = {
     'House Keeping': 'Cleaner',
     'Laundry': 'Cleaner',
@@ -764,10 +820,20 @@ export default function StaffApp(){
     'Receptionist': 'Manager',
     'Gardener': 'Helper',
     'Sales': 'Sales Manager',
+    'Delivery': 'Delivery Boy',
+    'Delivery Partner': 'Delivery Boy',
+    'Delivery Staff': 'Delivery Boy',
     'Other': 'Others'
   };
   const staffRole = roleAlias[rawRole] || rawRole;
   const staffName = user?.name     || 'Staff Member';
+  const hasDeliveryDuty = (
+    staffRole === 'Delivery Boy' || 
+    staffRole === 'Manager' || 
+    String(staffRole || '').toLowerCase().includes('manager') ||
+    user?.isDeliveryBoy === true || 
+    String(user?.isDeliveryBoy) === 'true'
+  );
   const meta      = ROLE_META[staffRole] || ROLE_META['Cook'];
   const firstName = staffName.split(/\s+/)[0];
 
@@ -1296,6 +1362,7 @@ export default function StaffApp(){
           if (isVac) return 'onVacation';
           if (val === 'not_eating') return 'notEaten';
           if (val === 'eaten') return 'eaten';
+          if (val === 'delivery') return 'delivery';
           if (val === 'pack') return 'pack';
           if (val === 'extra') return 'extra';
           return 'requested';
@@ -1575,7 +1642,7 @@ export default function StaffApp(){
   };
 
   const validKitchenRows = Object.entries(selectedKitchenItems).filter(([, v]) => parseFloat(v.qty) > 0 && parseFloat(v.rate) > 0);
-  const kitchenGrandTotal = validKitchenRows.reduce((sum, [, v]) => sum + (parseFloat(v.qty) || 0) * (parseFloat(v.rate) || 0), 0);
+  const kitchenGrandTotal = validKitchenRows.reduce((sum, [, v]) => sum + calculateItemTotal(v.qty, v.unit, v.rate), 0);
 
   const openCookCheckout = () => {
     if (!validKitchenRows.length) {
@@ -1652,7 +1719,7 @@ export default function StaffApp(){
         qty: String(v.qty),
         unit: v.unit || 'kg',
         rate: parseFloat(v.rate),
-        price: (parseFloat(v.qty) || 0) * (parseFloat(v.rate) || 0)
+        price: calculateItemTotal(v.qty, v.unit, v.rate)
       }));
 
       const itemsSummary = formattedItems.map(it => `${it.item} (${it.qty}${it.unit})`).join(', ');
@@ -1956,14 +2023,300 @@ export default function StaffApp(){
     }
   };
 
-  // 3. Meter Reading
-  const [showMeterModal, setShowMeterModal] = useState(false);
-  const [meterRoom, setMeterRoom] = useState('101');
+  // 3. Meter Reading (Synced from Admin Rooms & Tenants, Electricity Only)
+  const [meterRooms, setMeterRooms] = useState([]);
+  const [meterRoom, setMeterRoom] = useState('');
   const [meterElec, setMeterElec] = useState('');
-  const [meterWater, setMeterWater] = useState('');
-  const [meterReadings, setMeterReadings] = useState([
-    { id: 1, room: '101', elec: '4502', water: '120', date: '25 Jul 2026' }
-  ]);
+  const [meterRate, setMeterRate] = useState(() => {
+    const saved = localStorage.getItem('febebo_meter_rate');
+    return saved ? Number(saved) : 8;
+  });
+  const [meterLastReading, setMeterLastReading] = useState(0);
+  const [meterLastReadingDate, setMeterLastReadingDate] = useState(null);
+  const [meterRoomTenants, setMeterRoomTenants] = useState([]);
+  const [meterEditingTenantId, setMeterEditingTenantId] = useState(null);
+  const [meterEditJoinVal, setMeterEditJoinVal] = useState('');
+  const [isGeneratingMeterBill, setIsGeneratingMeterBill] = useState(false);
+  const [recentMeterBills, setRecentMeterBills] = useState([]);
+  const [loadingMeterData, setLoadingMeterData] = useState(false);
+  const [allAdminMeters, setAllAdminMeters] = useState([]);
+  const [allAdminTenants, setAllAdminTenants] = useState([]);
+
+  // Fetch rooms, meters, tenants, and recent bills from Admin data when on Meter Reading screen
+  useEffect(() => {
+    if (view !== 'meter_reading') return;
+    const adminUid = user?.ownerUid || user?.adminId || staffProfile?.ownerUid || staffProfile?.adminId;
+    if (!adminUid) return;
+
+    let isMounted = true;
+    setLoadingMeterData(true);
+
+    const fetchMeterSetup = async () => {
+      try {
+        const [roomsSnap, metersSnap, tenantsSnap, settingsSnap] = await Promise.all([
+          getDocs(query(collection(db, 'rooms'), where('adminId', '==', adminUid))),
+          getDocs(query(collection(db, 'meters'), where('adminId', '==', adminUid))),
+          getDocs(query(collection(db, 'tenants'), where('adminId', '==', adminUid))),
+          getDoc(doc(db, 'adminSettings', adminUid)).catch(() => null)
+        ]);
+
+        if (!isMounted) return;
+
+        // Auto-fill rate from adminSettings if not already set locally
+        if (settingsSnap && settingsSnap.exists() && settingsSnap.data().meterSettings?.rate) {
+          const sRate = Number(settingsSnap.data().meterSettings.rate);
+          if (!localStorage.getItem('febebo_meter_rate') && sRate > 0) {
+            setMeterRate(sRate);
+          }
+        }
+
+        const mList = metersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setAllAdminMeters(mList);
+
+        const tList = tenantsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setAllAdminTenants(tList);
+
+        // Build unique rooms list synced from Admin data
+        const roomMap = new Map();
+        roomsSnap.docs.forEach(d => {
+          const r = d.data();
+          const rNo = String(r.roomNo || r.roomName || '').trim();
+          if (rNo) {
+            roomMap.set(rNo.toLowerCase(), {
+              id: d.id,
+              roomNo: rNo,
+              seater: r.seater || r.beds || 0,
+              type: r.roomType || ''
+            });
+          }
+        });
+
+        // Also add rooms from existing meters
+        mList.forEach(m => {
+          const rNo = String(m.roomName || '').trim();
+          if (rNo && !roomMap.has(rNo.toLowerCase())) {
+            roomMap.set(rNo.toLowerCase(), {
+              id: m.id,
+              roomNo: rNo,
+              seater: 0,
+              type: ''
+            });
+          }
+        });
+
+        const sortedRooms = Array.from(roomMap.values()).sort((a, b) =>
+          String(a.roomNo).localeCompare(String(b.roomNo), undefined, { numeric: true })
+        );
+
+        setMeterRooms(sortedRooms);
+
+        if (sortedRooms.length > 0 && (!meterRoom || !roomMap.has(meterRoom.toLowerCase()))) {
+          setMeterRoom(sortedRooms[0].roomNo);
+        }
+
+        // Fetch recent bills
+        const billsSnap = await getDocs(query(collection(db, 'meter_bills'), where('adminId', '==', adminUid), limit(30)));
+        const bills = billsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        setRecentMeterBills(bills);
+
+      } catch (err) {
+        console.error("fetchMeterSetup error:", err);
+      } finally {
+        if (isMounted) setLoadingMeterData(false);
+      }
+    };
+
+    fetchMeterSetup();
+    return () => { isMounted = false; };
+  }, [view, user?.ownerUid, user?.adminId, staffProfile?.ownerUid]);
+
+  // When selected room changes, update baseline reading and filter tenants
+  useEffect(() => {
+    if (!meterRoom) return;
+
+    // Find meter for this room
+    const matchingMeter = allAdminMeters.find(m =>
+      String(m.roomName || '').trim().toLowerCase() === String(meterRoom).trim().toLowerCase()
+    );
+
+    const lastRd = matchingMeter ? Number(matchingMeter.lastReading || matchingMeter.setupReading || 0) : 0;
+    setMeterLastReading(lastRd);
+    setMeterLastReadingDate(matchingMeter?.lastReadingDate || null);
+
+    // Filter active residents in this room
+    const inactive = ['Moved Out', 'Rejected', 'Deleted', 'Archived'];
+    const rKey = String(meterRoom).trim().toLowerCase();
+    const inRoom = allAdminTenants.filter(t => {
+      const tRoom = String(t.roomNo || t.room || '').trim().toLowerCase();
+      return tRoom === rKey && !inactive.includes(t.status);
+    }).map(t => ({
+      id: t.id,
+      tenantId: t.id,
+      name: t.name || 'Tenant',
+      bedNo: t.bedNo || t.bed || '',
+      dateOfJoining: t.dateOfJoining || t.joiningDate || '',
+      meterReadingAtJoin: Number(t.meterReadingAtJoin !== undefined ? t.meterReadingAtJoin : (t.meterReading !== undefined ? t.meterReading : lastRd)) || 0
+    })).sort((a, b) => (Number(a.meterReadingAtJoin) || 0) - (Number(b.meterReadingAtJoin) || 0));
+
+    setMeterRoomTenants(inRoom);
+  }, [meterRoom, allAdminMeters, allAdminTenants]);
+
+  // Rate change handler: autofills future calculations
+  const handleRateChange = (newVal) => {
+    setMeterRate(newVal);
+    const val = Number(newVal);
+    if (!isNaN(val) && val > 0) {
+      localStorage.setItem('febebo_meter_rate', String(val));
+    }
+  };
+
+  // Adjust tenant join reading inline
+  const handleSaveTenantJoinReading = async (tenantId, newJoinVal) => {
+    const val = Number(newJoinVal) || 0;
+    setMeterRoomTenants(prev => prev.map(t => (t.id === tenantId || t.tenantId === tenantId) ? { ...t, meterReadingAtJoin: val } : t));
+    setMeterEditingTenantId(null);
+    try {
+      await updateDoc(doc(db, 'tenants', tenantId), { meterReadingAtJoin: val, meterReading: val });
+      showToast("Updated joining reading for tenant", "success");
+    } catch (e) {
+      console.warn("Could not persist tenant join reading:", e);
+    }
+  };
+
+  // Live bill calculation variables
+  const currMeterNum = Number(meterElec);
+  const isValidMeterInput = !isNaN(currMeterNum) && currMeterNum > meterLastReading && meterElec !== '';
+  const consumedMeterUnits = isValidMeterInput ? Math.round((currMeterNum - meterLastReading) * 100) / 100 : 0;
+  const numMeterRate = Number(meterRate) || 8;
+  const totalMeterBillAmount = isValidMeterInput ? Math.round(consumedMeterUnits * numMeterRate * 100) / 100 : 0;
+  const calculatedTenantBills = (isValidMeterInput && meterRoomTenants.length > 0)
+    ? calculateMeterBills(meterRoomTenants, meterLastReading, currMeterNum, numMeterRate)
+    : [];
+
+  // Submit meter reading & sync bill to admin & residents
+  const handleGenerateMeterBill = async () => {
+    if (!isValidMeterInput) {
+      return showToast(`Current reading must be higher than previous reading (${meterLastReading} kWh)`, 'warning');
+    }
+    if (meterRoomTenants.length === 0) {
+      return showToast(`No active tenants found in Room ${meterRoom}.`, 'warning');
+    }
+
+    const adminUid = user?.ownerUid || user?.adminId || staffProfile?.ownerUid || staffProfile?.adminId;
+    if (!adminUid) return showToast('Admin account not found.', 'error');
+
+    setIsGeneratingMeterBill(true);
+    try {
+      const now = new Date();
+      const readingDate = now.toISOString();
+      const billMonth = now.toLocaleString('default', { month: 'long', year: 'numeric' });
+      const currentPg = activePgId || user?.pgId || 'primary';
+
+      // 1. Update or create meter document in meters collection
+      let meterDocId = '';
+      const existingMeter = allAdminMeters.find(m =>
+        String(m.roomName || '').trim().toLowerCase() === String(meterRoom).trim().toLowerCase()
+      );
+
+      if (existingMeter?.id) {
+        meterDocId = existingMeter.id;
+        await updateDoc(doc(db, 'meters', existingMeter.id), {
+          lastReading: currMeterNum,
+          lastReadingDate: readingDate,
+          ratePerUnit: numMeterRate,
+          updatedBy: staffProfile?.name || user?.name || 'Staff'
+        });
+      } else {
+        const mRef = await addDoc(collection(db, 'meters'), {
+          adminId: adminUid,
+          pgId: currentPg,
+          roomName: meterRoom,
+          lastReading: currMeterNum,
+          setupReading: meterLastReading,
+          lastReadingDate: readingDate,
+          ratePerUnit: numMeterRate,
+          dateAdded: readingDate.split('T')[0],
+          createdBy: staffProfile?.name || user?.name || 'Staff'
+        });
+        meterDocId = mRef.id;
+      }
+
+      // 2. Add bills to meter_bills for each tenant
+      const newBills = [];
+      for (const b of calculatedTenantBills) {
+        const bDoc = {
+          adminId: adminUid,
+          pgId: currentPg,
+          tenantId: b.id || b.tenantId,
+          tenantName: b.name,
+          meterId: meterDocId,
+          roomName: meterRoom,
+          meterReadingAtJoin: b.meterReadingAtJoin,
+          meterReadingAtBillStart: meterLastReading,
+          meterReadingAtBillEnd: currMeterNum,
+          consumedUnits: b.consumedUnits,
+          totalAmount: b.totalAmount,
+          ratePerUnit: numMeterRate,
+          billMonth,
+          date: readingDate,
+          status: 'Unpaid',
+          generatedBy: staffProfile?.name || user?.name || 'Staff'
+        };
+
+        const bRef = await addDoc(collection(db, 'meter_bills'), bDoc);
+        newBills.push({ id: bRef.id, ...bDoc });
+
+        // Resident notification
+        await addDoc(collection(db, 'notifications'), {
+          adminId: adminUid,
+          pgId: currentPg,
+          userId: b.id || b.tenantId,
+          title: 'New Electricity Bill',
+          message: `Your electricity bill for ${billMonth} is ₹${b.totalAmount.toFixed(2)} (${b.consumedUnits} kWh). Pay from My Account.`,
+          createdAt: readingDate,
+          isRead: false,
+          type: 'meter_bill'
+        }).catch(() => {});
+      }
+
+      // 3. Admin notification
+      await addDoc(collection(db, 'notifications'), {
+        adminId: adminUid,
+        pgId: currentPg,
+        title: 'Electricity Bill Generated',
+        desc: `${staffProfile?.name || user?.name || 'Staff'} logged meter reading for Room ${meterRoom}: ${currMeterNum} kWh (total ${consumedMeterUnits} kWh, ₹${totalMeterBillAmount}) across ${calculatedTenantBills.length} tenants.`,
+        createdAt: readingDate,
+        isRead: false,
+        type: 'meter_reading'
+      }).catch(() => {});
+
+      // Advance last reading in state and clear input
+      setMeterLastReading(currMeterNum);
+      setMeterLastReadingDate(readingDate);
+      setMeterElec('');
+      setRecentMeterBills(prev => [...newBills, ...prev]);
+
+      setAllAdminMeters(prev => {
+        const exists = prev.some(m => String(m.roomName).trim().toLowerCase() === String(meterRoom).trim().toLowerCase());
+        if (exists) {
+          return prev.map(m => String(m.roomName).trim().toLowerCase() === String(meterRoom).trim().toLowerCase()
+            ? { ...m, lastReading: currMeterNum, lastReadingDate: readingDate, ratePerUnit: numMeterRate }
+            : m
+          );
+        }
+        return [...prev, { id: meterDocId, roomName: meterRoom, lastReading: currMeterNum, lastReadingDate: readingDate, ratePerUnit: numMeterRate }];
+      });
+
+      showToast(`⚡ Reading synced! ₹${totalMeterBillAmount} bill distributed between ${calculatedTenantBills.length} tenants!`, 'success');
+
+    } catch (err) {
+      console.error("handleGenerateMeterBill error:", err);
+      showToast('Error syncing reading: ' + err.message, 'error');
+    } finally {
+      setIsGeneratingMeterBill(false);
+    }
+  };
 
 
   const RECIPIENTS = ['Purchase Manager', 'Admin', 'Manager', 'Store Incharge', 'Supervisor'];
@@ -2495,6 +2848,7 @@ export default function StaffApp(){
           if (isVac) return 'onVacation';
           if (val === 'not_eating') return 'notEaten';
           if (val === 'eaten') return 'eaten';
+          if (val === 'delivery') return 'delivery';
           if (val === 'pack') return 'pack';
           if (val === 'extra') return 'extra';
           return 'requested';
@@ -3039,7 +3393,15 @@ export default function StaffApp(){
       const studentName = student ? student.name : 'Student';
 
       const docRef = doc(db, 'mess_headcount', `${user.ownerUid}_${todayStr}`);
-      await setDoc(docRef, { [`${tenantId}_${mealStr}_eaten`]: true }, { merge: true });
+      await setDoc(docRef, {
+        [`${tenantId}_${mealStr}_eaten`]: true,
+        [`${tenantId}_${mealStr}_audit`]: {
+          confirmedVia: 'manual_cook',
+          markedByName: staffName || 'Cook',
+          markedByRole: staffRole || 'Cook',
+          timestamp: new Date().toISOString()
+        }
+      }, { merge: true });
       
       await addDoc(collection(db, 'users', tenantId, 'notifications'), {
         title: 'Meal Status: Eaten ✅',
@@ -3298,7 +3660,7 @@ export default function StaffApp(){
 
   // ─── RENDER ──────────────────────────────────────────────────────────────
   return (
-    <div className="mobile-shell" style={{background:C.bg,fontFamily:"'Hanken Grotesk',sans-serif"}}>
+    <div className="mobile-shell" style={{background: staffRole === 'Manager' ? '#f1f5f9' : C.bg, fontFamily:"'Hanken Grotesk',sans-serif"}}>
       <style>{`
         @keyframes sheetUp{from{transform:translateY(60px);opacity:0}to{transform:translateY(0);opacity:1}}
         @keyframes sideIn{from{left:-300px}to{left:0}}
@@ -3382,60 +3744,249 @@ export default function StaffApp(){
 
       {/* ── HEADER (always visible) ──────────────────────────────────────── */}
       {view === 'home' ? (
-        // Home Hero Header
-        <div style={{background: 'linear-gradient(to bottom, #fffef2, #fffdf0)', padding:'0 16px 20px', paddingTop:'max(0px, env(safe-area-inset-top, 0px))', color: '#1a1500', borderBottom: '1.5px solid #e8df9a'}}>
-          <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', height:60, position:'relative'}}>
-            <div style={{display:'flex', alignItems:'center', gap:10, zIndex:10}}>
-              <p style={{fontFamily:"'Hanken Grotesk',sans-serif", fontSize:24, fontWeight:900, color: '#1a1500', margin:0, letterSpacing:-.5}}>febebo</p>
-              
-              {/* Multi-PG Switcher Pill */}
-              {assignedProperties && assignedProperties.length > 0 && (
+        staffRole === 'Manager' ? (
+          // ── MANAGER HERO HEADER (Admin Aesthetic) ──────────────────────────
+          <div style={{
+            background: 'linear-gradient(160deg, #0c1a2e 0%, #0f2847 60%, #0c3461 100%)',
+            padding: '0 18px 24px',
+            paddingTop: 'max(0px, env(safe-area-inset-top, 0px))',
+            position: 'relative',
+            overflow: 'hidden'
+          }}>
+            {/* Soft decorative glows */}
+            <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(56,189,248,0.12)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', bottom: -20, left: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(99,102,241,0.1)', pointerEvents: 'none' }} />
+
+            {/* Top Bar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 60, position: 'relative', zIndex: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 26, fontWeight: 800, color: '#38bdf8', margin: 0, letterSpacing: -0.5 }}>
+                  febebo
+                </p>
+
+                {/* Multi-PG Switcher Pill */}
+                {assignedProperties && assignedProperties.length > 0 && (
+                  <div 
+                    onClick={() => {
+                      if (assignedProperties.length > 1) setShowStaffPgSwitcher(true);
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: 20, padding: '4px 10px', cursor: assignedProperties.length > 1 ? 'pointer' : 'default',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)', backdropFilter: 'blur(6px)'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 15, color: '#38bdf8' }}>domain</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: '#ffffff', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {assignedProperties.find(p => p.id === activePgId)?.name || 'Primary PG'}
+                    </span>
+                    {assignedProperties.length > 1 && (
+                      <span className="material-symbols-outlined" style={{ fontSize: 15, color: '#94a3b8' }}>expand_more</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Profile Avatar Button */}
+              <button onClick={() => setView('profile_view')} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 50, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', position: 'relative', zIndex: 10, overflow: 'hidden', padding: 0 }}>
+                {profilePic ? (
+                  <img src={profilePic} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#38bdf8' }}>person</span>
+                )}
+              </button>
+            </div>
+
+            {/* Greeting & Subtitle */}
+            <div style={{ marginTop: 6, marginBottom: 16 }}>
+              <p style={{ color: '#94a3b8', fontSize: 13, margin: '0 0 3px', fontWeight: 600 }}>
+                {new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening'} 👋
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <h2 style={{ fontFamily: "'Bricolage Grotesque',sans-serif", color: 'white', fontSize: 24, fontWeight: 800, margin: 0, letterSpacing: '-0.5px' }}>
+                  <span style={{ color: '#38bdf8' }}>{firstName || staffName || 'Manager'}</span>
+                </h2>
+                <span style={{ fontSize: 10.5, fontWeight: 800, background: 'rgba(56,189,248,0.18)', color: '#38bdf8', padding: '3px 8px', borderRadius: 8, border: '1px solid rgba(56,189,248,0.3)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  Manager
+                </span>
+              </div>
+              <p style={{ color: '#64748b', fontSize: 12.5, margin: '4px 0 0' }}>Here's what's happening today</p>
+            </div>
+
+            {/* Duty / Punch Bar (Sleek Glass Card) */}
+            <div style={{
+              marginBottom: 16,
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 14,
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backdropFilter: 'blur(10px)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ position: 'relative', display: 'flex', height: 10, width: 10 }}>
+                  {clocked && (
+                    <span style={{ animation: 'ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite', position: 'absolute', display: 'inline-flex', height: '100%', width: '100%', borderRadius: '50%', background: '#10b981', opacity: 0.75 }} />
+                  )}
+                  <span style={{ position: 'relative', display: 'inline-flex', borderRadius: '50%', height: 10, width: 10, background: clocked ? '#10b981' : '#ef4444' }} />
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: '#f1f5f9' }}>{clocked ? 'On Duty' : 'Off Shift'}</span>
+                {clocked && (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', marginLeft: 6 }}>since {clockIn}</span>
+                )}
+              </div>
+
+              <button 
+                onClick={() => {
+                  if (clocked) setShowPunchOutConfirm(true);
+                  else punch();
+                }} 
+                disabled={isPunching}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 10,
+                  border: clocked ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(16,185,129,0.35)',
+                  background: clocked ? 'rgba(239,68,68,0.18)' : 'rgba(16,185,129,0.18)',
+                  color: clocked ? '#fca5a5' : '#6ee7b7',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: isPunching ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5
+                }}
+              >
+                {isPunching ? (
+                  <div style={{ width: 12, height: 12, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                ) : (
+                  <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{clocked ? 'logout' : 'login'}</span>
+                )}
+                {clocked ? 'Punch Out' : 'Punch In'}
+              </button>
+            </div>
+
+            {/* 4 Stat Pills — All Clickable */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {[
+                {
+                  label: 'Seats Occupied',
+                  value: `${students.length}/${totalCapacity || students.length}`,
+                  icon: 'meeting_room',
+                  color: '#38bdf8',
+                  bg: 'rgba(56,189,248,0.15)',
+                  view: 'manage_rooms'
+                },
+                {
+                  label: 'Staff on Duty',
+                  value: `${staffOnDuty}/${totalStaff || allStaff.length || 1}`,
+                  icon: 'badge',
+                  color: '#34d399',
+                  bg: 'rgba(52,211,153,0.15)',
+                  view: 'manage_staff'
+                },
+                {
+                  label: 'Open Issues',
+                  value: String(tickets.filter(t => t.status === 'Active' || t.status === 'Pending' || t.status === 'Open').length),
+                  icon: 'report_problem',
+                  color: '#f87171',
+                  bg: 'rgba(248,113,113,0.15)',
+                  view: 'complaints'
+                },
+                {
+                  label: 'Mess Covers',
+                  value: `${students.filter(s=>s['status'+(mealTab||'Lunch').charAt(0)]!=='notEaten').length}/${students.length}`,
+                  icon: 'restaurant',
+                  color: '#fbbf24',
+                  bg: 'rgba(251,191,36,0.15)',
+                  view: 'mess_headcount'
+                }
+              ].map((s, i) => (
                 <div 
-                  onClick={() => {
-                    if (assignedProperties.length > 1) setShowStaffPgSwitcher(true);
-                  }}
+                  key={i} 
+                  onClick={() => s.view && setView(s.view)}
                   style={{
-                    display:'flex', alignItems:'center', gap:5,
-                    background: '#ffffff', border: '1.5px solid #e8df9a',
-                    borderRadius: 20, padding: '4px 10px', cursor: assignedProperties.length > 1 ? 'pointer' : 'default',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+                    background: 'rgba(255,255,255,0.07)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: 14,
+                    padding: '10px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s'
                   }}
                 >
-                  <span className="material-symbols-outlined" style={{fontSize:15, color: '#ca8a04'}}>domain</span>
-                  <span style={{fontSize:11.5, fontWeight:800, color:'#1a1500', maxWidth:110, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
-                    {assignedProperties.find(p => p.id === activePgId)?.name || 'Primary PG'}
-                  </span>
-                  {assignedProperties.length > 1 && (
-                    <span className="material-symbols-outlined" style={{fontSize:15, color: '#ca8a04'}}>expand_more</span>
-                  )}
+                  <div style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 18, color: s.color }}>{s.icon}</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", color: 'white', fontSize: 16, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>{s.value}</p>
+                    <p style={{ color: '#94a3b8', fontSize: 10.5, margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</p>
+                  </div>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'rgba(255,255,255,0.3)', marginLeft: 'auto' }}>chevron_right</span>
                 </div>
-              )}
-            </div>
-
-            <button onClick={()=>setView('profile_view')} style={{background: '#fefce8', border: '1.5px solid #e8df9a', borderRadius:50, width:44, height:44, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative', zIndex:10, overflow:'hidden', padding:0}}>
-              {profilePic ? (
-                <img src={profilePic} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} />
-              ) : (
-                <span className="material-symbols-outlined" style={{fontSize:24, color: '#ca8a04'}}>person</span>
-              )}
-            </button>
-          </div>
-
-          {/* Greeting card */}
-          <div style={{marginTop:14}}>
-            <p style={{margin:0, fontSize:13, fontWeight:800, color:'#ca8a04', textTransform:'uppercase', letterSpacing:'0.04em'}}>{greet}, {firstName} 👋</p>
-            <div style={{display:'flex', alignItems:'center', gap:10, marginTop:4}}>
-              <div style={{width:40, height:40, borderRadius:12, background: meta.accentBg, border: '1.5px solid #e8df9a', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, boxShadow:'0 2px 6px rgba(0,0,0,0.05)'}}>
-                {meta.emoji}
-              </div>
-              <div>
-                <div style={{display:'flex', alignItems:'center', gap:6}}>
-                  <h2 style={{margin:0, fontSize:22, fontWeight:900, color: '#1a1500', letterSpacing:-.5}}>{meta.dept}</h2>
-                  <span style={{fontSize:10, fontWeight:800, background: '#fefce8', color: '#ca8a04', padding:'3px 8px', borderRadius:8, border: '1.5px solid #e8df9a'}}>{staffRole}</span>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
+        ) : (
+          // ── WORKER HERO HEADER (Standard) ──────────────────────────────────
+          <div style={{background: 'linear-gradient(to bottom, #fffef2, #fffdf0)', padding:'0 16px 20px', paddingTop:'max(0px, env(safe-area-inset-top, 0px))', color: '#1a1500', borderBottom: '1.5px solid #e8df9a'}}>
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', height:60, position:'relative'}}>
+              <div style={{display:'flex', alignItems:'center', gap:10, zIndex:10}}>
+                <p style={{fontFamily:"'Hanken Grotesk',sans-serif", fontSize:24, fontWeight:900, color: '#1a1500', margin:0, letterSpacing:-.5}}>febebo</p>
+                
+                {/* Multi-PG Switcher Pill */}
+                {assignedProperties && assignedProperties.length > 0 && (
+                  <div 
+                    onClick={() => {
+                      if (assignedProperties.length > 1) setShowStaffPgSwitcher(true);
+                    }}
+                    style={{
+                      display:'flex', alignItems:'center', gap:5,
+                      background: '#ffffff', border: '1.5px solid #e8df9a',
+                      borderRadius: 20, padding: '4px 10px', cursor: assignedProperties.length > 1 ? 'pointer' : 'default',
+                      boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{fontSize:15, color: '#ca8a04'}}>domain</span>
+                    <span style={{fontSize:11.5, fontWeight:800, color:'#1a1500', maxWidth:110, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                      {assignedProperties.find(p => p.id === activePgId)?.name || 'Primary PG'}
+                    </span>
+                    {assignedProperties.length > 1 && (
+                      <span className="material-symbols-outlined" style={{fontSize:15, color: '#ca8a04'}}>expand_more</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <button onClick={()=>setView('profile_view')} style={{background: '#fefce8', border: '1.5px solid #e8df9a', borderRadius:50, width:44, height:44, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative', zIndex:10, overflow:'hidden', padding:0}}>
+                {profilePic ? (
+                  <img src={profilePic} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                ) : (
+                  <span className="material-symbols-outlined" style={{fontSize:24, color: '#ca8a04'}}>person</span>
+                )}
+              </button>
+            </div>
+
+            {/* Greeting card */}
+            <div style={{marginTop:14}}>
+              <p style={{margin:0, fontSize:13, fontWeight:800, color:'#ca8a04', textTransform:'uppercase', letterSpacing:'0.04em'}}>{greet}, {firstName} 👋</p>
+              <div style={{display:'flex', alignItems:'center', gap:10, marginTop:4}}>
+                <div style={{width:40, height:40, borderRadius:12, background: meta.accentBg, border: '1.5px solid #e8df9a', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, boxShadow:'0 2px 6px rgba(0,0,0,0.05)'}}>
+                  {meta.emoji}
+                </div>
+                <div>
+                  <div style={{display:'flex', alignItems:'center', gap:6}}>
+                    <h2 style={{margin:0, fontSize:22, fontWeight:900, color: '#1a1500', letterSpacing:-.5}}>{meta.dept}</h2>
+                    <span style={{fontSize:10, fontWeight:800, background: '#fefce8', color: '#ca8a04', padding:'3px 8px', borderRadius:8, border: '1.5px solid #e8df9a'}}>{staffRole}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
 
           {/* Punch card */}
           {(() => {
@@ -3537,6 +4088,7 @@ export default function StaffApp(){
             );
           })()}
         </div>
+        )
       ) : view === 'chat' && activeContact ? (
         // Individual Chat Header
         <div style={{display:'flex',alignItems:'center',gap:10,padding:'0 16px',height:64,background:'#fff',borderBottom: '1px solid #e2e8f0',position:'sticky',top:0,zIndex:50,boxShadow: '0 2px 10px rgba(15,23,42,0.03)'}}>
@@ -3607,29 +4159,32 @@ export default function StaffApp(){
 
           {/* Modules Grid */}
           {(() => {
-            const allModules = staffRole === 'Manager' ? [
-              {id:'manage_tenants', label:'Tenants',       icon:'groups',                 bg:'#fef3c7', c:'#d97706'},
-              {id:'manage_rooms',   label:'Rooms & Beds',  icon:'meeting_room',           bg:'#ecfdf5', c:'#059669'},
-              {id:'complaints',     label:'Complaints',    icon:'report_problem',         bg:'#fff1f2', c:'#e11d48'},
-              {id:'mess_headcount', label:'Live Mess',     icon:'restaurant',             bg:'#ede9fe', c:'#7c3aed'},
-              {id:'manage_vendors', label:'Vendors',       icon:'storefront',             bg:'#ecfeff', c:'#0891b2'},
-              {id:'student_leaves', label:'Leaves',        icon:'event_busy',             bg:'#ecfeff', c:'#0891b2'},
-              {id:'visitor_log',    label:'Visitors',      icon:'recent_actors',          bg:'#f0fdf4', c:'#16a34a'},
-              {id:'manage_staff',   label:'Staff & Work',  icon:'badge',                  bg:'#fdf4ff', c:'#c026d3'},
-              {id:'approvals',      label:'Approvals',     icon:'verified',               bg:'#fefce8', c:'#ca8a04'},
-              {id:'work',           label:'My Work',       icon:'home_work',              bg:'#eef2ff', c:'#6366f1'},
-              {id:'inout',          label:'Attendance',    icon:'schedule',               bg:'#f0fdf4', c:'#10b981'},
-              {id:'foodMenu',       label:'Food Menu',     icon:'restaurant_menu',        bg:'#ede9fe', c:'#a78bfa'},
-              {id:'enquiry',        label:'Leads',         icon:'contact_support',        bg:'#ecfeff', c:'#0891b2'},
-              {id:'add_tenant',     label:'Add Tenant',    icon:'person_add',             bg:'#f0fdf4', c:'#16a34a'},
-              {id:'cookVendor',     label:'Kitchen POs',   icon:'storefront',             bg:'#ecfeff', c:'#0891b2'},
-              {id:'meter_reading',  label:'Meter',         icon:'electric_meter',         bg:'#ecfeff', c:'#06b6d4'},
-              {id:'inventory',      label:'Inventory',     icon:'account_balance_wallet', bg:'#fdf2f8', c:'#ec4899'},
-              {id:'chat',           label:'Chat',          icon:'forum',                  bg:'#f0f9ff', c:'#0ea5e9'},
-              {id:'salary',         label:'Salary',        icon:'payments',               bg:'#fefce8', c:'#eab308'},
-              {id:'requests',       label:'Requests',      icon:'approval',               bg:'#f5f3ff', c:'#8b5cf6'},
-              {id:'performance',    label:'Performance',   icon:'star',                   bg:'#fff1f2', c:'#f43f5e'},
-            ] : [
+            const isManager = staffRole === 'Manager';
+            const managerModules = [
+              { id: 'manage_tenants', label: 'Tenants',       desc: 'Residents',   icon: 'groups',                 gradient: 'linear-gradient(135deg,#f59e0b,#d97706)' },
+              { id: 'manage_rooms',   label: 'Rooms & Beds',  desc: 'Spaces',      icon: 'meeting_room',           gradient: 'linear-gradient(135deg,#10b981,#059669)' },
+              { id: 'complaints',     label: 'Complaints',    desc: 'Issues',      icon: 'report_problem',         gradient: 'linear-gradient(135deg,#dc2626,#b91c1c)', badgeCount: tickets.filter(t => t.status === 'Active' || t.status === 'Pending' || t.status === 'Open').length },
+              { id: 'mess_headcount', label: 'Live Mess',     desc: 'Headcount',   icon: 'restaurant',             gradient: 'linear-gradient(135deg,#f59e0b,#d97706)' },
+              { id: 'manage_vendors', label: 'Vendors',       desc: 'Suppliers',   icon: 'storefront',             gradient: 'linear-gradient(135deg,#8b5cf6,#7c3aed)' },
+              ...(hasDeliveryDuty ? [{ id: 'delivery_orders', label: 'Delivery', desc: 'Orders', icon: 'two_wheeler', gradient: 'linear-gradient(135deg,#ffedd5,#ea580c)' }] : []),
+              { id: 'student_leaves', label: 'Leaves',        desc: 'Requests',    icon: 'event_busy',             gradient: 'linear-gradient(135deg,#0891b2,#0e7490)' },
+              { id: 'visitor_log',    label: 'Visitors',      desc: 'Gate Log',    icon: 'recent_actors',          gradient: 'linear-gradient(135deg,#10b981,#047857)' },
+              { id: 'manage_staff',   label: 'Staff & Work',  desc: 'HR & Duty',   icon: 'badge',                  gradient: 'linear-gradient(135deg,#f43f5e,#e11d48)' },
+              { id: 'approvals',      label: 'Approvals',     desc: 'Room Moves',  icon: 'verified',               gradient: 'linear-gradient(135deg,#eab308,#ca8a04)' },
+              { id: 'inout',          label: 'Attendance',    desc: 'My Clock',    icon: 'schedule',               gradient: 'linear-gradient(135deg,#10b981,#059669)' },
+              { id: 'foodMenu',       label: 'Food Menu',     desc: 'Weekly Menu', icon: 'restaurant_menu',        gradient: 'linear-gradient(135deg,#a855f7,#7e22ce)' },
+              { id: 'enquiry',        label: 'Leads',         desc: 'Admissions',  icon: 'contact_support',        gradient: 'linear-gradient(135deg,#06b6d4,#0891b2)', badgeCount: enquiries.filter(e => e.status === 'New' || e.status === 'New Lead').length },
+              { id: 'add_tenant',     label: 'Add Tenant',    desc: 'Registration',icon: 'person_add',             gradient: 'linear-gradient(135deg,#10b981,#059669)' },
+              { id: 'meter_reading',  label: 'Meter',         desc: 'Readings',    icon: 'electric_meter',         gradient: 'linear-gradient(135deg,#06b6d4,#0891b2)' },
+              { id: 'inventory',      label: 'Inventory',     desc: 'Stock & Cash',icon: 'account_balance_wallet', gradient: 'linear-gradient(135deg,#ec4899,#db2777)' },
+              { id: 'cookVendor',     label: 'Kitchen POs',   desc: 'Orders',      icon: 'local_shipping',         gradient: 'linear-gradient(135deg,#6366f1,#4f46e5)' },
+              { id: 'chat',           label: 'Chat',          desc: 'Messages',    icon: 'forum',                  gradient: 'linear-gradient(135deg,#0ea5e9,#0284c7)' },
+              { id: 'salary',         label: 'Salary',        desc: 'Pay Slips',   icon: 'payments',               gradient: 'linear-gradient(135deg,#eab308,#ca8a04)' },
+              { id: 'requests',       label: 'Requests',      desc: 'Approvals',   icon: 'approval',               gradient: 'linear-gradient(135deg,#8b5cf6,#7c3aed)' },
+            ];
+
+            const workerModules = [
+              ...(hasDeliveryDuty ? [{id:'delivery_orders', label:'Delivery', icon:'two_wheeler', bg:'#ffedd5', c:'#ea580c'}] : []),
               {id:'work',           label:'My Work',        icon:'home_work',              bg:'#eef2ff', c:'#6366f1'},
               {id:'inventory',      label:'Inventory',      icon:'account_balance_wallet', bg:'#fdf2f8', c:'#ec4899'},
               {id:'inout',          label:'Attendance',     icon:'schedule',               bg:'#f0fdf4', c:'#10b981'},
@@ -3645,15 +4200,24 @@ export default function StaffApp(){
               ] : []),
             ];
 
-            const displayedModules = (staffRole === 'Manager' && !showAllModules)
+            const allModules = isManager ? managerModules : workerModules;
+            const displayedModules = (isManager && !showAllModules)
               ? allModules.slice(0, 8)
               : allModules;
 
             return (
               <>
-                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
-                  <p style={{margin:0, fontSize:15, fontWeight:900, color:C.text}}>Modules</p>
-                  {allModules.length > 8 && (
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14}}>
+                  <p style={{fontFamily:"'Bricolage Grotesque',sans-serif", fontWeight:700, fontSize:18, color:'#0f172a', margin:0}}>Modules</p>
+                  {isManager && allModules.length > 8 && (
+                    <span 
+                      onClick={() => setShowAllModules(prev => !prev)} 
+                      style={{fontSize:12, fontWeight:700, color:'#0891b2', cursor:'pointer', display:'flex', alignItems:'center', gap:2}}
+                    >
+                      {showAllModules ? 'See less ▴' : `See all (${allModules.length}) ▾`}
+                    </span>
+                  )}
+                  {!isManager && allModules.length > 8 && (
                     <span 
                       onClick={() => setShowAllModules(prev => !prev)} 
                       style={{fontSize:12, fontWeight:800, color:C.primaryDk, cursor:'pointer', display:'flex', alignItems:'center', gap:2}}
@@ -3663,7 +4227,7 @@ export default function StaffApp(){
                   )}
                 </div>
 
-                <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:10, marginBottom: allModules.length > 8 ? 10 : 20}}>
+                <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:10, marginBottom: isManager ? 16 : (allModules.length > 8 ? 10 : 20)}}>
                   {displayedModules.map(m => (
                     <button key={m.id} onClick={() => {
                       if (m.id === 'menu_history') {
@@ -3678,16 +4242,89 @@ export default function StaffApp(){
                       }
                       setView(m.id);
                     }}
-                      style={{display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, background:'#fff', border:`1px solid ${C.border}`, borderRadius:20, padding:'12px 4px 10px', cursor:'pointer', boxShadow:'0 4px 12px rgba(120, 104, 10, 0.04)', minHeight:88, outline:'none', transition:'all 0.15s'}}>
-                      <div style={{width:44, height:44, borderRadius:14, background:m.bg, display:'flex', alignItems:'center', justifyContent:'center'}}>
-                        <span className="material-symbols-outlined" style={{fontSize:22, color:m.c}}>{m.icon}</span>
+                      style={isManager ? {
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 6,
+                        background: 'white',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 16,
+                        padding: '14px 6px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                        position: 'relative'
+                      } : {
+                        display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6, background:'#fff', border:`1px solid ${C.border}`, borderRadius:20, padding:'12px 4px 10px', cursor:'pointer', boxShadow:'0 4px 12px rgba(120, 104, 10, 0.04)', minHeight:88, outline:'none', transition:'all 0.15s'
+                      }}>
+                      {isManager && m.badgeCount > 0 && (
+                        <div style={{ position: 'absolute', top: -6, right: -6, minWidth: 20, height: 20, padding: '0 6px', borderRadius: 10, background: '#ef4444', color: 'white', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(239,68,68,0.3)', zIndex: 5, boxSizing: 'border-box' }}>
+                          {m.badgeCount > 99 ? '99+' : m.badgeCount}
+                        </div>
+                      )}
+                      <div style={{
+                        width:40, height:40, borderRadius:12,
+                        background: isManager ? m.gradient : m.bg,
+                        display:'flex', alignItems:'center', justifyContent:'center'
+                      }}>
+                        <span className="material-symbols-outlined" style={{fontSize:20, color: isManager ? 'white' : m.c}}>{m.icon}</span>
                       </div>
-                      <span style={{fontSize:11.5, fontWeight:800, color:C.text, textAlign:'center', lineHeight:1.1}}>{m.label}</span>
+                      <span style={{fontSize:11, fontWeight:700, color: isManager ? '#1e293b' : C.text, textAlign:'center', lineHeight:1.2}}>{m.label}</span>
+                      {isManager && <span style={{fontSize:10, color:'#94a3b8', textAlign:'center', lineHeight:1}}>{m.desc}</span>}
                     </button>
                   ))}
                 </div>
 
-                {allModules.length > 8 && (
+                {isManager && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
+                    <button
+                      onClick={() => setView('complaints')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        background: '#fff1f2',
+                        border: '1px solid #fecdd3',
+                        borderRadius: 14,
+                        padding: '12px 14px',
+                        cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ color: '#e11d48', fontSize: 22 }}>report</span>
+                      <div>
+                        <p style={{ fontWeight: 800, color: '#0f172a', fontSize: 13, margin: 0 }}>Complaints</p>
+                        <p style={{ fontSize: 11, color: '#e11d48', fontWeight: 600, margin: 0 }}>
+                          {tickets.filter(t => t.status === 'Active' || t.status === 'Pending' || t.status === 'Open').length} Open Issues
+                        </p>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => setView('mess_headcount')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        background: '#ede9fe',
+                        border: '1px solid #ddd6fe',
+                        borderRadius: 14,
+                        padding: '12px 14px',
+                        cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ color: '#7c3aed', fontSize: 22 }}>restaurant</span>
+                      <div>
+                        <p style={{ fontWeight: 800, color: '#0f172a', fontSize: 13, margin: 0 }}>Live Mess</p>
+                        <p style={{ fontSize: 11, color: '#7c3aed', fontWeight: 600, margin: 0 }}>Check Headcount</p>
+                      </div>
+                    </button>
+                  </div>
+                )}
+
+                {!isManager && allModules.length > 8 && (
                   <div 
                     onClick={() => setShowAllModules(prev => !prev)} 
                     style={{
@@ -3717,32 +4354,34 @@ export default function StaffApp(){
             );
           })()}
 
-          {/* Need Supplies Card */}
-          <div onClick={openItemRequest} style={{
-            background: '#ffffff',
-            border: `1px solid ${C.border}`,
-            borderRadius: 18,
-            padding: '12px 14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            cursor: 'pointer',
-            boxShadow: '0 4px 12px rgba(120, 104, 10, 0.03)',
-            marginBottom: 20
-          }}>
-            <div style={{width:32, height:32, borderRadius:50, background: '#fefce8', display:'flex', alignItems:'center', justifyContent:'center'}}>
-              <span className="material-symbols-outlined" style={{fontSize:18, color: '#ca8a04'}}>shopping_cart</span>
+          {/* Need Supplies Card (Worker only) */}
+          {staffRole !== 'Manager' && (
+            <div onClick={openItemRequest} style={{
+              background: '#ffffff',
+              border: `1px solid ${C.border}`,
+              borderRadius: 18,
+              padding: '12px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(120, 104, 10, 0.03)',
+              marginBottom: 20
+            }}>
+              <div style={{width:32, height:32, borderRadius:50, background: '#fefce8', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                <span className="material-symbols-outlined" style={{fontSize:18, color: '#ca8a04'}}>shopping_cart</span>
+              </div>
+              <div>
+                <p style={{margin:0, fontSize:13, fontWeight:800, color: C.text}}>Need Supplies</p>
+                <p style={{margin:0, fontSize:10.5, fontWeight:700, color: C.muted}}>Request Materials</p>
+              </div>
             </div>
-            <div>
-              <p style={{margin:0, fontSize:13, fontWeight:800, color: C.text}}>Need Supplies</p>
-              <p style={{margin:0, fontSize:10.5, fontWeight:700, color: C.muted}}>Request Materials</p>
-            </div>
-          </div>
+          )}
 
-          {/* Outstanding Work section */}
+          {/* Outstanding Work / Tasks section */}
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
-            <p style={{margin:0, fontSize:15, fontWeight:900, color:C.text}}>Today's Tasks</p>
-            <span onClick={() => setView('work')} style={{fontSize:12, fontWeight:800, color:C.primaryDk, cursor:'pointer'}}>See all ▾</span>
+            <p style={{margin:0, fontSize:15, fontWeight:900, color: staffRole === 'Manager' ? '#0f172a' : C.text}}>Today's Tasks</p>
+            <span onClick={() => setView('work')} style={{fontSize:12, fontWeight:800, color: staffRole === 'Manager' ? '#0891b2' : C.primaryDk, cursor:'pointer'}}>See all ▾</span>
           </div>
 
           <div style={{display:'flex', flexDirection:'column', gap:10}}>
@@ -3762,17 +4401,23 @@ export default function StaffApp(){
 
             {/* Unified Admin Assigned Tasks */}
             {tasks.filter(t => t.status === 'Pending').slice(0, 3).map(t => (
-              <div key={t.id} onClick={() => setView('work')} style={{background:'#fff', border:`1px solid ${C.border}`, borderRadius:18, padding:14, display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow:'0 4px 12px rgba(120, 104, 10, 0.03)', cursor:'pointer'}}>
+              <div key={t.id} onClick={() => setView('work')} style={{background:'#fff', border: staffRole === 'Manager' ? '1px solid #e2e8f0' : `1px solid ${C.border}`, borderRadius:16, padding:14, display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow:'0 1px 4px rgba(0,0,0,0.04)', cursor:'pointer'}}>
                 <div style={{display:'flex', alignItems:'center', gap:12}}>
-                  <div style={{width:40, height:40, borderRadius:12, background:'#fefce8', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20}}>📋</div>
+                  <div style={{width:40, height:40, borderRadius:12, background: staffRole === 'Manager' ? '#ecfeff' : '#fefce8', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20}}>📋</div>
                   <div style={{flex:1, minWidth:0}}>
-                    <h4 style={{margin:0, fontSize:14, fontWeight:800, color:C.text, whiteSpace:'nowrap', textOverflow:'ellipsis', overflow:'hidden', maxWidth:220}}>{t.title}</h4>
-                    <p style={{margin:0, fontSize:11, color:C.muted}}>{t.description ? t.description.substring(0,25)+'...' : 'Admin Task'}</p>
+                    <h4 style={{margin:0, fontSize:14, fontWeight:800, color: staffRole === 'Manager' ? '#0f172a' : C.text, whiteSpace:'nowrap', textOverflow:'ellipsis', overflow:'hidden', maxWidth:220}}>{t.title}</h4>
+                    <p style={{margin:0, fontSize:11, color: staffRole === 'Manager' ? '#64748b' : C.muted}}>{t.description ? t.description.substring(0,25)+'...' : 'Admin Task'}</p>
                   </div>
                 </div>
                 <span style={{fontSize:11, fontWeight:800, padding:'4px 10px', borderRadius:10, background: '#fee2e2', color: '#dc2626'}}>Pending</span>
               </div>
             ))}
+
+            {staffRole === 'Manager' && tasks.filter(t => t.status === 'Pending').length === 0 && (
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '16px', textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#64748b' }}>🎉 All manager tasks are up to date</p>
+              </div>
+            )}
           </div>
 
         </div>
@@ -3988,6 +4633,8 @@ export default function StaffApp(){
       {view === 'mess_headcount' && (
         <ManagerMessHeadcountView
           adminId={user?.ownerUid}
+          staffName={staffName}
+          staffRole={staffRole}
           onBack={() => setView('home')}
           onOpenFoodMenu={() => setView('foodMenu')}
           showToast={showToast}
@@ -4008,6 +4655,16 @@ export default function StaffApp(){
           onBack={() => setView('home')}
           showToast={showToast}
           currentStaffName={staffName}
+        />
+      )}
+
+      {view === 'delivery_orders' && (
+        <StaffDeliveryView
+          adminId={user?.ownerUid}
+          activePgId={activePgId}
+          staffName={staffName}
+          onBack={() => setView('home')}
+          showToast={showToast}
         />
       )}
 
@@ -4457,6 +5114,7 @@ export default function StaffApp(){
                const statsObj = {
                  requested: students.filter(s=>s[mealKey]==='requested').length,
                  pack: students.filter(s=>s[mealKey]==='pack').length,
+                 delivery: students.filter(s=>s[mealKey]==='delivery').length,
                  extra: students.filter(s=>s[mealKey]==='extra').length,
                  eaten: students.filter(s=>s[mealKey]==='eaten').length,
                  notEaten: students.filter(s=>s[mealKey]==='notEaten').length,
@@ -4468,6 +5126,7 @@ export default function StaffApp(){
                const statCards = [
                  {id:'requested', l:'Requested', v:statsObj.requested*mult, c:'#000', bg:'#fef08a'},
                  {id:'pack', l:'To Pack', v:statsObj.pack*mult, c:'#000', bg:'#fef08a'},
+                 {id:'delivery', l:'Delivery', v:statsObj.delivery*mult, c:'#6d28d9', bg:'#ede9fe'},
                  {id:'extra', l:'Extra Plate', v:statsObj.extra*mult, c:'#000', bg:'#cffafe'},
                  {id:'eaten', l:'Eaten', v:statsObj.eaten*mult, c:'#000', bg:'#bbf7d0'},
                  {id:'notEaten', l:'Not Eaten', v:statsObj.notEaten*mult, c:'#000', bg:'#fecaca'},
@@ -4480,17 +5139,24 @@ export default function StaffApp(){
                     <div style={{display:'flex', background:'#fff', border: '2px solid #000', borderRadius:16, marginBottom: 12, overflow:'hidden', boxShadow: '0 4px 12px rgba(15,23,42,0.05)'}}>
                        <div 
                          onClick={()=>setSelectedStat('pack')}
-                         style={{flex:1, padding:'16px 10px', textAlign:'center', cursor:'pointer', background: selectedStat==='pack' ? '#fef08a' : 'transparent', borderRight: '2px solid #000', transition:'all .15s'}}
+                         style={{flex:1, padding:'16px 8px', textAlign:'center', cursor:'pointer', background: selectedStat==='pack' ? '#fef08a' : 'transparent', borderRight: '2px solid #000', transition:'all .15s'}}
                        >
-                         <p style={{fontSize:28,fontWeight:900,color:'#000',margin:0}}>{statsObj.pack*mult}</p>
-                         <p style={{fontSize:11,fontWeight:800,color:'#000',margin:'4px 0 0',textTransform:'uppercase'}}>To Pack</p>
+                         <p style={{fontSize:26,fontWeight:900,color:'#000',margin:0}}>{statsObj.pack*mult}</p>
+                         <p style={{fontSize:10.5,fontWeight:800,color:'#000',margin:'4px 0 0',textTransform:'uppercase'}}>To Pack (Later)</p>
+                       </div>
+                       <div 
+                         onClick={()=>setSelectedStat('delivery')}
+                         style={{flex:1, padding:'16px 8px', textAlign:'center', cursor:'pointer', background: selectedStat==='delivery' ? '#ede9fe' : 'transparent', borderRight: '2px solid #000', transition:'all .15s'}}
+                       >
+                         <p style={{fontSize:26,fontWeight:900,color:'#6d28d9',margin:0}}>{statsObj.delivery*mult}</p>
+                         <p style={{fontSize:10.5,fontWeight:800,color:'#6d28d9',margin:'4px 0 0',textTransform:'uppercase'}}>Delivery (Tiffin)</p>
                        </div>
                        <div 
                          onClick={()=>setSelectedStat('extra')}
-                         style={{flex:1, padding:'16px 10px', textAlign:'center', cursor:'pointer', background: selectedStat==='extra' ? '#cffafe' : 'transparent', transition:'all .15s'}}
+                         style={{flex:1, padding:'16px 8px', textAlign:'center', cursor:'pointer', background: selectedStat==='extra' ? '#cffafe' : 'transparent', transition:'all .15s'}}
                        >
-                         <p style={{fontSize:28,fontWeight:900,color:'#000',margin:0}}>{statsObj.extra*mult}</p>
-                         <p style={{fontSize:11,fontWeight:800,color:'#000',margin:'4px 0 0',textTransform:'uppercase'}}>Extra Plate</p>
+                         <p style={{fontSize:26,fontWeight:900,color:'#000',margin:0}}>{statsObj.extra*mult}</p>
+                         <p style={{fontSize:10.5,fontWeight:800,color:'#000',margin:'4px 0 0',textTransform:'uppercase'}}>Extra Plate</p>
                        </div>
                     </div>
 
@@ -4621,6 +5287,11 @@ export default function StaffApp(){
                                  style={{padding:'6px 12px',borderRadius:8,border: '1px solid #e2e8f0',background:'#fff',color:'#000',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'inherit',boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
                                  Mark Eaten
                                </button>
+                             )}
+                             {selectedStat === 'delivery' && (
+                               <span style={{padding:'6px 12px', borderRadius:8, background:'#ede9fe', color:'#6d28d9', fontSize:12, fontWeight:800, border: '1px solid #ddd6fe', display:'inline-flex', alignItems:'center', gap:4}}>
+                                 🛵 Tiffin Delivery
+                               </span>
                              )}
                              {selectedStat === 'eaten' && timeFilter === 'Daily' && (
                                 <Chip label="Eaten ✅" color="#166534" bg="#dcfce7"/>
@@ -5580,30 +6251,33 @@ export default function StaffApp(){
           {/* MANAGER OPERATIONS OVERVIEW */}
           {staffRole === 'Manager' && (<>
             {/* Command Center Header */}
-            <div style={{background:'linear-gradient(135deg,#92400e,#d97706)', borderRadius:16, padding:'14px 16px', color:'#fff', boxShadow:'0 8px 20px rgba(146,64,14,0.18)'}}>
-              <p style={{margin:0, fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:0.5, color:'#fef3c7'}}>🏢 Command Center</p>
-              <h3 style={{margin:'4px 0 2px', fontSize:20, fontWeight:900}}>Operations Overview</h3>
-              <p style={{margin:0, fontSize:12, color:'#fde68a', fontWeight:700}}>Febebo PG — All departments</p>
+            <div style={{background:'linear-gradient(160deg, #0c1a2e 0%, #0f2847 60%, #0c3461 100%)', borderRadius:16, padding:'16px 18px', color:'#fff', boxShadow:'0 4px 16px rgba(12,26,46,0.15)', position:'relative', overflow:'hidden'}}>
+              <div style={{position:'absolute', top:-30, right:-30, width:120, height:120, borderRadius:'50%', background:'rgba(56,189,248,0.1)', pointerEvents:'none'}} />
+              <p style={{margin:0, fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:0.5, color:'#38bdf8'}}>🏢 Command Center</p>
+              <h3 style={{margin:'4px 0 2px', fontSize:20, fontWeight:900, color:'#ffffff'}}>Operations Overview</h3>
+              <p style={{margin:0, fontSize:12, color:'#94a3b8', fontWeight:600}}>All departments & live status</p>
             </div>
 
             {/* Department KPI Grid */}
             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
               {[
-                {label:'Staff On Duty', value:`${staffOnDuty} / ${totalStaff}`, icon:'groups', bg:'#eef2ff', color:'#78350f', sub:`${totalStaff - staffOnDuty} not punched in`, view:'manage_staff'},
-                {label:'Vacant Rooms', value: String(Math.max(0, totalCapacity - students.length)), icon:'meeting_room', bg:'#fef3c7', color:'#92400e', sub:`Out of ${totalCapacity} total seats`, view:'manage_rooms'},
-                {label:'Active Tenants', value: String(students.length), icon:'person', bg:'#f0fdf4', color:'#166534', sub:'Current residents', view:'manage_tenants'},
+                {label:'Staff On Duty', value:`${staffOnDuty} / ${totalStaff}`, icon:'groups', bg:'#ecfdf5', color:'#059669', sub:`${Math.max(0, totalStaff - staffOnDuty)} off shift`, view:'manage_staff'},
+                {label:'Vacant Seats', value: String(Math.max(0, totalCapacity - students.length)), icon:'meeting_room', bg:'#ecfeff', color:'#0891b2', sub:`Out of ${totalCapacity} total seats`, view:'manage_rooms'},
+                {label:'Active Tenants', value: String(students.length), icon:'person', bg:'#f0fdf4', color:'#16a34a', sub:'Current residents', view:'manage_tenants'},
                 {label:'Open Issues', value: String(tickets.filter(t => t.status === 'Active' || t.status === 'Pending' || t.status === 'Open').length), icon:'report_problem', bg:'#fff1f2', color:'#e11d48', sub:'Maintenance complaints', view:'complaints'},
-                {label:'New Leads', value: String(enquiries.filter(e=>e.status==='New' || e.status==='New Lead').length), icon:'contact_phone', bg:'#ecfdf5', color:'#065f46', sub:'Room enquiries', view:'enquiry'},
-                {label:'Mess Covers', value:`${students.filter(s=>s['status'+(mealTab||'Lunch').charAt(0)]!=='notEaten').length} / ${students.length}`, icon:'restaurant', bg:'#ede9fe', color:'#7c3aed', sub:`Today ${mealTab||'Lunch'}`, view:'mess_headcount'},
+                {label:'New Leads', value: String(enquiries.filter(e=>e.status==='New' || e.status==='New Lead').length), icon:'contact_phone', bg:'#f5f3ff', color:'#7c3aed', sub:'Room enquiries', view:'enquiry'},
+                {label:'Mess Covers', value:`${students.filter(s=>s['status'+(mealTab||'Lunch').charAt(0)]!=='notEaten').length} / ${students.length}`, icon:'restaurant', bg:'#fffbeb', color:'#d97706', sub:`Today ${mealTab||'Lunch'}`, view:'mess_headcount'},
               ].map(k => (
-                <div key={k.label} onClick={() => k.view && setView(k.view)} style={{background:k.bg, borderRadius:14, border:'1px solid #e2e8f0', padding:14, boxShadow:'0 3px 10px rgba(15,23,42,0.04)', cursor:'pointer'}}>
+                <div key={k.label} onClick={() => k.view && setView(k.view)} style={{background:'white', borderRadius:16, border:'1px solid #e2e8f0', padding:'14px 16px', boxShadow:'0 1px 3px rgba(0,0,0,0.05)', cursor:'pointer', transition:'all 0.15s'}}>
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
                     <div>
-                      <p style={{fontSize:11, fontWeight:800, color:k.color, margin:0, textTransform:'uppercase', letterSpacing:0.3}}>{k.label}</p>
-                      <p style={{fontSize:24, fontWeight:900, color:k.color, margin:'4px 0 2px'}}>{k.value}</p>
-                      <p style={{fontSize:10, fontWeight:700, color:k.color, margin:0, opacity:0.7}}>{k.sub}</p>
+                      <p style={{fontSize:11, fontWeight:700, color:'#64748b', margin:0, textTransform:'uppercase', letterSpacing:0.3}}>{k.label}</p>
+                      <p style={{fontSize:22, fontWeight:900, color:'#0f172a', margin:'4px 0 2px'}}>{k.value}</p>
+                      <p style={{fontSize:11, fontWeight:600, color:k.color, margin:0}}>{k.sub}</p>
                     </div>
-                    <span className="material-symbols-outlined" style={{fontSize:22, color:k.color, opacity:0.6}}>{k.icon}</span>
+                    <div style={{width:36, height:36, borderRadius:10, background:k.bg, display:'flex', alignItems:'center', justifyContent:'center'}}>
+                      <span className="material-symbols-outlined" style={{fontSize:20, color:k.color}}>{k.icon}</span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -6488,7 +7162,7 @@ export default function StaffApp(){
       })()}
 
       {/* ══════════════════════════════════════════════════════════════════════
-          METER READING (Electrician / Manager)
+          METER READING (Electricity Only - Synced with Admin & Tenant Billing)
          ══════════════════════════════════════════════════════════════════════ */}
       {view === 'meter_reading' && (
         <ManagerMeterView 
@@ -8485,7 +9159,7 @@ export default function StaffApp(){
                     filteredItems.map(itemName => {
                       const isSelected = !!selectedKitchenItems[itemName];
                       const val = selectedKitchenItems[itemName] || { qty: '', unit: 'kg', rate: '' };
-                      const lineTotal = isSelected ? (parseFloat(val.qty) || 0) * (parseFloat(val.rate) || 0) : 0;
+                      const lineTotal = isSelected ? calculateItemTotal(val.qty, val.unit, val.rate) : 0;
                       
                       // Auto-suggest unit based on name
                       let defaultUnit = 'kg';
@@ -8710,7 +9384,7 @@ export default function StaffApp(){
               {validKitchenRows.map(([name, v]) => (
                 <div key={name} style={{display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:12.5}}>
                   <span style={{color:'#1e293b', fontWeight:700}}>{name} ({v.qty} {v.unit})</span>
-                  <span style={{color:'#0f172a', fontWeight:800}}>₹{((parseFloat(v.qty) || 0) * (parseFloat(v.rate) || 0)).toFixed(0)}</span>
+                  <span style={{color:'#0f172a', fontWeight:800}}>₹{calculateItemTotal(v.qty, v.unit, v.rate).toFixed(0)}</span>
                 </div>
               ))}
             </div>

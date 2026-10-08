@@ -152,6 +152,14 @@ const Food = () => {
   // Extra state
   const [extraDate, setExtraDate] = useState('');
 
+  // Tiffin / Delivery State
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [deliveryMeal, setDeliveryMeal] = useState('Lunch');
+  const [deliveryDestinationType, setDeliveryDestinationType] = useState('other_pg');
+  const [deliveryDestination, setDeliveryDestination] = useState('');
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [submittingDelivery, setSubmittingDelivery] = useState(false);
+
 // ── Food item image lookup (Indian PG common items) ──────────────
 // ── Food item image lookup (Indian PG common items) ──────────────
   const FOOD_IMAGES = {
@@ -625,11 +633,102 @@ const Food = () => {
         todayStatus: newTodayStatus,
         lastUpdated: new Date().toISOString()
       }, { merge: true });
+
+      // Keep meal_status synced
+      try {
+        const today = getTodayStr();
+        const mKey = meal.toLowerCase();
+        await setDoc(doc(db, 'meal_status', `${targetPg}_${today}_${user.uid}`), {
+          adminId: targetPg,
+          tenantId: user.uid,
+          date: today,
+          [mKey]: newStatus === 'cancel' ? 'not_eating' : newStatus || 'requested'
+        }, { merge: true });
+      } catch (e) {
+        console.warn('Sync meal_status failed:', e);
+      }
       
     } catch (err) {
       console.error('Error updating meal status:', err);
     } finally {
       stopLoading();
+    }
+  };
+
+  const handleOpenDeliveryModal = (meal) => {
+    if (isMealPausedByAdmin(meal)) {
+      alert(`Cannot request delivery: ${meal} has been paused by PG Admin / Manager for today.`);
+      return;
+    }
+    if (isMealPausedToday(meal)) {
+      alert(`Cannot request delivery: You are currently on Food Vacation for ${meal}.`);
+      return;
+    }
+    setDeliveryMeal(meal);
+    setDeliveryDestination('');
+    setDeliveryNotes('');
+    setShowDeliveryModal(true);
+  };
+
+  const handleSubmitDelivery = async (e) => {
+    e.preventDefault();
+    const targetPg = resolvedPgId;
+    if (!targetPg || !user?.uid) return;
+    if (!deliveryDestination.trim()) {
+      alert('Please enter delivery destination address / PG / College name');
+      return;
+    }
+    setSubmittingDelivery(true);
+    try {
+      const today = getTodayStr();
+      const mLower = deliveryMeal.toLowerCase();
+      const docRef = doc(db, 'pg_owners', targetPg, 'food_requests', user.uid);
+      const newTodayStatus = { ...todayRequests, [deliveryMeal]: 'delivery' };
+
+      await setDoc(docRef, {
+        studentId: user.uid,
+        studentName: user.name || user.displayName || 'Unknown',
+        roomNumber: user.subscribedPG?.roomNumber || user.subscribedPG?.roomNo || 'Unknown',
+        todayStatus: newTodayStatus,
+        lastUpdated: new Date().toISOString()
+      }, { merge: true });
+
+      // Save to meal_status
+      await setDoc(doc(db, 'meal_status', `${targetPg}_${today}_${user.uid}`), {
+        adminId: targetPg,
+        tenantId: user.uid,
+        date: today,
+        [mLower]: 'delivery',
+        [`${mLower}Details`]: `${deliveryDestinationType.toUpperCase()}: ${deliveryDestination.trim()}`
+      }, { merge: true });
+
+      // Create in delivery_orders collection
+      const orderId = `${targetPg}_${today}_${mLower}_${user.uid}`;
+      await setDoc(doc(db, 'delivery_orders', orderId), {
+        id: orderId,
+        adminId: targetPg,
+        pgId: user?.subscribedPG?.pgId || targetPg,
+        date: today,
+        meal: mLower,
+        studentId: user.uid,
+        studentName: user.name || user.displayName || 'Student',
+        studentPhone: user.phone || user.phoneNumber || '',
+        roomNumber: user.subscribedPG?.roomNumber || user.subscribedPG?.roomNo || 'N/A',
+        destination: deliveryDestination.trim(),
+        destinationType: deliveryDestinationType,
+        notes: deliveryNotes.trim(),
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      }, { merge: true });
+
+      setTodayRequests(newTodayStatus);
+      setShowDeliveryModal(false);
+      alert(`Tiffin Delivery requested for ${deliveryMeal}! Your delivery partner will deliver to: ${deliveryDestination.trim()}`);
+    } catch (err) {
+      console.error('Error submitting delivery request:', err);
+      alert('Failed to request delivery: ' + err.message);
+    } finally {
+      setSubmittingDelivery(false);
     }
   };
 
@@ -673,21 +772,33 @@ const Food = () => {
     const text = result[0]?.rawValue || '';
     if (!text) return;
 
-    if (!text.startsWith('FEBEBO_MEAL')) {
+    const isCookPass = text.startsWith('FEBEBO_MEAL');
+    const isDeliveryPass = text.startsWith('FEBEBO_DELIVERY');
+
+    if (!isCookPass && !isDeliveryPass) {
       setScanResult({
         type: 'error',
         title: 'Invalid QR Code ❌',
-        desc: 'This is not an official Febebo Cook QR pass. Please scan the QR code displayed at the mess counter.'
+        desc: 'This is not an official Febebo Cook or Delivery QR pass.'
       });
       return;
     }
 
     setIsProcessingScan(true);
     const parts = text.split('|');
-    // Format: FEBEBO_MEAL | ownerUid | meal | date
-    const qrOwnerUid = parts[1];
-    const qrMeal = (parts[2] || '').toLowerCase();
-    const qrDate = parts[3];
+    // FEBEBO_MEAL: FEBEBO_MEAL | ownerUid | meal | date
+    // FEBEBO_DELIVERY: FEBEBO_DELIVERY | ownerUid | date | meal | deliveryBoyName
+    let qrOwnerUid, qrMeal, qrDate, deliveryBoyName = 'Delivery Partner';
+    if (isDeliveryPass) {
+      qrOwnerUid = parts[1];
+      qrDate = parts[2];
+      qrMeal = (parts[3] || '').toLowerCase();
+      deliveryBoyName = parts[4] || 'Delivery Partner';
+    } else {
+      qrOwnerUid = parts[1];
+      qrMeal = (parts[2] || '').toLowerCase();
+      qrDate = parts[3];
+    }
 
     const studentPgId = user?.subscribedPG?.pgId || user?.subscribedPG?.adminId;
 
@@ -706,7 +817,7 @@ const Food = () => {
       setScanResult({
         type: 'error',
         title: 'Expired QR Code ⏳',
-        desc: `This QR code is for ${qrDate}, but today is ${today}. Please ask the cook to generate today's QR code.`
+        desc: `This QR code is for ${qrDate}, but today is ${today}. Please scan today's active pass.`
       });
       setIsProcessingScan(false);
       return;
@@ -717,7 +828,7 @@ const Food = () => {
       setScanResult({
         type: 'error',
         title: 'Meal Paused 🏖️',
-        desc: `Cannot scan: You are currently on Food Vacation for ${mCap}. Please resume your meals in the Food tab if you wish to eat.`
+        desc: `Cannot scan: You are currently on Food Vacation for ${mCap}.`
       });
       setIsProcessingScan(false);
       return;
@@ -737,7 +848,37 @@ const Food = () => {
     try {
       const activeAdminId = studentPgId || qrOwnerUid;
       const headcountDocRef = doc(db, 'mess_headcount', `${activeAdminId}_${today}`);
-      await setDoc(headcountDocRef, { [`${user.uid}_${qrMeal}_eaten`]: true }, { merge: true });
+      const auditMeta = isDeliveryPass ? {
+        confirmedVia: 'delivery_qr',
+        markedByName: deliveryBoyName,
+        markedByRole: 'Delivery Partner',
+        timestamp: new Date().toISOString()
+      } : {
+        confirmedVia: 'counter_qr',
+        markedByName: user.name || user.displayName || 'Student',
+        markedByRole: 'Student (Counter QR)',
+        timestamp: new Date().toISOString()
+      };
+
+      await setDoc(headcountDocRef, {
+        [`${user.uid}_${qrMeal}_eaten`]: true,
+        [`${user.uid}_${qrMeal}_audit`]: auditMeta
+      }, { merge: true });
+
+      // If delivery pass, update delivery_orders
+      if (isDeliveryPass) {
+        try {
+          const orderId = `${activeAdminId}_${today}_${qrMeal}_${user.uid}`;
+          await setDoc(doc(db, 'delivery_orders', orderId), {
+            status: 'delivered',
+            deliveredAt: new Date().toISOString(),
+            deliveredBy: deliveryBoyName,
+            confirmedVia: 'delivery_qr'
+          }, { merge: true });
+        } catch (dErr) {
+          console.warn('Could not update delivery order:', dErr);
+        }
+      }
 
       // Also update food_requests
       try {
@@ -753,8 +894,8 @@ const Food = () => {
       // Add student notification
       try {
         await addDoc(collection(db, 'users', user.uid, 'notifications'), {
-          title: 'Meal Verified! 🍽️',
-          desc: `Your ${qrMeal} was successfully recorded. Enjoy your food!`,
+          title: isDeliveryPass ? 'Tiffin Delivered & Verified! 🛵' : 'Meal Verified! 🍽️',
+          desc: isDeliveryPass ? `Your ${qrMeal} tiffin from ${deliveryBoyName} was verified.` : `Your ${qrMeal} was successfully recorded. Enjoy your food!`,
           type: 'Food',
           action: 'VIEW_FOOD',
           unread: true,
@@ -767,8 +908,10 @@ const Food = () => {
       const mCap = qrMeal.charAt(0).toUpperCase() + qrMeal.slice(1);
       setScanResult({
         type: 'success',
-        title: 'Meal Verified! ✅',
-        desc: `Your ${mCap} has been recorded in the live headcount. Enjoy your meal!`
+        title: isDeliveryPass ? 'Tiffin Delivered & Verified! 🛵✅' : 'Meal Verified! ✅',
+        desc: isDeliveryPass
+          ? `Your ${mCap} tiffin delivered by ${deliveryBoyName} has been verified! Enjoy your meal.`
+          : `Your ${mCap} has been recorded in the live headcount. Enjoy your meal!`
       });
       setShowScannerModal(false);
     } catch (err) {
@@ -776,7 +919,7 @@ const Food = () => {
       setScanResult({
         type: 'error',
         title: 'Failed to Record',
-        desc: 'Could not record meal due to a network error. Please try again or ask the cook to mark you manually.'
+        desc: 'Could not record meal due to a network error. Please try again or ask the cook/delivery partner to mark you manually.'
       });
     } finally {
       setIsProcessingScan(false);
@@ -1163,8 +1306,8 @@ const Food = () => {
                     PAUSED
                   </span>
                 ) : status ? (
-                  <span style={{ fontSize: '11px', fontWeight: '800', padding: '2px 8px', borderRadius: '12px', color: 'white', background: status === 'pack' ? '#0891b2' : '#e11d48' }}>
-                    {status === 'pack' ? 'PACKED' : 'CANCELED'}
+                  <span style={{ fontSize: '11px', fontWeight: '800', padding: '2px 8px', borderRadius: '12px', color: 'white', background: status === 'pack' ? '#0891b2' : status === 'delivery' ? '#ea580c' : '#e11d48' }}>
+                    {status === 'pack' ? 'PACKED (FOR LATER)' : status === 'delivery' ? 'TIFFIN DELIVERY' : 'CANCELED'}
                   </span>
                 ) : null}
               </div>
@@ -1262,24 +1405,49 @@ const Food = () => {
                       className="meal-btn" 
                       style={{ background: 'linear-gradient(135deg, #059669, #10b981)', color: 'white', border: 'none', width: '100%', padding: '11px', borderRadius: '12px', fontWeight: '800', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, boxShadow: '0 4px 12px rgba(16,185,129,0.2)' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>qr_code_scanner</span>
-                      Scan Cook's QR to Eat
+                      Scan Counter / Delivery QR
                     </button>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
                       <button 
                         className={`meal-btn pack-btn ${status === 'pack' ? 'active' : ''}`}
                         onClick={() => handleMealAction(meal, 'pack')}
-                        style={{ flex: 1 }}
+                        style={{ padding: '8px 2px', fontSize: 11, fontWeight: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
+                        title="Pack food to eat later inside your room"
                       >
                         <ShoppingBag size={14} />
-                        {status === 'pack' ? 'Packed' : 'Pack'}
+                        {status === 'pack' ? 'Packed ✓' : 'Pack Later'}
+                      </button>
+                      <button 
+                        className={`meal-btn ${status === 'delivery' ? 'active' : ''}`}
+                        onClick={() => handleOpenDeliveryModal(meal)}
+                        style={{
+                          background: status === 'delivery' ? '#ea580c' : '#fff7ed',
+                          color: status === 'delivery' ? '#ffffff' : '#ea580c',
+                          border: `1.5px solid ${status === 'delivery' ? '#ea580c' : '#fed7aa'}`,
+                          borderRadius: 10,
+                          padding: '8px 2px',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 2,
+                          transition: 'all 0.15s'
+                        }}
+                        title="Deliver tiffin to other PG, college, or workplace"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>two_wheeler</span>
+                        {status === 'delivery' ? 'Delivery ✓' : 'Delivery'}
                       </button>
                       <button 
                         className={`meal-btn cancel-btn ${status === 'cancel' ? 'active' : ''}`}
                         onClick={() => handleMealAction(meal, 'cancel')}
-                        style={{ flex: 1 }}
+                        style={{ padding: '8px 2px', fontSize: 11, fontWeight: 700, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
+                        title="Cancel this meal"
                       >
                         <Ban size={14} />
-                        {status === 'cancel' ? 'Canceled' : 'Cancel'}
+                        {status === 'cancel' ? 'Canceled ✓' : 'Cancel'}
                       </button>
                     </div>
                     <div style={{ textAlign: 'center', marginTop: 2 }}>
@@ -1908,6 +2076,129 @@ const Food = () => {
                 ))
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tiffin Delivery Request Modal ── */}
+      {showDeliveryModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div style={{ background: 'white', width: '100%', maxWidth: 480, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: '24px 20px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 -10px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: '#ffedd5', color: '#ea580c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 24 }}>two_wheeler</span>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Request Tiffin Delivery</h3>
+                  <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>For {deliveryMeal} · Delivered by Febebo Partner</p>
+                </div>
+              </div>
+              <button onClick={() => setShowDeliveryModal(false)} style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitDelivery}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 8 }}>Destination Type</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                  {[
+                    { id: 'other_pg', label: 'Other PG', icon: 'domain' },
+                    { id: 'college', label: 'College', icon: 'school' },
+                    { id: 'workplace', label: 'Workplace', icon: 'business_center' },
+                    { id: 'custom', label: 'Other', icon: 'location_on' }
+                  ].map(dt => {
+                    const active = deliveryDestinationType === dt.id;
+                    return (
+                      <button
+                        type="button"
+                        key={dt.id}
+                        onClick={() => setDeliveryDestinationType(dt.id)}
+                        style={{
+                          padding: '10px 4px',
+                          borderRadius: 12,
+                          border: active ? '2px solid #ea580c' : '1px solid #e2e8f0',
+                          background: active ? '#fff7ed' : '#f8fafc',
+                          color: active ? '#ea580c' : '#64748b',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 20 }}>{dt.icon}</span>
+                        <span style={{ fontSize: 11, fontWeight: 800 }}>{dt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                  Delivery Address / Location <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder={
+                    deliveryDestinationType === 'other_pg' ? 'e.g. R testing 3, Room 204' :
+                    deliveryDestinationType === 'college' ? 'e.g. Sharda Univ, Gate 3 / Library' :
+                    deliveryDestinationType === 'workplace' ? 'e.g. TechZone 4, Tower B Reception' :
+                    'Enter complete drop-off location'
+                  }
+                  value={deliveryDestination}
+                  onChange={(e) => setDeliveryDestination(e.target.value)}
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid #cbd5e1', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                  Delivery Instructions (Optional)
+                </label>
+                <textarea
+                  rows="2"
+                  placeholder="e.g. Call when outside, leave at main security guard"
+                  value={deliveryNotes}
+                  onChange={(e) => setDeliveryNotes(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 12, border: '1.5px solid #cbd5e1', fontSize: 13, outline: 'none', boxSizing: 'border-box', resize: 'none' }}
+                />
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 12, marginBottom: 16, border: '1px solid #e2e8f0', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0891b2' }}>info</span>
+                <p style={{ margin: 0, fontSize: 11.5, color: '#64748b', lineHeight: 1.3 }}>
+                  When your delivery partner arrives with your tiffin, scan their <strong>Delivery QR Pass</strong> or have them confirm delivery.
+                </p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={submittingDelivery || !deliveryDestination.trim()}
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  background: !deliveryDestination.trim() ? '#94a3b8' : 'linear-gradient(135deg, #ea580c, #c2410c)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 14,
+                  fontSize: 15,
+                  fontWeight: 800,
+                  cursor: !deliveryDestination.trim() ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  boxShadow: '0 4px 14px rgba(234, 88, 12, 0.3)'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>local_shipping</span>
+                {submittingDelivery ? 'Submitting Request...' : `Confirm ${deliveryMeal} Tiffin Delivery`}
+              </button>
+            </form>
           </div>
         </div>
       )}

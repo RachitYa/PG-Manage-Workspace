@@ -129,6 +129,11 @@ export default function AdminProfile() {
           pgName: draft.pgName,
           'location.address': draft.pgAddress
         });
+        await setDoc(doc(db, 'admins', user.uid), {
+          name: draft.name,
+          phone: draft.phone,
+          dob: draft.dob
+        }, { merge: true }).catch(() => {});
       }
       setProfile(draft);
     } catch(err) {

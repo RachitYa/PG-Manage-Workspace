@@ -105,6 +105,8 @@ const MeterReading = lazyWithRetry(() => import('./pages/MeterReading'));
 const VisitorLog = lazyWithRetry(() => import('./pages/VisitorLog'));
 const MeterHistory = lazyWithRetry(() => import('./pages/MeterHistory'));
 const MessHeadcount = lazyWithRetry(() => import('./pages/MessHeadcount'));
+const MealAuditLog = lazyWithRetry(() => import('./pages/MealAuditLog'));
+const DeliveryOrders = lazyWithRetry(() => import('./pages/DeliveryOrders'));
 const StaffApp = lazyWithRetry(() => import('./pages/StaffApp'));
 
 // Redirect helper
@@ -203,6 +205,8 @@ function AppRoutes() {
         <Route path="/meter-history/:id" element={<AdminRoute><MeterHistory /></AdminRoute>} />
         <Route path="/visitor-log" element={<AdminRoute><VisitorLog /></AdminRoute>} />
         <Route path="/mess-headcount" element={<AdminRoute><MessHeadcount /></AdminRoute>} />
+        <Route path="/meal-audit-log" element={<AdminRoute><MealAuditLog /></AdminRoute>} />
+        <Route path="/delivery-orders" element={<AdminRoute><DeliveryOrders /></AdminRoute>} />
         <Route path="/help" element={<AdminRoute><HelpSupport /></AdminRoute>} />
 
         {/* Staff Routes */}

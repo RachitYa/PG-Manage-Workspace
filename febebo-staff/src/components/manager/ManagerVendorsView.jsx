@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, addDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { syncItemsToKitchenInventory, isKitchenRelatedCategory } from '../../utils/inventorySync';
+import { syncItemsToKitchenInventory, isKitchenRelatedCategory, calculateItemTotal } from '../../utils/inventorySync';
 
 const CATEGORY_ITEMS = {
   Groceries: [
@@ -234,7 +234,7 @@ export default function ManagerVendorsView({ adminId, onBack, showToast, current
   };
 
   const purchaseValidRows = Object.entries(selectedItems).filter(([, v]) => v.qty && v.rate);
-  const purchaseGrandTotal = purchaseValidRows.reduce((sum, [, v]) => sum + (parseFloat(v.qty) || 0) * (parseFloat(v.rate) || 0), 0);
+  const purchaseGrandTotal = purchaseValidRows.reduce((sum, [, v]) => sum + calculateItemTotal(v.qty, v.unit, v.rate), 0);
 
   // Submit Purchase
   const handleSubmitPurchase = async () => {
@@ -249,7 +249,7 @@ export default function ManagerVendorsView({ adminId, onBack, showToast, current
         qty: v.qty,
         unit: v.unit,
         rate: parseFloat(v.rate),
-        price: parseFloat(v.qty) * parseFloat(v.rate)
+        price: calculateItemTotal(v.qty, v.unit, v.rate)
       }));
 
       const isPaid = paymentOption !== 'Pending';
@@ -789,7 +789,7 @@ export default function ManagerVendorsView({ adminId, onBack, showToast, current
               {[...(CATEGORY_ITEMS[purchaseVendor.category] || CATEGORY_ITEMS.Groceries), ...customItems].map(name => {
                 const isSelected = !!selectedItems[name];
                 const v = selectedItems[name] || {};
-                const rowTotal = isSelected ? (parseFloat(v.qty) || 0) * (parseFloat(v.rate) || 0) : 0;
+                const rowTotal = isSelected ? calculateItemTotal(v.qty, v.unit, v.rate) : 0;
 
                 return (
                   <div key={name} style={{ display: 'grid', gridTemplateColumns: '26px 1fr 70px 60px 60px', gap: 6, alignItems: 'center', padding: '6px 4px', borderRadius: 8, background: isSelected ? '#ecfeff' : 'transparent', border: isSelected ? '1px solid #a5f3fc' : '1px solid transparent' }}>
@@ -842,7 +842,7 @@ export default function ManagerVendorsView({ adminId, onBack, showToast, current
                     ) : <span />}
 
                     <span style={{ fontSize: 11, fontWeight: 800, color: '#0f172a', textAlign: 'right' }}>
-                      {rowTotal > 0 ? `₹${rowTotal.toFixed(0)}` : '-'}
+                      {rowTotal > 0 ? `₹${rowTotal % 1 === 0 ? rowTotal.toFixed(0) : rowTotal.toFixed(2)}` : '-'}
                     </span>
                   </div>
                 );

@@ -80,7 +80,8 @@ export default function Login() {
           payDate: data.payDate,
           createdAt: data.createdAt,
           hasProfile: data.hasProfile || false,
-          profileData: data.profileData || {}
+          profileData: data.profileData || {},
+          isDeliveryBoy: !!data.isDeliveryBoy || data.role === 'Delivery Boy'
         });
         navigate('/');
       } else {
