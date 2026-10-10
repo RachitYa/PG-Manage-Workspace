@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db, auth } from '../firebase';
 import { initializeApp, deleteApp, getApps } from 'firebase/app';
@@ -9,6 +9,7 @@ import QRCode from 'react-qr-code';
 import { isStudentOnVacation, getStudentActiveVacation, formatDateDisplay, isMealPausedOnDate, ALL_MEALS, isMealOver } from '../utils/vacationUtils';
 import { COMMON_PG_DISHES, DISH_CATEGORIES, getDishPresetImage, DEFAULT_FOOD_PLACEHOLDER } from '../data/commonFoodDishes';
 import ManagerTenantsView from '../components/manager/ManagerTenantsView';
+import ManagerAddTenantView from '../components/manager/ManagerAddTenantView';
 import ManagerRoomsView from '../components/manager/ManagerRoomsView';
 import ManagerComplaintsView from '../components/manager/ManagerComplaintsView';
 import ManagerLeavesView from '../components/manager/ManagerLeavesView';
@@ -157,12 +158,13 @@ const compressImage = (file, maxWidth = 750) => {
 };
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
-const C = {
-  bg:'#fffdf0', card:'#ffffff', text:'#1a1500', sub:'#78680a', muted:'#78680a',
-  border:'#e8df9a', primary:'#fde047', primaryDk:'#ca8a04', primaryBg:'#fefce8',
+const DEFAULT_C = {
+  bg:'#ffffff', card:'#ffffff', text:'#0f172a', sub:'#64748b', muted:'#94a3b8',
+  border:'#e2e8f0', primary:'#fde047', primaryDk:'#ca8a04', primaryBg:'#fefce8',
   success:'#10b981', successBg:'#dcfce7', warn:'#f59e0b', warnBg:'#fef3c7',
-  danger:'#dc2626', dangerBg:'#fee2e2', indigo:'#fde047', indigoBg:'#fefce8',
+  danger:'#dc2626', dangerBg:'#fee2e2', indigo:'#4f46e5', indigoBg:'#eef2ff',
 };
+const C = DEFAULT_C;
 
 const ROLE_META = {
   'Bus Driver':       { emoji:'🚌',   accent:'#38bdf8', accentBg:'#e0f2fe', dept:'Shuttle & Transport',     grad:'#38bdf8' },
@@ -826,6 +828,34 @@ export default function StaffApp(){
     'Other': 'Others'
   };
   const staffRole = roleAlias[rawRole] || rawRole;
+  const isManager = staffRole === 'Manager';
+  const C = useMemo(() => {
+    if (isManager) {
+      return {
+        bg: '#ffffff',
+        shellBg: '#ffffff',
+        card: '#ffffff',
+        text: '#0f172a',
+        sub: '#64748b',
+        muted: '#94a3b8',
+        border: '#e2e8f0',
+        primary: '#4f46e5',
+        primaryDk: '#4338ca',
+        primaryBg: '#eef2ff',
+        success: '#10b981',
+        successBg: '#dcfce7',
+        warn: '#f59e0b',
+        warnBg: '#fef3c7',
+        danger: '#dc2626',
+        dangerBg: '#fee2e2',
+        indigo: '#4f46e5',
+        indigoBg: '#eef2ff',
+      };
+    }
+    return DEFAULT_C;
+  }, [isManager]);
+
+  const [mgr_addTenantMode, setMgr_addTenantMode] = useState('new');
   const staffName = user?.name     || 'Staff Member';
   const hasDeliveryDuty = (
     staffRole === 'Delivery Boy' || 
@@ -3817,10 +3847,10 @@ export default function StaffApp(){
 
       {/* ── HEADER (always visible) ──────────────────────────────────────── */}
       {view === 'home' ? (
-        <div style={{background: 'linear-gradient(to bottom, #fffef2, #fffdf0)', padding:'0 16px 20px', paddingTop:'max(0px, env(safe-area-inset-top, 0px))', color: '#1a1500', borderBottom: '1.5px solid #e8df9a'}}>
+        <div style={{background: isManager ? '#ffffff' : 'linear-gradient(to bottom, #fffef2, #fffdf0)', padding:'0 16px 20px', paddingTop:'max(0px, env(safe-area-inset-top, 0px))', color: isManager ? '#0f172a' : '#1a1500', borderBottom: isManager ? '1px solid #e2e8f0' : '1.5px solid #e8df9a'}}>
           <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', height:60, position:'relative'}}>
             <div style={{display:'flex', alignItems:'center', gap:10, zIndex:10}}>
-              <p style={{fontFamily:"'Hanken Grotesk',sans-serif", fontSize:24, fontWeight:900, color: '#1a1500', margin:0, letterSpacing:-.5}}>febebo</p>
+              <p style={{fontFamily:"'Hanken Grotesk',sans-serif", fontSize:24, fontWeight:900, color: isManager ? '#0f172a' : '#1a1500', margin:0, letterSpacing:-.5}}>febebo</p>
               
               {/* Multi-PG Switcher Pill */}
               {assignedProperties && assignedProperties.length > 0 && (
@@ -3830,27 +3860,27 @@ export default function StaffApp(){
                   }}
                   style={{
                     display:'flex', alignItems:'center', gap:5,
-                    background: '#ffffff', border: '1.5px solid #e8df9a',
+                    background: '#ffffff', border: isManager ? '1.5px solid #e2e8f0' : '1.5px solid #e8df9a',
                     borderRadius: 20, padding: '4px 10px', cursor: assignedProperties.length > 1 ? 'pointer' : 'default',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+                    boxShadow: isManager ? '0 1px 6px rgba(15,23,42,0.04)' : '0 1px 4px rgba(0,0,0,0.04)'
                   }}
                 >
-                  <span className="material-symbols-outlined" style={{fontSize:15, color: '#ca8a04'}}>domain</span>
-                  <span style={{fontSize:11.5, fontWeight:800, color:'#1a1500', maxWidth:110, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                  <span className="material-symbols-outlined" style={{fontSize:15, color: isManager ? '#4f46e5' : '#ca8a04'}}>domain</span>
+                  <span style={{fontSize:11.5, fontWeight:800, color: isManager ? '#0f172a' : '#1a1500', maxWidth:110, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
                     {assignedProperties.find(p => p.id === activePgId)?.name || 'Primary PG'}
                   </span>
                   {assignedProperties.length > 1 && (
-                    <span className="material-symbols-outlined" style={{fontSize:15, color: '#ca8a04'}}>expand_more</span>
+                    <span className="material-symbols-outlined" style={{fontSize:15, color: isManager ? '#4f46e5' : '#ca8a04'}}>expand_more</span>
                   )}
                 </div>
               )}
             </div>
 
-            <button onClick={()=>setView('profile_view')} style={{background: '#fefce8', border: '1.5px solid #e8df9a', borderRadius:50, width:44, height:44, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative', zIndex:10, overflow:'hidden', padding:0}}>
+            <button onClick={()=>setView('profile_view')} style={{background: isManager ? '#f8fafc' : '#fefce8', border: isManager ? '1.5px solid #e2e8f0' : '1.5px solid #e8df9a', borderRadius:50, width:44, height:44, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative', zIndex:10, overflow:'hidden', padding:0}}>
               {profilePic ? (
                 <img src={profilePic} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} />
               ) : (
-                <span className="material-symbols-outlined" style={{fontSize:24, color: '#ca8a04'}}>person</span>
+                <span className="material-symbols-outlined" style={{fontSize:24, color: isManager ? '#4f46e5' : '#ca8a04'}}>person</span>
               )}
             </button>
           </div>
@@ -4013,14 +4043,14 @@ export default function StaffApp(){
                   onClick={() => s.view && setView(s.view)}
                   style={{
                     background: '#ffffff',
-                    border: '1.5px solid #e8df9a',
+                    border: '1.5px solid #e2e8f0',
                     borderRadius: 16,
                     padding: '10px 12px',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 10,
                     cursor: 'pointer',
-                    boxShadow: '0 4px 12px rgba(120, 104, 10, 0.04)',
+                    boxShadow: '0 2px 8px rgba(15,23,42,0.04)',
                     transition: 'all 0.15s'
                   }}
                 >
@@ -4028,10 +4058,10 @@ export default function StaffApp(){
                     <span className="material-symbols-outlined" style={{ fontSize: 18, color: s.color }}>{s.icon}</span>
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontFamily: "'Hanken Grotesk',sans-serif", color: '#1a1500', fontSize: 16, fontWeight: 900, margin: 0, lineHeight: 1.2 }}>{s.value}</p>
-                    <p style={{ color: '#78680a', fontSize: 10.5, fontWeight: 700, margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</p>
+                    <p style={{ fontFamily: "'Hanken Grotesk',sans-serif", color: '#0f172a', fontSize: 16, fontWeight: 900, margin: 0, lineHeight: 1.2 }}>{s.value}</p>
+                    <p style={{ color: '#64748b', fontSize: 10.5, fontWeight: 700, margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</p>
                   </div>
-                  <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#ca8a04', marginLeft: 'auto' }}>chevron_right</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#94a3b8', marginLeft: 'auto' }}>chevron_right</span>
                 </div>
               ))}
             </div>
@@ -4176,9 +4206,7 @@ export default function StaffApp(){
                         return;
                       }
                       if (m.id === 'add_tenant') {
-                        setMgr_serviceModal(true);
-                        setMgr_addTenantStep(1);
-                        setMgr_addTenantForm(prev => ({...prev, serviceType: 'all_services'}));
+                        setMgr_addTenantMode('new');
                       }
                       setView(m.id);
                     }}
@@ -4193,7 +4221,7 @@ export default function StaffApp(){
                         borderRadius:20,
                         padding:'12px 4px 10px',
                         cursor:'pointer',
-                        boxShadow:'0 4px 12px rgba(120, 104, 10, 0.04)',
+                        boxShadow: isManager ? '0 2px 8px rgba(15,23,42,0.04)' : '0 4px 12px rgba(120, 104, 10, 0.04)',
                         minHeight:88,
                         outline:'none',
                         transition:'all 0.15s',
@@ -4230,7 +4258,7 @@ export default function StaffApp(){
                         padding: '12px 14px',
                         cursor: 'pointer',
                         textAlign: 'left',
-                        boxShadow: '0 4px 12px rgba(120, 104, 10, 0.04)'
+                        boxShadow: isManager ? '0 2px 8px rgba(15,23,42,0.04)' : '0 4px 12px rgba(120, 104, 10, 0.04)'
                       }}
                     >
                       <div style={{ width: 36, height: 36, borderRadius: 12, background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -4256,7 +4284,7 @@ export default function StaffApp(){
                         padding: '12px 14px',
                         cursor: 'pointer',
                         textAlign: 'left',
-                        boxShadow: '0 4px 12px rgba(120, 104, 10, 0.04)'
+                        boxShadow: isManager ? '0 2px 8px rgba(15,23,42,0.04)' : '0 4px 12px rgba(120, 104, 10, 0.04)'
                       }}
                     >
                       <div style={{ width: 36, height: 36, borderRadius: 12, background: '#fef9c3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -4525,11 +4553,11 @@ export default function StaffApp(){
       {view === 'manage_tenants' && (
         <ManagerTenantsView
           adminId={user?.ownerUid}
+          activePgId={activePgId}
+          assignedProperties={assignedProperties}
           onBack={() => setView('home')}
-          onAddTenant={() => {
-            setMgr_serviceModal(true);
-            setMgr_addTenantStep(1);
-            setMgr_addTenantForm(prev => ({...prev, serviceType: 'all_services'}));
+          onAddTenant={(mode) => {
+            setMgr_addTenantMode(mode || 'new');
             setView('add_tenant');
           }}
           showToast={showToast}
@@ -4539,6 +4567,8 @@ export default function StaffApp(){
       {view === 'manage_rooms' && (
         <ManagerRoomsView
           adminId={user?.ownerUid}
+          activePgId={activePgId}
+          assignedProperties={assignedProperties}
           onBack={() => setView('home')}
           showToast={showToast}
         />
@@ -6231,11 +6261,11 @@ export default function StaffApp(){
           {/* MANAGER OPERATIONS OVERVIEW */}
           {staffRole === 'Manager' && (<>
             {/* Command Center Header */}
-            <div style={{background:'linear-gradient(135deg, #fffef2 0%, #fefce8 100%)', borderRadius:18, border:`1.5px solid ${C.border}`, padding:'16px 18px', color:C.text, boxShadow:'0 4px 12px rgba(120, 104, 10, 0.04)', position:'relative', overflow:'hidden'}}>
-              <div style={{position:'absolute', top:-30, right:-30, width:120, height:120, borderRadius:'50%', background:'rgba(250, 204, 21, 0.18)', pointerEvents:'none'}} />
-              <p style={{margin:0, fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:0.5, color:C.primaryDk}}>🏢 Operations Hub</p>
-              <h3 style={{margin:'4px 0 2px', fontSize:20, fontWeight:900, color:C.text}}>Operations Overview</h3>
-              <p style={{margin:0, fontSize:12, color:C.muted, fontWeight:600}}>All departments & live status</p>
+            <div style={{background: isManager ? 'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)' : 'linear-gradient(135deg, #fffef2 0%, #fefce8 100%)', borderRadius:18, border: isManager ? '1.5px solid #e2e8f0' : `1.5px solid ${C.border}`, padding:'16px 18px', color: isManager ? '#0f172a' : C.text, boxShadow: isManager ? '0 2px 10px rgba(15,23,42,0.04)' : '0 4px 12px rgba(120, 104, 10, 0.04)', position:'relative', overflow:'hidden'}}>
+              <div style={{position:'absolute', top:-30, right:-30, width:120, height:120, borderRadius:'50%', background: isManager ? 'rgba(79, 70, 229, 0.12)' : 'rgba(250, 204, 21, 0.18)', pointerEvents:'none'}} />
+              <p style={{margin:0, fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:0.5, color: isManager ? '#4f46e5' : C.primaryDk}}>🏢 Operations Hub</p>
+              <h3 style={{margin:'4px 0 2px', fontSize:20, fontWeight:900, color: isManager ? '#0f172a' : C.text}}>Operations Overview</h3>
+              <p style={{margin:0, fontSize:12, color: isManager ? '#64748b' : C.muted, fontWeight:600}}>All departments & live status</p>
             </div>
 
             {/* Department KPI Grid */}
@@ -6248,11 +6278,11 @@ export default function StaffApp(){
                 {label:'New Leads', value: String(enquiries.filter(e=>e.status==='New' || e.status==='New Lead').length), icon:'contact_phone', bg:'#ede9fe', color:'#7c3aed', sub:'Room enquiries', view:'enquiry'},
                 {label:'Mess Covers', value:`${students.filter(s=>s['status'+(mealTab||'Lunch').charAt(0)]!=='notEaten').length} / ${students.length}`, icon:'restaurant', bg:'#fef9c3', color:'#ca8a04', sub:`Today ${mealTab||'Lunch'}`, view:'mess_headcount'},
               ].map(k => (
-                <div key={k.label} onClick={() => k.view && setView(k.view)} style={{background:'white', borderRadius:18, border:`1px solid ${C.border}`, padding:'14px 16px', boxShadow:'0 4px 12px rgba(120, 104, 10, 0.04)', cursor:'pointer', transition:'all 0.15s'}}>
+                <div key={k.label} onClick={() => k.view && setView(k.view)} style={{background:'white', borderRadius:18, border: isManager ? '1px solid #e2e8f0' : `1px solid ${C.border}`, padding:'14px 16px', boxShadow:'0 2px 8px rgba(15,23,42,0.03)', cursor:'pointer', transition:'all 0.15s'}}>
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
                     <div>
-                      <p style={{fontSize:11, fontWeight:700, color:C.muted, margin:0, textTransform:'uppercase', letterSpacing:0.3}}>{k.label}</p>
-                      <p style={{fontSize:22, fontWeight:900, color:C.text, margin:'4px 0 2px'}}>{k.value}</p>
+                      <p style={{fontSize:11, fontWeight:700, color: isManager ? '#64748b' : C.muted, margin:0, textTransform:'uppercase', letterSpacing:0.3}}>{k.label}</p>
+                      <p style={{fontSize:22, fontWeight:900, color: isManager ? '#0f172a' : C.text, margin:'4px 0 2px'}}>{k.value}</p>
                       <p style={{fontSize:11, fontWeight:600, color:k.color, margin:0}}>{k.sub}</p>
                     </div>
                     <div style={{width:36, height:36, borderRadius:12, background:k.bg, display:'flex', alignItems:'center', justifyContent:'center'}}>
@@ -6264,24 +6294,24 @@ export default function StaffApp(){
             </div>
 
             {/* Mess & Meal Management Card */}
-            <div style={{background:'#fff', borderRadius:18, border:`1px solid ${C.border}`, padding:16, boxShadow:'0 4px 12px rgba(120, 104, 10, 0.04)'}}>
+            <div style={{background:'#fff', borderRadius:18, border: isManager ? '1px solid #e2e8f0' : `1px solid ${C.border}`, padding:16, boxShadow:'0 2px 8px rgba(15,23,42,0.03)'}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
                 <div style={{display:'flex', alignItems:'center', gap:8}}>
                   <div style={{width:36, height:36, borderRadius:10, background:'#ede9fe', display:'flex', alignItems:'center', justifyContent:'center'}}>
                     <span className="material-symbols-outlined" style={{fontSize:20, color:'#7c3aed'}}>restaurant_menu</span>
                   </div>
                   <div>
-                    <p style={{margin:0, fontSize:14, fontWeight:900, color:C.text}}>Mess & Meal Management</p>
-                    <p style={{margin:'2px 0 0', fontSize:11, color:C.muted}}>Pause / resume meals & manage food menu</p>
+                    <p style={{margin:0, fontSize:14, fontWeight:900, color: isManager ? '#0f172a' : C.text}}>Mess & Meal Management</p>
+                    <p style={{margin:'2px 0 0', fontSize:11, color: isManager ? '#64748b' : C.muted}}>Pause / resume meals & manage food menu</p>
                   </div>
                 </div>
                 <div style={{display:'flex', gap:6}}>
                   <button
                     onClick={() => setView('mess_headcount')}
                     style={{
-                      background: '#fefce8',
-                      color: '#ca8a04',
-                      border: `1px solid ${C.border}`,
+                      background: isManager ? '#eff6ff' : '#fefce8',
+                      color: isManager ? '#4f46e5' : '#ca8a04',
+                      border: isManager ? '1px solid #dbeafe' : `1px solid ${C.border}`,
                       borderRadius: 10,
                       padding: '6px 10px',
                       fontSize: 12,
@@ -7637,8 +7667,20 @@ export default function StaffApp(){
         );
       })()}
 
-      {/* ─── MANAGER: ADD TENANT VIEW ─── */}
-      {view === 'add_tenant' && (() => {
+      {/* ─── MANAGER: ADD TENANT VIEW (FULL PARITY WITH ADMIN) ─── */}
+      {view === 'add_tenant' && (
+        <ManagerAddTenantView
+          adminId={user?.ownerUid}
+          activePgId={activePgId}
+          assignedProperties={assignedProperties}
+          staffUser={user}
+          onBack={() => setView('manage_tenants')}
+          showToast={showToast}
+          initialMode={mgr_addTenantMode}
+        />
+      )}
+
+      {false && view === 'add_tenant' && (() => {
         const adminId = user?.ownerUid;
         const form = mgr_addTenantForm;
         const setForm = (k, v) => setMgr_addTenantForm(prev => ({...prev, [k]:v}));

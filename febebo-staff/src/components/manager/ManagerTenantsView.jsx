@@ -2,7 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
-export default function ManagerTenantsView({ adminId, onBack, onAddTenant, showToast }) {
+export default function ManagerTenantsView({ adminId, activePgId, assignedProperties = [], onBack, onAddTenant, showToast }) {
+  const [selectedPgId, setSelectedPgId] = useState(() => activePgId || assignedProperties[0]?.id || 'primary');
+  const [showAddOptionsModal, setShowAddOptionsModal] = useState(false);
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('Current'); // 'Current' | 'Notice' | 'MovedOut' | 'All'
@@ -59,7 +61,12 @@ export default function ManagerTenantsView({ adminId, onBack, onAddTenant, showT
         return t;
       }));
 
-      setTenants(enriched);
+      const pgFiltered = enriched.filter(t => {
+        if (!t.pgId || t.pgId === 'primary') return selectedPgId === 'primary';
+        return t.pgId === selectedPgId;
+      });
+
+      setTenants(pgFiltered);
       setLoading(false);
     }, (err) => {
       console.error('ManagerTenantsView error:', err);
@@ -67,7 +74,7 @@ export default function ManagerTenantsView({ adminId, onBack, onAddTenant, showT
     });
 
     return () => unsub();
-  }, [adminId]);
+  }, [adminId, selectedPgId]);
 
   // Tab counts
   const currentCount = useMemo(() => tenants.filter(t => t.status === 'Approved' || t.status === 'Current User' || !t.status).length, [tenants]);
@@ -209,31 +216,60 @@ export default function ManagerTenantsView({ adminId, onBack, onAddTenant, showT
             </button>
             <div>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Manage Tenants</h2>
-              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Operational Directory · Real-time Sync</p>
+              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Directory · {assignedProperties.find(p => p.id === selectedPgId)?.name || 'Primary PG'}</p>
             </div>
           </div>
-          {onAddTenant && (
-            <button
-              onClick={onAddTenant}
-              style={{
-                background: '#0891b2',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 10,
-                padding: '8px 14px',
-                fontSize: 12,
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                boxShadow: '0 2px 6px rgba(8,145,178,0.25)'
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person_add</span>
-              Add
-            </button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {assignedProperties && assignedProperties.length > 1 && (
+              <div style={{ position: 'relative' }}>
+                <select
+                  value={selectedPgId}
+                  onChange={e => setSelectedPgId(e.target.value)}
+                  style={{
+                    background: '#f8fafc',
+                    border: '1.5px solid #e2e8f0',
+                    borderRadius: 20,
+                    padding: '6px 26px 6px 10px',
+                    fontSize: 11.5,
+                    fontWeight: 800,
+                    color: '#0f172a',
+                    outline: 'none',
+                    appearance: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {assignedProperties.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <span className="material-symbols-outlined" style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 16, color: '#64748b', pointerEvents: 'none' }}>
+                  expand_more
+                </span>
+              </div>
+            )}
+            {onAddTenant && (
+              <button
+                onClick={() => setShowAddOptionsModal(true)}
+                style={{
+                  background: '#0891b2',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 10,
+                  padding: '8px 14px',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  boxShadow: '0 2px 6px rgba(8,145,178,0.25)'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person_add</span>
+                Add Student
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Search */}
@@ -632,6 +668,121 @@ export default function ManagerTenantsView({ adminId, onBack, onAddTenant, showT
               <button onClick={() => setEditRoomModalTenant(null)} style={{ flex: 1, padding: 10, borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', fontWeight: 800, color: '#64748b', cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleSaveRoomBed} disabled={actionLoading} style={{ flex: 1, padding: 10, borderRadius: 10, border: 'none', background: '#0891b2', color: '#fff', fontWeight: 800, cursor: 'pointer' }}>
                 {actionLoading ? 'Saving...' : 'Save Shift'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Add Student Options Modal (Apple Style) */}
+      {showAddOptionsModal && (
+        <div
+          onClick={() => setShowAddOptionsModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            padding: 0
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#ffffff',
+              width: '100%',
+              maxWidth: 480,
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+              padding: '24px 20px 36px',
+              boxShadow: '0 -10px 40px rgba(0,0,0,0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Add Student</h3>
+                <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>Choose enrollment type for {assignedProperties.find(p => p.id === selectedPgId)?.name || 'Primary PG'}</p>
+              </div>
+              <button
+                onClick={() => setShowAddOptionsModal(false)}
+                style={{
+                  border: 'none',
+                  background: '#f1f5f9',
+                  width: 36,
+                  height: 36,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#475569'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button
+                onClick={() => {
+                  setShowAddOptionsModal(false);
+                  onAddTenant && onAddTenant('new');
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  padding: '16px',
+                  borderRadius: 16,
+                  border: '1.5px solid #e2e8f0',
+                  background: '#f8fafc',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s'
+                }}
+              >
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: '#ecfeff', color: '#0891b2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 24 }}>person_add</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#0f172a' }}>New Admission</p>
+                  <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>New student onboarding with advance / token payment</p>
+                </div>
+                <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#94a3b8' }}>chevron_right</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowAddOptionsModal(false);
+                  onAddTenant && onAddTenant('already');
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  padding: '16px',
+                  borderRadius: 16,
+                  border: '1.5px solid #e2e8f0',
+                  background: '#f8fafc',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.15s'
+                }}
+              >
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: '#ede9fe', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 24 }}>home_work</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Already a Resident</p>
+                  <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Existing tenant living in PG with past dues & inventory</p>
+                </div>
+                <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#94a3b8' }}>chevron_right</span>
               </button>
             </div>
           </div>
