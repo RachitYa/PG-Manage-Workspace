@@ -665,7 +665,7 @@ export default function AdminDashboard() {
             <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 700, fontSize: 18, color: '#0f172a', margin: 0 }}>Outstanding Dues</p>
             <p style={{ fontSize: 11, color: '#64748b', margin: '2px 0 0' }}>Sorted by unpaid date (oldest overdue first)</p>
           </div>
-          <span style={{ fontSize: 12, color: '#0891b2', fontWeight: 600, cursor: 'pointer' }} onClick={() => navigate('/manage-account', { state: { activeModule: 'total-rents', rentTab: 'pending', duesView: 'people' } })}>See all</span>
+          <span style={{ fontSize: 12, color: '#0891b2', fontWeight: 600, cursor: 'pointer' }} onClick={() => navigate('/manage-account', { state: { activeModule: 'total-rents', rentTab: 'pending' } })}>See all</span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>

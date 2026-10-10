@@ -405,8 +405,7 @@ export default function ManageAccount() {
   const [loadingLease, setLoadingLease] = useState(false);
   const [showAddLeaseModal, setShowAddLeaseModal] = useState(false);
 
-  const [duesView, setDuesView] = useState(location.state?.duesView || 'month'); // 'month' (Pending sorted by month) or 'people' (Outstanding sorted by unpaid date)
-  const [selectedPendingMonth, setSelectedPendingMonth] = useState('all');
+  const [selectedRentMonth, setSelectedRentMonth] = useState('all');
 
   useEffect(() => {
     if (location.state?.activeModule) {
@@ -414,9 +413,7 @@ export default function ManageAccount() {
     }
     if (location.state?.rentTab) {
       setRentTab(location.state.rentTab);
-    }
-    if (location.state?.duesView) {
-      setDuesView(location.state.duesView);
+      setSelectedRentMonth('all');
     }
   }, [location.state]);
 
@@ -865,7 +862,75 @@ export default function ManageAccount() {
           // Sort Upcoming by soonest due date first
           upcoming.sort((a, b) => (a.daysLeft ?? 0) - (b.daysLeft ?? 0));
 
-          // 5. Process synchronized Pending Dues (grouped by month) & Outstanding Dues (sorted by unpaid date)
+          // Group collected receipts by Month & sort reverse-chronologically
+          const collectedMonthsMap = {};
+          collected.forEach(item => {
+            const r = item.rawReceipt;
+            let mLabel = r.rentMonth || r.month || '';
+            let mKey = '';
+            if (mLabel) {
+              const parsed = new Date(mLabel);
+              if (!isNaN(parsed.getTime())) {
+                mKey = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
+              } else {
+                mKey = mLabel.toLowerCase();
+              }
+            } else if (r.datePaid) {
+              const d = new Date(r.datePaid);
+              if (!isNaN(d.getTime())) {
+                mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                mLabel = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+              }
+            }
+            if (!mLabel) mLabel = 'General Receipts';
+            if (!mKey) mKey = 'general';
+
+            if (!collectedMonthsMap[mKey]) {
+              collectedMonthsMap[mKey] = {
+                monthKey: mKey,
+                monthLabel: mLabel,
+                totalAmount: 0,
+                items: []
+              };
+            }
+            const amtNum = Number(r.totalAmount || r.amountPaid || String(item.amount).replace(/,/g, '')) || 0;
+            collectedMonthsMap[mKey].totalAmount += amtNum;
+            collectedMonthsMap[mKey].items.push(item);
+          });
+
+          const collectedMonths = Object.values(collectedMonthsMap).sort((a, b) => {
+            if (a.monthKey === 'general') return 1;
+            if (b.monthKey === 'general') return -1;
+            return b.monthKey.localeCompare(a.monthKey);
+          });
+
+          collectedMonths.forEach(m => {
+            m.items.sort((a, b) => {
+              const timeA = new Date(a.rawReceipt?.datePaid || 0).getTime();
+              const timeB = new Date(b.rawReceipt?.datePaid || 0).getTime();
+              return timeB - timeA;
+            });
+          });
+
+          // Group upcoming rent by Month
+          const upcomingMonthsMap = {};
+          upcoming.forEach(item => {
+            const mLabel = item.month || currentMonthName;
+            const mKey = mLabel.toLowerCase();
+            if (!upcomingMonthsMap[mKey]) {
+              upcomingMonthsMap[mKey] = {
+                monthKey: mKey,
+                monthLabel: mLabel,
+                totalAmount: 0,
+                items: []
+              };
+            }
+            upcomingMonthsMap[mKey].totalAmount += (Number(item.rent) || 0);
+            upcomingMonthsMap[mKey].items.push(item);
+          });
+          const upcomingMonths = Object.values(upcomingMonthsMap);
+
+          // 5. Process synchronized Pending Dues (grouped by month)
           const {
             totalPendingAmount,
             monthsList,
@@ -881,8 +946,10 @@ export default function ManageAccount() {
 
           setRentData({
             upcoming,
+            upcomingMonths,
             pending: allPendingItems,
             collected,
+            collectedMonths,
             pendingMonths: monthsList,
             peopleWithOutstanding,
             totalPendingAmount
@@ -1067,6 +1134,11 @@ export default function ManageAccount() {
     let vendorDocs = [];
     let meterDocs = [];
     let studentPaymentDocs = [];
+    let registeredTenants = [];
+    let registeredTenantIds = new Set();
+    let registeredTenantPhones = new Set();
+    let registeredTenantNames = new Set();
+    let tenantMap = new Map();
 
     const recalculateProfitLoss = () => {
       const monthlyData = {}; // Format: { "June 2026": { rent: 0, meter: 0, staff: 0, petty: 0, pettyDetails: [], lease: 0, vendor: 0, timestamp: 0 } }
@@ -1088,21 +1160,52 @@ export default function ManageAccount() {
 
       const seenKeys = new Set();
 
+      const matchTenant = (item) => {
+        const tid = String(item.tenantId || item.userId || item.uid || '').trim();
+        if (tid && registeredTenantIds.has(tid)) return tenantMap.get(tid);
+        if (item.phone || item.tenantPhone) {
+          const digits = String(item.phone || item.tenantPhone).replace(/\D/g, '');
+          if (digits.length >= 10 && registeredTenantPhones.has(digits.slice(-10))) {
+            return tenantMap.get(`p_${digits.slice(-10)}`);
+          }
+        }
+        if (item.tenantName || item.name) {
+          const nm = String(item.tenantName || item.name).trim().toLowerCase();
+          if (registeredTenantNames.has(nm)) {
+            return tenantMap.get(`n_${nm}`);
+          }
+        }
+        return null;
+      };
+
       // 1. Rent Receipts (Income)
       rentDocs.forEach(r => {
         if (!matchesPgItem(r.pgId)) return;
         const amt = Number(r.totalAmount || r.amountPaid || r.amount || 0);
         if (amt <= 0 || isNaN(amt)) return;
 
+        let matched = matchTenant(r);
+        if (registeredTenants.length > 0 && !matched) return;
+
+        const effectiveTenantId = matched ? (matched.tenantId || matched.id) : (r.tenantId || r.userId || r.id);
+
         const dateObj = r.datePaid ? new Date(r.datePaid) : (r.date ? new Date(r.date) : new Date(r.createdAt?.toDate ? r.createdAt.toDate() : (r.createdAt || Date.now())));
         const monthStr = r.rentMonth || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
         initMonth(monthStr, dateObj);
 
-        const key = r.transactionId ? `txn_${r.transactionId}` : `rcpt_${r.id || r.tenantId}_${monthStr}_${amt}`;
-        if (!seenKeys.has(key)) {
-          seenKeys.add(key);
-          monthlyData[monthStr].rent += amt;
-        }
+        const dayStr = (dateObj && !isNaN(dateObj.getTime())) ? dateObj.toISOString().split('T')[0] : '';
+        const txnId = (r.transactionId && r.transactionId !== '-' && r.transactionId !== 'Paid during admission' && r.transactionId !== 'N/A') ? String(r.transactionId).trim() : '';
+
+        // Unified deduplication checks
+        if (txnId && seenKeys.has(`txn_${txnId}`)) return;
+        if (monthStr && effectiveTenantId && seenKeys.has(`m_${effectiveTenantId}_${monthStr.toLowerCase().trim()}_${amt}`)) return;
+        if (dayStr && effectiveTenantId && seenKeys.has(`d_${effectiveTenantId}_${dayStr}_${amt}`)) return;
+
+        if (txnId) seenKeys.add(`txn_${txnId}`);
+        if (monthStr && effectiveTenantId) seenKeys.add(`m_${effectiveTenantId}_${monthStr.toLowerCase().trim()}_${amt}`);
+        if (dayStr && effectiveTenantId) seenKeys.add(`d_${effectiveTenantId}_${dayStr}_${amt}`);
+
+        monthlyData[monthStr].rent += amt;
       });
 
       // 2. Student app chat payments (Income)
@@ -1111,18 +1214,31 @@ export default function ManageAccount() {
         const amt = Number(p.amount || p.amountPaid || p.totalAmount || 0);
         if (amt <= 0 || isNaN(amt)) return;
 
+        let matched = matchTenant(p);
+        if (registeredTenants.length > 0 && !matched) return;
+
+        const effectiveTenantId = matched ? (matched.tenantId || matched.id) : (p.tenantId || p.userId || p.id);
+
         const dateObj = p.datePaid ? new Date(p.datePaid) : (p.date ? new Date(p.date) : new Date(p.createdAt?.toDate ? p.createdAt.toDate() : (p.createdAt || Date.now())));
         const monthStr = p.rentMonth || p.month || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
         initMonth(monthStr, dateObj);
 
-        const key = p.transactionId ? `txn_${p.transactionId}` : `pay_${p.tenantId || p.userId}_${monthStr}_${amt}`;
-        if (!seenKeys.has(key)) {
-          seenKeys.add(key);
-          if (p.paymentType === 'meter' || (p.name && p.name.toLowerCase().includes('electricity'))) {
-            monthlyData[monthStr].meter += amt;
-          } else {
-            monthlyData[monthStr].rent += amt;
-          }
+        const dayStr = (dateObj && !isNaN(dateObj.getTime())) ? dateObj.toISOString().split('T')[0] : '';
+        const txnId = (p.transactionId && p.transactionId !== '-' && p.transactionId !== 'Paid during admission' && p.transactionId !== 'N/A') ? String(p.transactionId).trim() : '';
+
+        // Unified deduplication checks
+        if (txnId && seenKeys.has(`txn_${txnId}`)) return;
+        if (monthStr && effectiveTenantId && seenKeys.has(`m_${effectiveTenantId}_${monthStr.toLowerCase().trim()}_${amt}`)) return;
+        if (dayStr && effectiveTenantId && seenKeys.has(`d_${effectiveTenantId}_${dayStr}_${amt}`)) return;
+
+        if (txnId) seenKeys.add(`txn_${txnId}`);
+        if (monthStr && effectiveTenantId) seenKeys.add(`m_${effectiveTenantId}_${monthStr.toLowerCase().trim()}_${amt}`);
+        if (dayStr && effectiveTenantId) seenKeys.add(`d_${effectiveTenantId}_${dayStr}_${amt}`);
+
+        if (p.paymentType === 'meter' || (p.name && p.name.toLowerCase().includes('electricity'))) {
+          monthlyData[monthStr].meter += amt;
+        } else {
+          monthlyData[monthStr].rent += amt;
         }
       });
 
@@ -1267,13 +1383,53 @@ export default function ManageAccount() {
       recalculateProfitLoss();
     }, () => setLoadingProfitLoss(false));
 
-    // Also fetch student app payments
+    // Also fetch registered tenants and student app payments for the active PG
     getDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid))).then(tSnap => {
-      const tenantUids = tSnap.docs.map(d => d.data().tenantId || d.id);
+      const validTenants = tSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(t => matchesPgItem(t.pgId));
+
+      registeredTenants = validTenants;
+      registeredTenantIds = new Set();
+      registeredTenantPhones = new Set();
+      registeredTenantNames = new Set();
+      tenantMap = new Map();
+
+      validTenants.forEach(t => {
+        if (t.id) {
+          const tid = String(t.id).trim();
+          registeredTenantIds.add(tid);
+          tenantMap.set(tid, t);
+        }
+        if (t.tenantId) {
+          const tid = String(t.tenantId).trim();
+          registeredTenantIds.add(tid);
+          tenantMap.set(tid, t);
+        }
+        if (t.phone) {
+          const digits = String(t.phone).replace(/\D/g, '');
+          if (digits.length >= 10) {
+            const last10 = digits.slice(-10);
+            registeredTenantPhones.add(last10);
+            tenantMap.set(`p_${last10}`, t);
+          }
+        }
+        if (t.name) {
+          const nm = String(t.name).trim().toLowerCase();
+          registeredTenantNames.add(nm);
+          if (!tenantMap.has(`n_${nm}`)) {
+            tenantMap.set(`n_${nm}`, t);
+          }
+        }
+      });
+
+      const tenantUids = validTenants.map(d => d.tenantId || d.id).filter(Boolean);
       Promise.all(tenantUids.map(uid => getDocs(collection(db, 'users', uid, 'payments')))).then(allPayments => {
         studentPaymentDocs = allPayments.flatMap(snap => snap.docs.map(d => ({ id: d.id, ...d.data() })));
         recalculateProfitLoss();
-      }).catch(() => {});
+      }).catch(() => {
+        recalculateProfitLoss();
+      });
     }).catch(() => {});
 
     return () => {
@@ -1688,30 +1844,59 @@ export default function ManageAccount() {
 
     // ── USER ACCOUNT: Months view ─────────────────────────────────────────────
     if (activeModule === 'user-account' && selectedUser) {
+      const userReceiptsByMonth = {};
+      userReceipts.forEach(r => {
+        let mLabel = r.rentMonth || r.month || '';
+        if (!mLabel && r.datePaid) {
+          const d = new Date(r.datePaid);
+          if (!isNaN(d.getTime())) mLabel = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+        }
+        if (!mLabel && r.date) {
+          const d = new Date(r.date);
+          if (!isNaN(d.getTime())) mLabel = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+        }
+        if (!mLabel) mLabel = 'General Payments';
+        if (!userReceiptsByMonth[mLabel]) userReceiptsByMonth[mLabel] = [];
+        userReceiptsByMonth[mLabel].push(r);
+      });
+
       return (
         <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#f1f5f9', fontFamily: "'Hanken Grotesk',sans-serif", paddingBottom: 32 }}>
           <SubHeader title="User Account" onBack={() => setSelectedUser(null)} color="#0891b2" />
           <div style={{ padding: '16px' }}>
             <p style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', margin: '0 0 16px' }}>{selectedUser.name}</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {userReceipts.length === 0 ? (
                 <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>No payment history found.</div>
-              ) : userReceipts.map(r => (
-                <div key={r.id} onClick={() => setSelectedUserMonth(r)}
-                  style={{ background: 'white', border: '1.5px solid #0891b2', borderRadius: 12, padding: '16px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <span className="material-symbols-outlined" style={{ color: '#0891b2', fontSize: 20 }}>{r.paymentType === 'token' ? 'monetization_on' : 'calendar_month'}</span>
-                    <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontWeight: 600, fontSize: 16, color: '#0f172a' }}>{r.name || r.rentMonth || 'Payment'}</span>
-                        {r.paymentType === 'token' && <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309' }}>TOKEN</span>}
-                      </div>
-                      <span style={{ fontSize: 11, color: '#94a3b8' }}>{r.date || (r.datePaid ? new Date(r.datePaid).toLocaleDateString('en-IN') : '')}</span>
+              ) : Object.keys(userReceiptsByMonth).map(monthName => (
+                <div key={monthName} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#0891b2' }}>calendar_month</span>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>{monthName}</span>
                     </div>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#059669' }}>
+                      ₹{userReceiptsByMonth[monthName].reduce((sum, item) => sum + Number(item.amount || item.amountPaid || 0), 0).toLocaleString('en-IN')}
+                    </span>
                   </div>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '4px 12px', borderRadius: 20 }}>
-                    Paid: ₹{Number(r.amount || r.amountPaid || 0).toLocaleString('en-IN')}
-                  </span>
+                  {userReceiptsByMonth[monthName].map(r => (
+                    <div key={r.id} onClick={() => setSelectedUserMonth(r)}
+                      style={{ background: 'white', border: '1.5px solid #0891b2', borderRadius: 12, padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span className="material-symbols-outlined" style={{ color: '#0891b2', fontSize: 20 }}>{r.paymentType === 'token' ? 'monetization_on' : 'receipt_long'}</span>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontWeight: 600, fontSize: 15, color: '#0f172a' }}>{r.name || r.rentMonth || 'Payment'}</span>
+                            {r.paymentType === 'token' && <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: '#fef3c7', color: '#b45309' }}>TOKEN</span>}
+                          </div>
+                          <span style={{ fontSize: 11, color: '#94a3b8' }}>{r.date || (r.datePaid ? new Date(r.datePaid).toLocaleDateString('en-IN') : '')}</span>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '4px 12px', borderRadius: 20 }}>
+                        Paid: ₹{Number(r.amount || r.amountPaid || 0).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
@@ -1991,7 +2176,7 @@ export default function ManageAccount() {
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
               {TABS.map(tab => (
-                <button key={tab.key} onClick={() => setRentTab(tab.key)}
+                <button key={tab.key} onClick={() => { setRentTab(tab.key); setSelectedRentMonth('all'); }}
                   style={{ flex: 1, padding: '10px 8px', borderRadius: 10, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 12, background: rentTab === tab.key ? tab.color : 'white', color: rentTab === tab.key ? 'white' : '#64748b', transition: 'all 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
                   {tab.label}
                 </button>
@@ -2000,12 +2185,22 @@ export default function ManageAccount() {
 
 
             {!loadingRents && (
-               <div style={{ background: '#f8fafc', padding: '16px', borderRadius: 12, marginBottom: 16, border: `1px solid ${rentTab === 'pending' ? '#fecdd3' : '#e2e8f0'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+               <div style={{ background: '#f8fafc', padding: '16px', borderRadius: 12, marginBottom: 16, border: `1px solid ${rentTab === 'pending' ? '#fecdd3' : rentTab === 'collected' ? '#a7f3d0' : '#e2e8f0'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                   <div>
                     <span style={{ fontSize: 14, fontWeight: 700, color: '#475569', display: 'block' }}>Total {activeTab.label}</span>
                     {rentTab === 'pending' && (
                       <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
-                        {rentData.peopleWithOutstanding?.length || 0} residents with dues · 100% Synced
+                        {rentData.pending?.length || 0} pending {rentData.pending?.length === 1 ? 'due' : 'dues'}
+                      </span>
+                    )}
+                    {rentTab === 'collected' && (
+                      <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
+                        {rentData.collected?.length || 0} receipts collected
+                      </span>
+                    )}
+                    {rentTab === 'upcoming' && (
+                      <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
+                        {rentData.upcoming?.length || 0} upcoming rents
                       </span>
                     )}
                   </div>
@@ -2015,59 +2210,28 @@ export default function ManageAccount() {
                </div>
             )}
 
-            {/* Sub-view switcher for Pending vs Outstanding */}
-            {rentTab === 'pending' && (
-              <div style={{ display: 'flex', background: '#e2e8f0', borderRadius: 10, padding: 3, marginBottom: 16 }}>
-                <button
-                  onClick={() => setDuesView('month')}
-                  style={{
-                    flex: 1, padding: '8px 10px', borderRadius: 8, border: 'none',
-                    background: duesView === 'month' ? 'white' : 'transparent',
-                    color: duesView === 'month' ? '#0f172a' : '#64748b',
-                    fontWeight: duesView === 'month' ? 800 : 600,
-                    fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    boxShadow: duesView === 'month' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-                  }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: duesView === 'month' ? '#e11d48' : '#64748b' }}>calendar_month</span>
-                  Sorted by Months (Pending)
-                </button>
-                <button
-                  onClick={() => setDuesView('people')}
-                  style={{
-                    flex: 1, padding: '8px 10px', borderRadius: 8, border: 'none',
-                    background: duesView === 'people' ? 'white' : 'transparent',
-                    color: duesView === 'people' ? '#0f172a' : '#64748b',
-                    fontWeight: duesView === 'people' ? 800 : 600,
-                    fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    boxShadow: duesView === 'people' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-                  }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: duesView === 'people' ? '#e11d48' : '#64748b' }}>person</span>
-                  Sorted by Unpaid Date (Outstanding)
-                </button>
-              </div>
-            )}
-
-            {/* Month Filter Chips (for Pending Month View) */}
-            {rentTab === 'pending' && duesView === 'month' && rentData.pendingMonths && rentData.pendingMonths.length > 1 && (
+            {/* Month Filter Chips for Pending or Collected */}
+            {((rentTab === 'pending' && rentData.pendingMonths && rentData.pendingMonths.length > 1) ||
+              (rentTab === 'collected' && rentData.collectedMonths && rentData.collectedMonths.length > 1)) && (
               <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 12, scrollbarWidth: 'none' }}>
                 <button
-                  onClick={() => setSelectedPendingMonth('all')}
+                  onClick={() => setSelectedRentMonth('all')}
                   style={{
                     padding: '6px 12px', borderRadius: 20, border: '1px solid #cbd5e1',
-                    background: selectedPendingMonth === 'all' ? '#0f172a' : 'white',
-                    color: selectedPendingMonth === 'all' ? 'white' : '#475569',
+                    background: selectedRentMonth === 'all' ? '#0f172a' : 'white',
+                    color: selectedRentMonth === 'all' ? 'white' : '#475569',
                     fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap'
                   }}>
-                  All Months ({rentData.pending?.length || 0})
+                  All Months ({rentTab === 'pending' ? (rentData.pending?.length || 0) : (rentData.collected?.length || 0)})
                 </button>
-                {rentData.pendingMonths.map(m => (
+                {(rentTab === 'pending' ? rentData.pendingMonths : rentData.collectedMonths).map(m => (
                   <button
                     key={m.monthKey}
-                    onClick={() => setSelectedPendingMonth(m.monthKey)}
+                    onClick={() => setSelectedRentMonth(m.monthKey)}
                     style={{
                       padding: '6px 12px', borderRadius: 20, border: '1px solid #cbd5e1',
-                      background: selectedPendingMonth === m.monthKey ? '#e11d48' : 'white',
-                      color: selectedPendingMonth === m.monthKey ? 'white' : '#475569',
+                      background: selectedRentMonth === m.monthKey ? (rentTab === 'pending' ? '#e11d48' : '#059669') : 'white',
+                      color: selectedRentMonth === m.monthKey ? 'white' : '#475569',
                       fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap'
                     }}>
                     {m.monthLabel} (₹{(m.totalAmount/1000).toFixed(1).replace('.0', '')}k)
@@ -2079,10 +2243,10 @@ export default function ManageAccount() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {loadingRents ? (
                 <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Loading rent data...</div>
-              ) : rentTab === 'pending' && duesView === 'month' ? (
+              ) : rentTab === 'pending' ? (
                 // ── PENDING VIEW: Grouped & Sorted by Months ──
                 rentData.pendingMonths && rentData.pendingMonths.length > 0 ? (
-                  (selectedPendingMonth === 'all' ? rentData.pendingMonths : rentData.pendingMonths.filter(m => m.monthKey === selectedPendingMonth)).map((m) => {
+                  (selectedRentMonth === 'all' ? rentData.pendingMonths : rentData.pendingMonths.filter(m => m.monthKey === selectedRentMonth)).map((m) => {
                     const filteredItems = m.items.filter(it => 
                       !search || 
                       String(it.tenantName || '').toLowerCase().includes(search.toLowerCase()) || 
@@ -2150,116 +2314,139 @@ export default function ManageAccount() {
                 ) : (
                   <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No pending dues found.</div>
                 )
-              ) : rentTab === 'pending' && duesView === 'people' ? (
-                // ── OUTSTANDING VIEW: People Sorted by Date & Time Unpaid ──
-                rentData.peopleWithOutstanding && rentData.peopleWithOutstanding.length > 0 ? (
-                  <>
-                    <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 6px', fontWeight: 600 }}>
-                      Residents sorted by unpaid date (oldest overdue debtor first):
-                    </p>
-                    {rentData.peopleWithOutstanding
-                      .filter(p => !search || String(p.name || '').toLowerCase().includes(search.toLowerCase()) || String(p.room || '').toLowerCase().includes(search.toLowerCase()))
-                      .map((p, idx) => (
-                        <div key={idx} style={{ background: 'white', borderRadius: 14, padding: '14px 16px', border: '1px solid #fee2e2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
-                            <div style={{ width: 42, height: 42, borderRadius: 12, background: p.color || '#e11d48', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: 13, flexShrink: 0, overflow: 'hidden' }}>
-                              {p.img ? <img src={p.img} alt={p.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : p.initials}
-                            </div>
-                            <div>
-                              <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: '0 0 2px' }}>{p.name}</p>
-                              <p style={{ fontSize: 12, color: p.oldestDaysOverdue > 0 ? '#e11d48' : '#64748b', margin: '0 0 4px', fontWeight: p.oldestDaysOverdue > 0 ? 600 : 400 }}>
-                                Room {p.room} · {p.oldestDaysOverdue > 0 ? `Unpaid since ${formatDateDisplay(p.oldestUnpaidDate)} (${p.oldestDaysOverdue}d ago)` : `Due: ${formatDateDisplay(p.oldestUnpaidDate)}`}
-                              </p>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 15, color: '#e11d48' }}>₹{p.amount}</span>
-                                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: p.oldestDaysOverdue >= 4 ? '#fee2e2' : p.oldestDaysOverdue > 0 ? '#ffedd5' : '#e0f2fe', color: p.oldestDaysOverdue >= 4 ? '#dc2626' : p.oldestDaysOverdue > 0 ? '#ea580c' : '#0369a1' }}>
-                                  {p.oldestDaysOverdue >= 4 ? '🔴 Critical' : p.oldestDaysOverdue > 0 ? '🟠 Overdue' : '⚪ Current'}
-                                </span>
+              ) : rentTab === 'collected' ? (
+                // ── COLLECTED VIEW: Grouped & Sorted by Months ──
+                rentData.collectedMonths && rentData.collectedMonths.length > 0 ? (
+                  (selectedRentMonth === 'all' ? rentData.collectedMonths : rentData.collectedMonths.filter(m => m.monthKey === selectedRentMonth)).map((m) => {
+                    const filteredItems = m.items.filter(t => 
+                      !search || 
+                      String(t.name || '').toLowerCase().includes(search.toLowerCase()) || 
+                      String(t.room || '').toLowerCase().includes(search.toLowerCase())
+                    );
+                    if (filteredItems.length === 0) return null;
+
+                    return (
+                      <div key={m.monthKey} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                        {/* Month Header Banner */}
+                        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 12, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#059669' }}>calendar_month</span>
+                            <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>{m.monthLabel}</span>
+                            <span style={{ fontSize: 11, background: '#d1fae5', color: '#065f46', fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+                              {filteredItems.length} {filteredItems.length === 1 ? 'receipt' : 'receipts'}
+                            </span>
+                          </div>
+                          <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 16, color: '#059669' }}>
+                            ₹{m.totalAmount.toLocaleString('en-IN')}
+                          </span>
+                        </div>
+
+                        {/* Month Receipts */}
+                        {filteredItems.map((t, idx) => (
+                          <div key={idx} style={{ background: 'white', borderRadius: 14, padding: '14px 16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                              <div style={{ width: 42, height: 42, borderRadius: 12, background: t.color || '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                                {t.initials}
+                              </div>
+                              <div>
+                                <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: '0 0 2px' }}>{t.name}</p>
+                                <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 2px' }}>Room {t.room} · {t.date}</p>
+                                <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 15, color: '#059669' }}>₹{t.amount}</span>
                               </div>
                             </div>
+                            <button onClick={async () => {
+                              let r = t.rawReceipt;
+                              if (r.paymentMode === 'UPI (Joining)' && r.tenantId) {
+                                try {
+                                  const q = query(collection(db, 'users', r.tenantId, 'payments'), orderBy('createdAt', 'desc'), limit(1));
+                                  const snap = await getDocs(q);
+                                  if (!snap.empty) {
+                                    const p = snap.docs[0].data();
+                                    r = {
+                                      ...r,
+                                      paymentMode: p.paymentMode || r.paymentMode,
+                                      senderUPI: p.transactionId || (p.paymentMode === 'Cash' ? 'Paid in Cash' : r.senderUPI),
+                                      receivedBy: p.receivedBy || r.receivedBy
+                                    };
+                                  }
+                                } catch (e) {
+                                  console.error('Error fetching real payment data:', e);
+                                }
+                              }
+                              setActiveReceipt(r);
+                            }}
+                              style={{ padding: '8px 12px', background: '#ecfeff', color: '#0891b2', border: '1px solid #0891b2', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>receipt_long</span>
+                              Receipt
+                            </button>
                           </div>
-                          <button onClick={() => setCollectModalData({
-                              tenantId: p.id,
-                              name: p.name,
-                              room: `Room ${p.room}`,
-                              amount: p.rawAmount || 0,
-                              rent: p.rent || 0,
-                              security: p.security || 0,
-                              month: new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }),
-                              duesSummary: p.duesSummary
-                            })}
-                            style={{ padding: '8px 14px', background: '#0891b2', color: 'white', border: 'none', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, boxShadow: '0 2px 6px rgba(8,145,178,0.2)' }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>payments</span>
-                            Mark Paid
-                          </button>
-                        </div>
-                      ))}
-                  </>
-                ) : (
-                  <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No outstanding dues found.</div>
-                )
-              ) : rentData[rentTab].length === 0 ? (
-                <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No records found.</div>
-              ) : (
-                rentData[rentTab]
-                  .filter(t => String(t.name || '').toLowerCase().includes(search.toLowerCase()) || String(t.room || '').toLowerCase().includes(search.toLowerCase()))
-                  .map((t, i) => {
-                const amtVal = parseInt(String(t.amount).replace(/,/g, '')) || 8000;
-                const isCollected = rentTab === 'collected';
-                return (
-                  <div key={i} style={{ background: 'white', borderRadius: 14, padding: '14px 16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
-                      <div style={{ width: 42, height: 42, borderRadius: 12, background: t.color, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>{t.initials}</div>
-                      <div>
-                        <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: '0 0 2px' }}>{t.name}</p>
-                        <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 2px' }}>Room {t.room} · {t.date}</p>
-                        <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 15, color: activeTab.color }}>₹{t.amount}</span>
+                        ))}
                       </div>
-                    </div>
-                    {isCollected ? (
-                      <button onClick={async () => {
-                        let r = t.rawReceipt;
-                        if (r.paymentMode === 'UPI (Joining)' && r.tenantId) {
-                          try {
-                            const q = query(collection(db, 'users', r.tenantId, 'payments'), orderBy('createdAt', 'desc'), limit(1));
-                            const snap = await getDocs(q);
-                            if (!snap.empty) {
-                              const p = snap.docs[0].data();
-                              r = {
-                                ...r,
-                                paymentMode: p.paymentMode || r.paymentMode,
-                                senderUPI: p.transactionId || (p.paymentMode === 'Cash' ? 'Paid in Cash' : r.senderUPI),
-                                receivedBy: p.receivedBy || r.receivedBy
-                              };
-                            }
-                          } catch (e) {
-                            console.error('Error fetching real payment data:', e);
-                          }
-                        }
-                        setActiveReceipt(r);
-                      }}
-                        style={{ padding: '8px 12px', background: '#ecfeff', color: '#0891b2', border: '1px solid #0891b2', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>receipt_long</span>
-                        Receipt
-                      </button>
-                    ) : (
-                      <button onClick={() => setCollectModalData({
-                          tenantId: t.tenantId || t.id,
-                          name: t.name,
-                          room: `Room ${t.room}`,
-                          amount: amtVal,
-                          rent: t.rent || 0,
-                          security: t.security || 0,
-                          month: t.month || new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })
-                        })}
-                        style={{ padding: '8px 14px', background: '#0891b2', color: 'white', border: 'none', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, boxShadow: '0 2px 6px rgba(8,145,178,0.2)' }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>payments</span>
-                        Mark Paid
-                      </button>
-                    )}
-                  </div>
-                );
-              }))}
+                    );
+                  })
+                ) : (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No collected receipts found.</div>
+                )
+              ) : (
+                // ── UPCOMING VIEW: Grouped & Sorted by Months ──
+                rentData.upcomingMonths && rentData.upcomingMonths.length > 0 ? (
+                  rentData.upcomingMonths.map((m) => {
+                    const filteredItems = m.items.filter(t => 
+                      !search || 
+                      String(t.name || '').toLowerCase().includes(search.toLowerCase()) || 
+                      String(t.room || '').toLowerCase().includes(search.toLowerCase())
+                    );
+                    if (filteredItems.length === 0) return null;
+
+                    return (
+                      <div key={m.monthKey} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#0284c7' }}>calendar_month</span>
+                            <span style={{ fontWeight: 800, fontSize: 14, color: '#0f172a' }}>{m.monthLabel}</span>
+                            <span style={{ fontSize: 11, background: '#dbeafe', color: '#1e40af', fontWeight: 700, padding: '2px 8px', borderRadius: 10 }}>
+                              {filteredItems.length} upcoming
+                            </span>
+                          </div>
+                          <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 16, color: '#0284c7' }}>
+                            ₹{m.totalAmount.toLocaleString('en-IN')}
+                          </span>
+                        </div>
+
+                        {filteredItems.map((t, idx) => (
+                          <div key={idx} style={{ background: 'white', borderRadius: 14, padding: '14px 16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                              <div style={{ width: 42, height: 42, borderRadius: 12, background: t.color, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                                {t.initials}
+                              </div>
+                              <div>
+                                <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: '0 0 2px' }}>{t.name}</p>
+                                <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 2px' }}>Room {t.room} · {t.date}</p>
+                                <span style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 15, color: activeTab.color }}>₹{t.amount}</span>
+                              </div>
+                            </div>
+                            <button onClick={() => setCollectModalData({
+                                tenantId: t.tenantId || t.id,
+                                name: t.name,
+                                room: `Room ${t.room}`,
+                                amount: parseInt(String(t.amount).replace(/,/g, '')) || 0,
+                                rent: t.rent || 0,
+                                security: t.security || 0,
+                                month: t.month || new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })
+                              })}
+                              style={{ padding: '8px 14px', background: '#0891b2', color: 'white', border: 'none', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, boxShadow: '0 2px 6px rgba(8,145,178,0.2)' }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>payments</span>
+                              Mark Paid
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>No upcoming rent records found.</div>
+                )
+              )}
             </div>
           </div>
         </div>
