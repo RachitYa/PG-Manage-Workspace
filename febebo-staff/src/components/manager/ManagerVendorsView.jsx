@@ -41,7 +41,20 @@ const CATEGORY_ICONS = {
   Other: 'storefront'
 };
 
-export default function ManagerVendorsView({ adminId, onBack, showToast, currentStaffName = 'Manager' }) {
+export default function ManagerVendorsView({ adminId, activePgId, assignedProperties = [], onBack, showToast, currentStaffName = 'Manager' }) {
+  const [selectedPgId, setSelectedPgId] = useState(() => activePgId || assignedProperties[0]?.id || 'primary');
+
+  useEffect(() => {
+    if (activePgId) setSelectedPgId(activePgId);
+  }, [activePgId]);
+
+  const matchesPg = (itemPgId) => {
+    if (!selectedPgId || selectedPgId === 'primary') {
+      return !itemPgId || itemPgId === 'primary' || itemPgId === adminId;
+    }
+    return itemPgId === selectedPgId;
+  };
+
   const [vendors, setVendors] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -91,7 +104,7 @@ export default function ManagerVendorsView({ adminId, onBack, showToast, current
 
     const qVendors = query(collection(db, 'vendors'), where('adminId', '==', adminId));
     const unsubVendors = onSnapshot(qVendors, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(v => matchesPg(v.pgId));
       setVendors(list);
       setLoading(false);
     }, (err) => {
@@ -101,7 +114,7 @@ export default function ManagerVendorsView({ adminId, onBack, showToast, current
 
     const qTxns = query(collection(db, 'vendor_transactions'), where('adminId', '==', adminId));
     const unsubTxns = onSnapshot(qTxns, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => matchesPg(t.pgId));
       setTransactions(list);
     }, (err) => {
       console.error('Error fetching vendor transactions:', err);
@@ -111,7 +124,7 @@ export default function ManagerVendorsView({ adminId, onBack, showToast, current
       unsubVendors();
       unsubTxns();
     };
-  }, [adminId]);
+  }, [adminId, selectedPgId]);
 
   // Compute pending balance for a vendor
   const getVendorPending = (vendorId) => {
@@ -362,8 +375,7 @@ export default function ManagerVendorsView({ adminId, onBack, showToast, current
               <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back</span>
             </button>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Vendors & Supply</h2>
-              <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: '#64748b' }}>{vendors.length} Registered · Realtime Synced</p>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Vendors</h2>
             </div>
           </div>
           <button

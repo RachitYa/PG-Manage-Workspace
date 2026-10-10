@@ -168,6 +168,7 @@ export default function ManageStaff() {
         salary: Number(newStaff.salary) || 0,
         payDate: Number(newStaff.payDate) || 1,
         token: token,
+        adminId: user.uid || user.id || 'admin',
         ownerUid: user.uid || user.id || 'admin',
         pgId: defaultPgId,
         pgName: defaultPgName,

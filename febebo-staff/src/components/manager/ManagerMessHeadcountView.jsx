@@ -1,9 +1,152 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, onSnapshot, doc, setDoc, addDoc } from 'firebase/firestore';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  collection, query, where, getDocs, getDoc,
+  doc, setDoc, updateDoc, addDoc, onSnapshot,
+  orderBy, limit
+} from 'firebase/firestore';
 import { db } from '../../firebase';
-import { isStudentOnVacation, isMealPausedOnDate, isMealOver } from '../../utils/vacationUtils';
+import {
+  COMMON_PG_DISHES,
+  DISH_CATEGORIES,
+  getDishPresetImage,
+  DEFAULT_FOOD_PLACEHOLDER
+} from '../../data/commonFoodDishes';
+import {
+  isStudentOnVacation,
+  getStudentActiveVacation,
+  formatDateDisplay,
+  isMealPausedOnDate,
+  isMealOver
+} from '../../utils/vacationUtils';
 
-export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager', staffRole = 'Manager', onBack, onOpenFoodMenu, onOpenDelivery, showToast }) {
+// ── Image Compressor Helper ───────────────────────────────────────────────
+const compressImage = (file, maxWidth = 750) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.65));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
+// ── Default Weekly Menu Template ──────────────────────────────────────────
+const DEFAULT_MENU = {
+  Monday: {
+    Breakfast: 'Poha, Jalebi, Chai / Masala Tea',
+    Lunch: 'Rajma Chawal, Roti, Salad',
+    Snacks: 'Samosa, Chai / Masala Tea',
+    Dinner: 'Paneer Butter Masala, Roti, Dal'
+  },
+  Tuesday: {
+    Breakfast: 'Aloo Paratha, Curd, Chai / Masala Tea',
+    Lunch: 'Kadi Pakoda, Steamed Rice, Papad',
+    Snacks: 'Veg Puff, Chai / Masala Tea',
+    Dinner: 'Mix Veg, Arhar Dal, Tawa Roti'
+  },
+  Wednesday: {
+    Breakfast: 'Idli, Sambhar, Coconut Chutney, Chai / Masala Tea',
+    Lunch: 'Chole Bhature, Boondi Raita',
+    Snacks: 'Bhel Puri, Chai / Masala Tea',
+    Dinner: 'Dal Makhani, Jeera Rice, Butter Roti'
+  },
+  Thursday: {
+    Breakfast: 'Bread Omelette / Veg Sandwich, Chai / Masala Tea',
+    Lunch: 'Dal Fry, Rice, Seasonal Sabzi',
+    Snacks: 'Biscuits, Chai / Masala Tea',
+    Dinner: 'Egg Curry / Kofta Curry, Roti, Rice'
+  },
+  Friday: {
+    Breakfast: 'Upma, Coconut Chutney, Chai / Masala Tea',
+    Lunch: 'Veg Biryani, Raita, Salad',
+    Snacks: 'Bhel Puri, Chai / Masala Tea',
+    Dinner: 'Matar Paneer, Tawa Roti, Dal Tadka'
+  },
+  Saturday: {
+    Breakfast: 'Puri Sabji, Halwa, Chai / Masala Tea',
+    Lunch: 'Moong Dal, Jeera Rice, Bhindi Masala',
+    Snacks: 'Mix Pakoda, Chai / Masala Tea',
+    Dinner: 'Aloo Gobi, Dal Fry, Phulka'
+  },
+  Sunday: {
+    Breakfast: 'Masala Dosa, Sambhar, Chutney, Chai / Masala Tea',
+    Lunch: 'Special Thali (Paneer/Chicken, Sweet)',
+    Snacks: 'Pastry / Cake, Filter Coffee',
+    Dinner: 'Shahi Paneer, Pulao, Butter Naan'
+  }
+};
+
+const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+function getTodayStr() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getDayName(dateStr) {
+  const [yyyy, mm, dd] = dateStr.split('-').map(Number);
+  const d = new Date(yyyy, mm - 1, dd);
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return days[d.getDay()];
+}
+
+export default function ManagerMessHeadcountView({
+  adminId,
+  activePgId,
+  assignedProperties = [],
+  staffName = 'Manager',
+  staffRole = 'Manager',
+  onBack,
+  onOpenFoodMenu,
+  onOpenDelivery,
+  showToast: propShowToast
+}) {
+  const fileInputRef = useRef(null);
+
+  // Property Selection
+  const [selectedPgId, setSelectedPgId] = useState(() => activePgId || assignedProperties[0]?.id || 'primary');
+
+  useEffect(() => {
+    if (activePgId) setSelectedPgId(activePgId);
+  }, [activePgId]);
+
+  const pgDocId = useMemo(() => {
+    if (!selectedPgId || selectedPgId === 'primary') return adminId;
+    return selectedPgId;
+  }, [selectedPgId, adminId]);
+
+  const matchesPg = (t) => {
+    const itemPgId = t.pgId || t.subscribedPG?.pgId;
+    if (!selectedPgId || selectedPgId === 'primary') {
+      return !itemPgId || itemPgId === 'primary' || itemPgId === adminId;
+    }
+    return itemPgId === selectedPgId;
+  };
+
+  // Main Tab: 'attendance' (Live Headcount) | 'menu' (Weekly Food Menu Planner)
+  const [activeMainTab, setActiveMainTab] = useState('attendance');
+  const [selectedDate, setSelectedDate] = useState(getTodayStr());
+
+  // Meal selection tab: 'breakfast' | 'lunch' | 'snacks' | 'dinner'
   const [mealTab, setMealTab] = useState(() => {
     const hr = new Date().getHours();
     if (hr < 11) return 'breakfast';
@@ -12,55 +155,229 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
     return 'dinner';
   });
 
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [tenants, setTenants] = useState([]);
+  // Filter on headcount stats
+  const [selectedStatFilter, setSelectedStatFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Data states
+  const [pgDetails, setPgDetails] = useState(null);
+  const [weeklyFoodMenu, setWeeklyFoodMenu] = useState(DEFAULT_MENU);
+  const [foodMenuImages, setFoodMenuImages] = useState({});
+  const [foodItemImages, setFoodItemImages] = useState({});
+  const [rawTenants, setRawTenants] = useState([]);
   const [mealStatusLogs, setMealStatusLogs] = useState([]);
   const [deliveryOrders, setDeliveryOrders] = useState([]);
   const [eatenData, setEatenData] = useState({});
   const [vacations, setVacations] = useState([]);
   const [pausedMeals, setPausedMeals] = useState({});
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [filterStat, setFilterStat] = useState('all'); // 'all' | 'requested' | 'pack' | 'delivery' | 'extra' | 'eaten' | 'onVacation'
+  const [toastMessage, setToastMessage] = useState('');
 
-  // Audit modal state
+  // Menu editing state
+  const [selectedMenuDay, setSelectedMenuDay] = useState(() => getDayName(getTodayStr()));
+  const [editingMeal, setEditingMeal] = useState(null); // { day, meal }
+  const [editValue, setEditValue] = useState('');
+  const [savingMenu, setSavingMenu] = useState(false);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
+  const [editItems, setEditItems] = useState([]); // [{ id, name, image }]
+  const [customItemInput, setCustomItemInput] = useState('');
+  const [presetSearch, setPresetSearch] = useState('');
+  const [presetCategory, setPresetCategory] = useState('All');
+  const [activePhotoItemIndex, setActivePhotoItemIndex] = useState(null);
+  const [showItemPhotoPicker, setShowItemPhotoPicker] = useState(false);
+
+  // Menu Edit History state
+  const [lastMenuEdit, setLastMenuEdit] = useState(null);
+  const [showMenuHistoryModal, setShowMenuHistoryModal] = useState(false);
+  const [menuHistoryList, setMenuHistoryList] = useState([]);
+  const [loadingMenuHistory, setLoadingMenuHistory] = useState(false);
+
+  // Audit History Modal state
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [auditSearchQuery, setAuditSearchQuery] = useState('');
+  const [ticker, setTicker] = useState(Date.now());
+
+  // Broadcast modal state
+  const [showBroadcastModal, setShowBroadcastModal] = useState(false);
+  const [broadcastMeal, setBroadcastMeal] = useState('Lunch');
+  const [broadcastTarget, setBroadcastTarget] = useState('all');
+  const [broadcastMsg, setBroadcastMsg] = useState('Fresh hot meal is ready! Please head to the mess hall. 🍽️');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
   const [showMessQRModal, setShowMessQRModal] = useState(false);
 
-  // Real-time listeners
+  // Auto-refresh ticker for meal expiry
+  useEffect(() => {
+    const timer = setInterval(() => setTicker(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const showToast = (msg, type = 'info') => {
+    if (propShowToast) {
+      propShowToast(msg, type);
+    } else {
+      setToastMessage(msg);
+      setTimeout(() => setToastMessage(''), 3500);
+    }
+  };
+
+  // ── Toggle Meal Pause for Selected Date ──
+  const handleToggleMealPause = async (targetMealKey) => {
+    if (!pgDocId) return;
+    const mKey = targetMealKey.toLowerCase();
+    const dateKey = selectedDate;
+    const currentlyPaused = !!(pausedMeals?.[dateKey]?.[mKey]);
+    const nextVal = !currentlyPaused;
+
+    const updatedPausedMeals = {
+      ...pausedMeals,
+      [dateKey]: {
+        ...(pausedMeals?.[dateKey] || {}),
+        [mKey]: nextVal
+      }
+    };
+    setPausedMeals(updatedPausedMeals);
+
+    try {
+      await setDoc(doc(db, 'pg_owners', pgDocId), {
+        pausedMeals: updatedPausedMeals
+      }, { merge: true });
+
+      await setDoc(doc(db, 'mess_headcount', `${pgDocId}_${dateKey}`), {
+        pausedMeals: updatedPausedMeals[dateKey]
+      }, { merge: true });
+
+      showToast(`${targetMealKey.toUpperCase()} is now ${nextVal ? 'PAUSED ⏸️' : 'RESUMED ▶️'} for ${dateKey}!`, nextVal ? 'warning' : 'success');
+    } catch (err) {
+      console.error('Failed to toggle meal pause:', err);
+      showToast('Error updating meal pause state', 'error');
+    }
+  };
+
+  // ── 1. Listen to PG Owner Doc (Name, Food Menu, Photos, Last Edit) ──────
+  useEffect(() => {
+    if (!pgDocId) return;
+    const unsub = onSnapshot(doc(db, 'pg_owners', pgDocId), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setPgDetails(data);
+        if (data.foodMenu && Object.keys(data.foodMenu).length > 0) {
+          setWeeklyFoodMenu(data.foodMenu);
+        }
+        if (data.foodMenuImages) {
+          setFoodMenuImages(data.foodMenuImages);
+        } else if (data.foodImages) {
+          setFoodMenuImages(data.foodImages);
+        }
+        if (data.foodItemImages) {
+          setFoodItemImages(data.foodItemImages);
+        }
+        if (data.lastMenuEdit) {
+          setLastMenuEdit(data.lastMenuEdit);
+        }
+        if (data.pausedMeals) {
+          setPausedMeals(data.pausedMeals);
+        }
+      }
+    }, (err) => console.error('PG Owner listener error:', err));
+    return () => unsub();
+  }, [pgDocId]);
+
+  // ── Fetch Menu History for Audit ──
+  const fetchMenuHistory = async () => {
+    if (!pgDocId) return;
+    setLoadingMenuHistory(true);
+    try {
+      const qHist = query(
+        collection(db, 'pg_owners', pgDocId, 'food_menu_history'),
+        orderBy('editedAt', 'desc'),
+        limit(25)
+      );
+      const snap = await getDocs(qHist);
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setMenuHistoryList(list);
+    } catch (err) {
+      console.warn('Ordered history fetch failed, falling back client-side sort:', err);
+      try {
+        const snap = await getDocs(collection(db, 'pg_owners', pgDocId, 'food_menu_history'));
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => new Date(b.editedAt || 0) - new Date(a.editedAt || 0));
+        setMenuHistoryList(list);
+      } catch (e2) {
+        console.error('Fallback history fetch failed:', e2);
+      }
+    } finally {
+      setLoadingMenuHistory(false);
+    }
+  };
+
+  // ── 2. Listen to Tenants & Food Vacations ─────────────────────────────────
   useEffect(() => {
     if (!adminId) return;
     setLoading(true);
 
     const qTenants = query(collection(db, 'tenants'), where('adminId', '==', adminId));
-    const unsubTenants = onSnapshot(qTenants, (snap) => {
-      setTenants(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.status === 'Approved' || t.status === 'Current User' || t.status === 'Notice' || !t.status));
-      setLoading(false);
-    }, () => setLoading(false));
+    const unsubTenants = onSnapshot(qTenants, async (snap) => {
+      const raw = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const current = raw.filter(t => {
+        const s = t.status;
+        return matchesPg(t) && (s === 'Approved' || s === 'Current User' || s === 'Notice' || !s);
+      });
 
-    const qVac = query(collection(db, 'food_vacations'), where('adminId', '==', adminId), where('status', 'in', ['active', 'shortened']));
+      // Enrich with users collection for room number, bed, profile photo
+      const enriched = await Promise.all(current.map(async (t) => {
+        try {
+          const uid = t.tenantId || t.id;
+          if (uid) {
+            const uSnap = await getDoc(doc(db, 'users', uid));
+            if (uSnap.exists()) {
+              const u = uSnap.data();
+              if (!t.name || t.name === 'Tenant') t.name = u.name || u.displayName || t.name;
+              if (!t.roomNo && !t.room) t.roomNo = u.subscribedPG?.roomNo || u.profileData?.roomDetails?.roomNumber || '';
+              if (!t.bedNo && !t.bed) t.bedNo = u.subscribedPG?.bedNo || u.profileData?.roomDetails?.bedNumber || '';
+              if (!t.phone) t.phone = u.phone || u.phoneNumber || '';
+              t.image = u.photoURL || u.kyc?.profilePhoto || null;
+            }
+          }
+        } catch (_) {}
+        return t;
+      }));
+
+      setRawTenants(enriched);
+      setLoading(false);
+    }, (err) => {
+      console.error('Tenants fetch error:', err);
+      setLoading(false);
+    });
+
+    const qVac = query(
+      collection(db, 'food_vacations'),
+      where('adminId', '==', adminId),
+      where('status', 'in', ['active', 'shortened'])
+    );
     const unsubVac = onSnapshot(qVac, (snap) => {
       setVacations(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-
-    const unsubPG = onSnapshot(doc(db, 'pg_owners', adminId), (snap) => {
-      if (snap.exists() && snap.data().pausedMeals) {
-        setPausedMeals(snap.data().pausedMeals);
-      }
-    });
+    }, (err) => console.error('Vacation fetch error:', err));
 
     return () => {
       unsubTenants();
       unsubVac();
-      unsubPG();
     };
-  }, [adminId]);
+  }, [adminId, selectedPgId]);
 
-  // Listener for mess_headcount and delivery_orders docs for selectedDate
+  // ── 3. Listen to Meal Status, Headcount & Delivery Orders for selectedDate ──
   useEffect(() => {
     if (!adminId || !selectedDate) return;
-    const unsubHeadcount = onSnapshot(doc(db, 'mess_headcount', `${adminId}_${selectedDate}`), (snap) => {
+
+    const qMeal = query(
+      collection(db, 'meal_status'),
+      where('adminId', '==', adminId),
+      where('date', '==', selectedDate)
+    );
+    const unsubMeal = onSnapshot(qMeal, (snap) => {
+      setMealStatusLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error('Meal status error:', err));
+
+    const unsubHeadcount = onSnapshot(doc(db, 'mess_headcount', `${pgDocId}_${selectedDate}`), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         setEatenData(data);
@@ -73,647 +390,2483 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
       } else {
         setEatenData({});
       }
-    });
+    }, (err) => console.error('Mess headcount error:', err));
 
-    const qMeal = query(collection(db, 'meal_status'), where('adminId', '==', adminId), where('date', '==', selectedDate));
-    const unsubMeal = onSnapshot(qMeal, (snap) => {
-      setMealStatusLogs(snap.docs.map(d => d.data()));
-    });
-
-    const qDeliv = query(collection(db, 'delivery_orders'), where('adminId', '==', adminId), where('date', '==', selectedDate));
+    const qDeliv = query(
+      collection(db, 'delivery_orders'),
+      where('adminId', '==', adminId),
+      where('date', '==', selectedDate)
+    );
     const unsubDeliv = onSnapshot(qDeliv, (snap) => {
       setDeliveryOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    }, (err) => console.error('Delivery orders error:', err));
 
     return () => {
-      unsubHeadcount();
       unsubMeal();
+      unsubHeadcount();
       unsubDeliv();
     };
-  }, [adminId, selectedDate]);
+  }, [adminId, pgDocId, selectedDate]);
 
-  // Computed student meal items
+  // ── 4. Build Unified Student Meal Attendance List ─────────────────────────
   const students = useMemo(() => {
-    return tenants.map(t => {
+    return rawTenants.map(t => {
       const mealLog = mealStatusLogs.find(m => m.tenantId === t.id);
-      const mKey = mealTab.toLowerCase();
 
-      const isEaten = !!eatenData[`${t.id}_${mKey}_eaten`];
-      const audit = eatenData[`${t.id}_${mKey}_audit`] || null;
-      const isVac = isStudentOnVacation(vacations, t.id, selectedDate, mKey) || isMealPausedOnDate(t.foodVacation, selectedDate, mKey);
+      const isEatenB = !!eatenData[`${t.id}_breakfast_eaten`];
+      const isEatenL = !!eatenData[`${t.id}_lunch_eaten`];
+      const isEatenS = !!eatenData[`${t.id}_snacks_eaten`];
+      const isEatenD = !!eatenData[`${t.id}_dinner_eaten`];
+
+      const auditB = eatenData[`${t.id}_breakfast_audit`] || null;
+      const auditL = eatenData[`${t.id}_lunch_audit`] || null;
+      const auditS = eatenData[`${t.id}_snacks_audit`] || null;
+      const auditD = eatenData[`${t.id}_dinner_audit`] || null;
+
+      const isVacB = isStudentOnVacation(vacations, t.id, selectedDate, 'breakfast') || isMealPausedOnDate(t.foodVacation, selectedDate, 'breakfast');
+      const isVacL = isStudentOnVacation(vacations, t.id, selectedDate, 'lunch') || isMealPausedOnDate(t.foodVacation, selectedDate, 'lunch');
+      const isVacS = isStudentOnVacation(vacations, t.id, selectedDate, 'snacks') || isMealPausedOnDate(t.foodVacation, selectedDate, 'snacks');
+      const isVacD = isStudentOnVacation(vacations, t.id, selectedDate, 'dinner') || isMealPausedOnDate(t.foodVacation, selectedDate, 'dinner');
+
       const isFoodIncluded = t.foodIncluded !== false;
-      const deliv = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === mKey) || null;
 
-      const mealEnded = isMealOver(selectedDate, mKey);
-      let status = 'requested';
-      if (!isFoodIncluded) status = 'selfCooking';
-      else if (isVac) status = 'onVacation';
-      else if (isEaten) status = 'eaten';
-      else if (mealLog?.[mKey] === 'not_eating') status = 'notEaten';
-      else if (deliv || mealLog?.[mKey] === 'delivery') status = (deliv?.status === 'delivered' ? 'eaten' : (mealEnded ? 'notEaten' : 'delivery'));
-      else if (mealLog?.[mKey] === 'pack') status = mealEnded ? 'notEaten' : 'pack';
-      else if (mealLog?.[mKey] === 'extra') status = mealEnded ? 'notEaten' : 'extra';
-      else if (mealEnded) status = 'notEaten';
+      const delivB = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'breakfast') || null;
+      const delivL = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'lunch') || null;
+      const delivS = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'snacks') || null;
+      const delivD = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'dinner') || null;
+
+      const computeStatus = (mealKey, isEaten, isVac, delivOrder) => {
+        if (!isFoodIncluded) return 'selfCooking';
+        if (isVac) return 'onVacation';
+        if (isEaten) return 'eaten';
+        const mealEnded = isMealOver(selectedDate, mealKey);
+        if (mealLog?.[mealKey] === 'not_eating') return 'notEaten';
+        if (delivOrder || mealLog?.[mealKey] === 'delivery') {
+          return (delivOrder?.status === 'delivered') ? 'eaten' : (mealEnded ? 'notEaten' : 'delivery');
+        }
+        if (mealLog?.[mealKey] === 'pack') return mealEnded ? 'notEaten' : 'pack';
+        if (mealLog?.[mealKey] === 'extra') return mealEnded ? 'notEaten' : 'extra';
+        if (mealEnded) return 'notEaten';
+        return 'requested';
+      };
+
+      const activeVac = getStudentActiveVacation(vacations, t.id, selectedDate) || t.foodVacation;
 
       return {
         id: t.id,
         name: t.name || 'Student',
-        roomNo: t.roomNo || t.room || 'N/A',
-        bedNo: t.bedNo || t.bed || 'A',
+        room: t.roomNo || t.room || 'N/A',
+        bed: t.bedNo || t.bed || 'A',
+        phone: t.phone || '',
+        image: t.image || null,
         foodIncluded: isFoodIncluded,
-        status,
-        isEaten,
-        audit,
-        deliv,
-        details: mealLog?.[`${mKey}Details`] || (deliv ? `🛵 Delivery: ${deliv.destination || deliv.destinationType}` : '')
+        includedFoodPersons: t.includedFoodPersons || 1,
+        foodVacation: activeVac,
+
+        statusB: computeStatus('breakfast', isEatenB, isVacB, delivB),
+        statusL: computeStatus('lunch',     isEatenL, isVacL, delivL),
+        statusS: computeStatus('snacks',    isEatenS, isVacS, delivS),
+        statusD: computeStatus('dinner',    isEatenD, isVacD, delivD),
+
+        isEatenB, isEatenL, isEatenS, isEatenD,
+        auditB, auditL, auditS, auditD,
+        delivB, delivL, delivS, delivD,
+
+        detailsB: mealLog?.breakfastDetails || (delivB ? `🛵 Delivery: ${delivB.destination || delivB.destinationType}` : ''),
+        detailsL: mealLog?.lunchDetails     || (delivL ? `🛵 Delivery: ${delivL.destination || delivL.destinationType}` : ''),
+        detailsS: mealLog?.snacksDetails    || (delivS ? `🛵 Delivery: ${delivS.destination || delivS.destinationType}` : ''),
+        detailsD: mealLog?.dinnerDetails    || (delivD ? `🛵 Delivery: ${delivD.destination || delivD.destinationType}` : ''),
       };
     });
-  }, [tenants, mealStatusLogs, eatenData, vacations, deliveryOrders, selectedDate, mealTab]);
+  }, [rawTenants, mealStatusLogs, eatenData, vacations, deliveryOrders, selectedDate, ticker]);
 
-  // Counts
-  const counts = useMemo(() => {
+  // Current Meal Keys
+  const mealKey = mealTab === 'breakfast' ? 'statusB' : mealTab === 'lunch' ? 'statusL' : mealTab === 'snacks' ? 'statusS' : 'statusD';
+  const detailsKey = mealTab === 'breakfast' ? 'detailsB' : mealTab === 'lunch' ? 'detailsL' : mealTab === 'snacks' ? 'detailsS' : 'detailsD';
+  const auditKey = mealTab === 'breakfast' ? 'auditB' : mealTab === 'lunch' ? 'auditL' : mealTab === 'snacks' ? 'auditS' : 'auditD';
+  const delivKey = mealTab === 'breakfast' ? 'delivB' : mealTab === 'lunch' ? 'delivL' : mealTab === 'snacks' ? 'delivS' : 'delivD';
+
+  const statsCount = useMemo(() => {
     return {
       all: students.length,
-      requested: students.filter(s => s.status === 'requested').length,
-      pack: students.filter(s => s.status === 'pack').length,
-      delivery: students.filter(s => s.status === 'delivery').length,
-      extra: students.filter(s => s.status === 'extra').length,
-      eaten: students.filter(s => s.status === 'eaten').length,
-      notEaten: students.filter(s => s.status === 'notEaten').length,
-      onVacation: students.filter(s => s.status === 'onVacation').length,
-      selfCooking: students.filter(s => s.status === 'selfCooking').length,
+      requested: students.filter(s => s[mealKey] === 'requested').length,
+      pack: students.filter(s => s[mealKey] === 'pack').length,
+      delivery: students.filter(s => s[mealKey] === 'delivery').length,
+      extra: students.filter(s => s[mealKey] === 'extra').length,
+      eaten: students.filter(s => s[mealKey] === 'eaten').length,
+      notEaten: students.filter(s => s[mealKey] === 'notEaten').length,
+      onVacation: students.filter(s => s[mealKey] === 'onVacation').length,
+      selfCooking: students.filter(s => s[mealKey] === 'selfCooking').length,
     };
-  }, [students]);
+  }, [students, mealKey]);
 
-  // Filtered
   const filteredStudents = useMemo(() => {
     return students.filter(s => {
-      if (filterStat !== 'all' && s.status !== filterStat) return false;
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        return (s.name || '').toLowerCase().includes(q) || (s.roomNo || '').toLowerCase().includes(q);
+      if (selectedStatFilter !== 'all' && s[mealKey] !== selectedStatFilter) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchesName = (s.name || '').toLowerCase().includes(q);
+        const matchesRoom = String(s.room || '').toLowerCase().includes(q);
+        const matchesPhone = String(s.phone || '').includes(q);
+        if (!matchesName && !matchesRoom && !matchesPhone) return false;
       }
       return true;
     });
-  }, [students, filterStat, search]);
+  }, [students, mealKey, selectedStatFilter, searchQuery]);
 
-  // Toggle meal eaten with audit metadata
+  // ── 5. Toggle Meal Eaten Action ────────────────────────────────────────────
   const handleToggleEaten = async (studentId, currentIsEaten) => {
     try {
+      const docRef = doc(db, 'mess_headcount', `${pgDocId}_${selectedDate}`);
       const nextVal = !currentIsEaten;
-      const mKey = mealTab.toLowerCase();
-      const updatePayload = {
-        [`${studentId}_${mKey}_eaten`]: nextVal
-      };
+      const updatePayload = { [`${studentId}_${mealTab}_eaten`]: nextVal };
       if (nextVal) {
-        updatePayload[`${studentId}_${mKey}_audit`] = {
+        updatePayload[`${studentId}_${mealTab}_audit`] = {
           confirmedVia: 'manual_manager',
           markedByName: staffName || 'Manager',
           markedByRole: staffRole || 'Manager',
           timestamp: new Date().toISOString()
         };
       } else {
-        updatePayload[`${studentId}_${mKey}_audit`] = null;
+        updatePayload[`${studentId}_${mealTab}_audit`] = null;
       }
-      await setDoc(doc(db, 'mess_headcount', `${adminId}_${selectedDate}`), updatePayload, { merge: true });
+      await setDoc(docRef, updatePayload, { merge: true });
 
       // Keep meal_status synced
       try {
-        await setDoc(doc(db, 'meal_status', `${adminId}_${selectedDate}_${studentId}`), {
-          adminId,
+        await setDoc(doc(db, 'meal_status', `${pgDocId}_${selectedDate}_${studentId}`), {
+          adminId: pgDocId,
           tenantId: studentId,
           date: selectedDate,
-          [mKey]: nextVal ? 'eaten' : 'requested',
-          ...(nextVal ? { [`${mKey}EatenAt`]: new Date().toISOString() } : {})
+          [mealTab]: nextVal ? 'eaten' : 'requested',
+          ...(nextVal ? { [`${mealTab}EatenAt`]: new Date().toISOString() } : {})
         }, { merge: true });
       } catch (mErr) {
         console.warn('Sync meal_status failed:', mErr);
       }
+
+      // If marked eaten, send student a confirmation notification
+      if (nextVal) {
+        const student = students.find(s => s.id === studentId);
+        await addDoc(collection(db, 'users', studentId, 'notifications'), {
+          title: `Meal Status: ${mealTab.charAt(0).toUpperCase() + mealTab.slice(1)} Eaten ✅`,
+          desc: `You have been marked as having eaten your ${mealTab} by ${staffName} (${staffRole}).`,
+          type: 'Food',
+          action: 'VIEW_FOOD',
+          unread: true,
+          createdAt: new Date().toISOString()
+        }).catch(() => {});
+        showToast(`${student?.name || 'Student'} marked as Eaten!`, 'success');
+      } else {
+        showToast('Meal status unmarked.', 'info');
+      }
     } catch (err) {
-      console.error('Toggle eaten error:', err);
+      console.error('Failed to toggle meal eaten:', err);
+      showToast('Error updating meal status', 'error');
     }
   };
 
-  // Mark meal as not eaten
-  const handleMarkNotEaten = async (studentId) => {
+  // ── 6. Open Edit Modal with Per-Item Dishes & Photos ───────────────────────
+  const openEditMeal = (day, meal) => {
+    setEditingMeal({ day, meal });
+    const raw = weeklyFoodMenu[day]?.[meal] || '';
+    const itemNames = raw.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    const currentImages = foodItemImages[day]?.[meal] || {};
+    const parsed = itemNames.map(name => ({
+      id: Math.random().toString(36).substring(2, 9),
+      name,
+      image: currentImages[name] || getDishPresetImage(name) || null
+    }));
+    setEditItems(parsed);
+    setEditValue(raw);
+    setCustomItemInput('');
+    setPresetSearch('');
+    setPresetCategory('All');
+    setActivePhotoItemIndex(null);
+    setShowItemPhotoPicker(false);
+  };
+
+  // ── 7. Handle Photo Selection for specific item ───────────────────────────
+  const handlePhotoSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || activePhotoItemIndex === null) return;
+    setIsProcessingPhoto(true);
     try {
-      const mKey = mealTab.toLowerCase();
-      await setDoc(doc(db, 'mess_headcount', `${adminId}_${selectedDate}`), {
-        [`${studentId}_${mKey}_eaten`]: false,
-        [`${studentId}_${mKey}_audit`]: {
-          confirmedVia: 'manual_manager',
-          markedByName: staffName || 'Manager',
-          markedByRole: `${staffRole || 'Manager'} (Marked Not Eaten)`,
-          timestamp: new Date().toISOString()
+      const compressedDataUrl = await compressImage(file, 750);
+      setEditItems(prev => prev.map((item, idx) =>
+        idx === activePhotoItemIndex ? { ...item, image: compressedDataUrl } : item
+      ));
+      showToast('Custom photo attached to dish!', 'success');
+      setShowItemPhotoPicker(false);
+    } catch (err) {
+      console.error('Failed to process image:', err);
+      showToast('Failed to process selected image', 'error');
+    } finally {
+      setIsProcessingPhoto(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // ── 8. Save Menu & Per-Item Photo Edits ──────────────────────────────────
+  const handleSaveMenu = async () => {
+    if (!editingMeal) return;
+    setSavingMenu(true);
+    try {
+      const { day, meal } = editingMeal;
+      const namesStr = editItems.map(i => i.name.trim()).filter(Boolean).join(', ');
+      const imagesMap = {};
+      editItems.forEach(i => {
+        const cleanName = i.name.trim();
+        if (cleanName && i.image) {
+          imagesMap[cleanName] = i.image;
         }
+      });
+
+      const updatedMenu = {
+        ...weeklyFoodMenu,
+        [day]: {
+          ...(weeklyFoodMenu[day] || {}),
+          [meal]: namesStr
+        }
+      };
+
+      const updatedItemImages = {
+        ...foodItemImages,
+        [day]: {
+          ...(foodItemImages[day] || {}),
+          [meal]: imagesMap
+        }
+      };
+
+      setWeeklyFoodMenu(updatedMenu);
+      setFoodItemImages(updatedItemImages);
+
+      const editorName = staffName || 'Manager';
+      const editorRole = staffRole || 'Manager';
+      const editTimestamp = new Date().toISOString();
+
+      const editRecord = {
+        editedBy: editorName,
+        editorRole,
+        editorUid: adminId || 'manager',
+        editedAt: editTimestamp,
+        day,
+        meal,
+        dishesSummary: namesStr || 'Cleared',
+        itemsCount: editItems.length,
+        hasPhotos: Object.keys(imagesMap).length > 0
+      };
+
+      setLastMenuEdit(editRecord);
+
+      await setDoc(doc(db, 'pg_owners', pgDocId), {
+        foodMenu: updatedMenu,
+        foodItemImages: updatedItemImages,
+        lastMenuEdit: editRecord
       }, { merge: true });
 
-      await setDoc(doc(db, 'meal_status', `${adminId}_${selectedDate}_${studentId}`), {
-        adminId,
-        tenantId: studentId,
-        date: selectedDate,
-        [mKey]: 'not_eating',
-        [`${mKey}MarkedNotEatingAt`]: new Date().toISOString()
-      }, { merge: true });
+      // Save into food_menu_history audit subcollection
+      try {
+        await addDoc(collection(db, 'pg_owners', pgDocId, 'food_menu_history'), editRecord);
+      } catch (histErr) {
+        console.warn('Failed to record menu history entry:', histErr);
+      }
 
-      showToast?.('Marked as Not Eaten', 'info');
-    } catch (err) {
-      console.error('Mark not eaten error:', err);
-    }
-  };
-
-  // Close meal headcount (Mark all remaining as Not Eaten)
-  const handleCloseMeal = async () => {
-    const mKey = mealTab.toLowerCase();
-    const unserved = students.filter(s => s.status === 'requested' || s.status === 'pack' || s.status === 'extra');
-    if (unserved.length === 0) {
-      showToast?.('All students already processed for this meal.', 'info');
-      return;
-    }
-    if (!window.confirm(`Mark all ${unserved.length} remaining requested students as "Not Eaten" and close ${mealTab.toUpperCase()}?`)) {
-      return;
-    }
-    try {
-      const batchUpdates = [];
-      const headcountUpdates = {};
-      const nowIso = new Date().toISOString();
-      for (const s of unserved) {
-        headcountUpdates[`${s.id}_${mKey}_eaten`] = false;
-        batchUpdates.push(
-          setDoc(doc(db, 'meal_status', `${adminId}_${selectedDate}_${s.id}`), {
-            adminId,
-            tenantId: s.id,
-            date: selectedDate,
-            [mKey]: 'not_eating',
-            [`${mKey}ClosedAt`]: nowIso
-          }, { merge: true })
+      // Notify all active students of this PG
+      if (students && students.length > 0) {
+        const notifPromises = students.map(student =>
+          addDoc(collection(db, 'users', student.id, 'notifications'), {
+            title: '🍽️ Food Menu Updated',
+            desc: `${day} ${meal} was updated by ${editorRole} (${editorName}): ${namesStr || 'Updated dishes'}`,
+            type: 'food_menu',
+            action: 'FOOD_TAB',
+            unread: true,
+            createdAt: editTimestamp
+          }).catch(err => console.warn('Student menu notif error:', err))
         );
+        Promise.all(notifPromises).catch(err => console.warn('Bulk menu notif error:', err));
       }
-      batchUpdates.push(
-        setDoc(doc(db, 'mess_headcount', `${adminId}_${selectedDate}`), headcountUpdates, { merge: true })
-      );
-      await Promise.all(batchUpdates);
-      showToast?.(`Closed ${mealTab}! ${unserved.length} students marked as Not Eaten.`, 'success');
+
+      showToast(`Saved ${editItems.length} dishes for ${day} ${meal} & notified students!`, 'success');
+      setEditingMeal(null);
     } catch (err) {
-      console.error('Failed to close meal:', err);
+      console.error('Failed to update food menu:', err);
+      showToast('Failed to save menu changes', 'error');
+    } finally {
+      setSavingMenu(false);
     }
   };
 
-  // Toggle Pause
-  const isPaused = !!(pausedMeals?.[selectedDate]?.[mealTab.toLowerCase()]);
-  const handleTogglePause = async () => {
-    const mKey = mealTab.toLowerCase();
-    const nextVal = !isPaused;
-    const updated = {
-      ...pausedMeals,
-      [selectedDate]: {
-        ...(pausedMeals?.[selectedDate] || {}),
-        [mKey]: nextVal
-      }
-    };
-    setPausedMeals(updated);
-
+  const handleResetToDefaultMenu = async () => {
+    if (!window.confirm('Reset this PG food menu to recommended defaults?')) return;
     try {
-      await setDoc(doc(db, 'pg_owners', adminId), { pausedMeals: updated }, { merge: true });
-      await setDoc(doc(db, 'mess_headcount', `${adminId}_${selectedDate}`), {
-        pausedMeals: updated[selectedDate]
-      }, { merge: true });
-      showToast?.(`${mealTab.toUpperCase()} is now ${nextVal ? 'PAUSED ⏸️' : 'RESUMED ▶️'}!`, nextVal ? 'warning' : 'success');
+      setWeeklyFoodMenu(DEFAULT_MENU);
+      await setDoc(doc(db, 'pg_owners', pgDocId), { foodMenu: DEFAULT_MENU }, { merge: true });
+      showToast('Reset to recommended weekly food menu!', 'success');
     } catch (err) {
-      console.error('Meal pause error:', err);
+      console.error('Reset error:', err);
+      showToast('Failed to reset menu', 'error');
     }
   };
 
-  // Broadcast Food Ready
-  const handleBroadcastFoodReady = async () => {
-    if (!window.confirm(`Broadcast "Food is Ready" notification for ${mealTab.toUpperCase()} to all students?`)) return;
+  // ── 9. Send Broadcast Notification ────────────────────────────────────────
+  const handleSendBroadcast = async (e) => {
+    e.preventDefault();
+    setSendingBroadcast(true);
     try {
-      const nowIso = new Date().toISOString();
-      await Promise.all(tenants.map(t => {
-        const uid = t.tenantId || t.id;
-        return addDoc(collection(db, 'users', uid, 'notifications'), {
-          title: `🍽️ ${mealTab.charAt(0).toUpperCase() + mealTab.slice(1)} is Ready!`,
-          desc: `Hot and fresh ${mealTab} is now being served in the mess hall. Please head down!`,
+      const targets = broadcastTarget === 'all'
+        ? students
+        : students.filter(s => s.id === broadcastTarget);
+
+      if (targets.length === 0) {
+        showToast('No students to broadcast to', 'warning');
+        setSendingBroadcast(false);
+        return;
+      }
+
+      const now = new Date().toISOString();
+      await Promise.all(targets.map(student =>
+        addDoc(collection(db, 'users', student.id, 'notifications'), {
+          title: `🍽️ ${broadcastMeal} is Ready!`,
+          desc: broadcastMsg || `Freshly prepared hot ${broadcastMeal} is ready. Head to the mess hall!`,
           type: 'food',
           action: 'FOOD_TAB',
           unread: true,
-          createdAt: nowIso
-        }).catch(() => {});
-      }));
-      showToast?.(`📢 "Food Ready" broadcast sent to ${tenants.length} students!`, 'success');
-    } catch (e) {
-      console.error('Broadcast error:', e);
-      showToast?.('Failed to send broadcast', 'error');
+          createdAt: now
+        })
+      ));
+
+      showToast(`📢 Broadcast sent to ${targets.length} students!`, 'success');
+      setShowBroadcastModal(false);
+    } catch (err) {
+      console.error('Broadcast error:', err);
+      showToast('Failed to send broadcast', 'error');
+    } finally {
+      setSendingBroadcast(false);
     }
   };
 
+  const currentSelectedDayName = getDayName(selectedDate);
+  const currentDayMenu = weeklyFoodMenu[currentSelectedDayName] || {};
+  const currentActiveMealKey = mealTab.charAt(0).toUpperCase() + mealTab.slice(1);
+  const isPaused = !!(pausedMeals?.[selectedDate]?.[mealTab.toLowerCase()]);
+
   return (
-    <div style={{ padding: '0 0 calc(32px + env(safe-area-inset-bottom, 0px))', display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-      {/* Header */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '16px 16px', position: 'sticky', top: 0, zIndex: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button onClick={onBack} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0f172a' }}>arrow_back</span>
-            </button>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Mess & Headcount</h2>
-              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Live Headcount & Attendance</p>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {onOpenDelivery && (
-              <button
-                onClick={onOpenDelivery}
-                style={{
-                  background: '#ffedd5',
-                  color: '#c2410c',
-                  border: '1px solid #fed7aa',
-                  borderRadius: 10,
-                  padding: '7px 11px',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4
-                }}
-                title="Tiffin & Food Delivery Operations"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>two_wheeler</span>
-                Delivery
-              </button>
-            )}
-            <button
-              onClick={() => setShowAuditModal(true)}
-              style={{
-                background: '#ede9fe',
-                color: '#6d28d9',
-                border: '1px solid #ddd6fe',
-                borderRadius: 10,
-                padding: '7px 11px',
-                fontSize: 12,
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>verified</span>
-              Audit Log
-            </button>
-            <button
-              onClick={onOpenFoodMenu}
-              style={{
-                background: '#f1f5f9',
-                color: '#334155',
-                border: '1px solid #cbd5e1',
-                borderRadius: 10,
-                padding: '7px 11px',
-                fontSize: 12,
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>restaurant_menu</span>
-              Menu
-            </button>
-          </div>
+    <div style={{
+      maxWidth: '480px',
+      margin: '0 auto',
+      backgroundColor: '#f8fafc',
+      minHeight: '100%',
+      paddingBottom: 'calc(32px + env(safe-area-inset-bottom, 0px))',
+      position: 'relative'
+    }}>
+
+      {/* Hidden File Input for Picking Photos */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handlePhotoSelect}
+      />
+
+      {/* Fallback Toast Notification */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: '#0f172a',
+          color: '#f8fafc',
+          padding: '12px 24px',
+          borderRadius: '30px',
+          boxShadow: '0 10px 25px rgba(0,0,0,0.25)',
+          zIndex: 9999,
+          fontSize: '14px',
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#10b981' }}>check_circle</span>
+          {toastMessage}
         </div>
+      )}
 
-        {/* Date Selector & Broadcast */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', padding: '6px 10px', borderRadius: 10, border: '1px solid #cbd5e1' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>calendar_month</span>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={e => setSelectedDate(e.target.value)}
-              style={{ border: 'none', background: 'transparent', outline: 'none', width: '100%', fontSize: 13, fontWeight: 800, color: '#0f172a' }}
-            />
-          </div>
-
-          <button
-            onClick={handleBroadcastFoodReady}
-            style={{
-              background: '#fef08a',
-              border: '1px solid #fde047',
-              borderRadius: 10,
-              padding: '8px 12px',
-              fontSize: 12,
-              fontWeight: 800,
-              color: '#713f12',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>campaign</span>
-            Food Ready!
-          </button>
-        </div>
-
-        {/* Meal Tabs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 10 }}>
-          {['breakfast', 'lunch', 'snacks', 'dinner'].map(m => (
+      {/* ── Top Header ── */}
+      <div style={{
+        background: 'linear-gradient(135deg, #0c1a2e, #0f2847)',
+        padding: '16px 20px 16px',
+        paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))',
+        color: 'white',
+        borderBottomLeftRadius: '24px',
+        borderBottomRightRadius: '24px',
+        boxShadow: '0 4px 20px rgba(12,26,46,0.15)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button
-              key={m}
-              onClick={() => setMealTab(m)}
+              onClick={onBack}
               style={{
-                padding: '8px 0',
-                borderRadius: 10,
+                background: 'rgba(255,255,255,0.12)',
                 border: 'none',
-                background: mealTab === m ? '#0f172a' : '#f1f5f9',
-                color: mealTab === m ? '#fff' : '#475569',
-                fontSize: 12,
-                fontWeight: 800,
-                textTransform: 'capitalize',
+                borderRadius: '50%',
+                width: '38px',
+                height: '38px',
+                color: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 cursor: 'pointer'
               }}
             >
-              {m}
+              <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>arrow_back</span>
             </button>
-          ))}
+            <div>
+              <h1 style={{
+                margin: 0,
+                fontSize: '20px',
+                fontWeight: 800,
+                letterSpacing: '-0.3px',
+                color: '#fff'
+              }}>
+                Food &amp; Mess
+              </h1>
+              <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>
+                {pgDetails?.pgName || pgDetails?.name || 'My Property'} · {students.length} Students
+              </p>
+            </div>
+          </div>
+
+          {/* Property Selector for multi-assigned managers */}
+          {assignedProperties && assignedProperties.length > 1 && (
+            <select
+              value={selectedPgId}
+              onChange={(e) => setSelectedPgId(e.target.value)}
+              style={{
+                background: 'rgba(255,255,255,0.15)',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.25)',
+                borderRadius: '10px',
+                padding: '6px 10px',
+                fontSize: '11px',
+                fontWeight: 700,
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              {assignedProperties.map(p => (
+                <option key={p.id} value={p.id} style={{ background: '#0f172a', color: '#fff' }}>
+                  {p.name || p.pgName || p.id}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
-        {/* Pause Banner */}
-        <div
-          style={{
-            background: isPaused ? '#fff1f2' : '#f0fdf4',
-            border: `1.5px solid ${isPaused ? '#fecaca' : '#bbf7d0'}`,
-            borderRadius: 12,
-            padding: '8px 12px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 20, color: isPaused ? '#e11d48' : '#16a34a' }}>
-              {isPaused ? 'pause_circle' : 'check_circle'}
-            </span>
-            <span style={{ fontSize: 12, fontWeight: 800, color: isPaused ? '#9f1239' : '#14532d' }}>
-              {isPaused ? `${mealTab.toUpperCase()} is Paused for this date` : `${mealTab.toUpperCase()} is Active`}
-            </span>
-          </div>
+        {/* Segmented Tab Switcher */}
+        <div style={{
+          display: 'flex',
+          background: 'rgba(255,255,255,0.1)',
+          padding: '4px',
+          borderRadius: '14px',
+          backdropFilter: 'blur(8px)'
+        }}>
           <button
-            onClick={handleTogglePause}
+            onClick={() => setActiveMainTab('attendance')}
             style={{
-              background: isPaused ? '#10b981' : '#e11d48',
-              color: '#fff',
+              flex: 1,
+              padding: '9px 0',
+              borderRadius: '10px',
               border: 'none',
-              borderRadius: 8,
-              padding: '5px 12px',
-              fontSize: 11,
+              background: activeMainTab === 'attendance' ? '#ffffff' : 'transparent',
+              color: activeMainTab === 'attendance' ? '#0f172a' : '#cbd5e1',
+              fontSize: '13px',
               fontWeight: 800,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease'
             }}
           >
-            {isPaused ? '▶️ Resume' : '⏸️ Pause'}
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>group</span>
+            Head Count
+          </button>
+          <button
+            onClick={() => setActiveMainTab('menu')}
+            style={{
+              flex: 1,
+              padding: '9px 0',
+              borderRadius: '10px',
+              border: 'none',
+              background: activeMainTab === 'menu' ? '#ffffff' : 'transparent',
+              color: activeMainTab === 'menu' ? '#0f172a' : '#cbd5e1',
+              fontSize: '13px',
+              fontWeight: 800,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>restaurant_menu</span>
+            Food Menu
           </button>
         </div>
+      </div>
 
-        {/* Headcount Stat Counters - Hidden when meal is paused */}
-        {!isPaused && (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginTop: 10 }}>
-              {[
-                { id: 'all', l: 'Eating', v: counts.requested + counts.eaten, c: '#0891b2', bg: '#ecfeff' },
-                { id: 'pack', l: 'To Pack', v: counts.pack, c: '#d97706', bg: '#fef3c7' },
-                { id: 'delivery', l: 'Delivery', v: counts.delivery, c: '#7c3aed', bg: '#ede9fe' },
-                { id: 'extra', l: 'Extra Plate', v: counts.extra, c: '#0284c7', bg: '#e0f2fe' },
-                { id: 'eaten', l: 'Eaten', v: counts.eaten, c: '#16a34a', bg: '#dcfce7' },
-                { id: 'notEaten', l: 'Not Eaten', v: counts.notEaten, c: '#b91c1c', bg: '#fee2e2' },
-                { id: 'onVacation', l: 'On Leave', v: counts.onVacation, c: '#7c3aed', bg: '#f5f3ff' },
-              ].map(k => (
-                <div
-                  key={k.id}
-                  onClick={() => setFilterStat(k.id === filterStat ? 'all' : k.id)}
-                  style={{
-                    background: filterStat === k.id ? k.c : k.bg,
-                    color: filterStat === k.id ? '#fff' : k.c,
-                    borderRadius: 10,
-                    padding: '6px 2px',
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                    border: `1px solid ${filterStat === k.id ? k.c : '#e2e8f0'}`
-                  }}
-                >
-                  <p style={{ margin: 0, fontSize: 14, fontWeight: 900 }}>{k.v}</p>
-                  <p style={{ margin: '2px 0 0', fontSize: 8, fontWeight: 800, textTransform: 'uppercase' }}>{k.l}</p>
-                </div>
-              ))}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* ── TAB 1: HEADCOUNT & ATTENDANCE ─────────────────────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {activeMainTab === 'attendance' && (
+        <div style={{ padding: '16px' }}>
+
+          {/* Live Mess Counter Card */}
+          <div style={{
+            background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+            borderRadius: '20px',
+            padding: '20px',
+            color: '#fff',
+            boxShadow: '0 10px 25px rgba(15,23,42,0.12)',
+            marginBottom: '16px',
+            position: 'relative',
+            overflow: 'hidden'
+          }}>
+            <div style={{ position: 'absolute', right: -12, bottom: -12, opacity: 0.08, pointerEvents: 'none' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '130px' }}>restaurant</span>
             </div>
 
-            {/* Quick Action buttons: Mess Counter QR & Close Meal */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ position: 'relative', display: 'flex', height: '10px', width: '10px' }}>
+                    <span style={{
+                      position: 'absolute',
+                      display: 'inline-flex',
+                      height: '100%',
+                      width: '100%',
+                      borderRadius: '50%',
+                      background: '#ef4444',
+                      opacity: 0.75,
+                      animation: 'ping 1.5s cubic-bezier(0,0,0.2,1) infinite'
+                    }} />
+                    <span style={{
+                      position: 'relative',
+                      display: 'inline-flex',
+                      borderRadius: '50%',
+                      height: '10px',
+                      width: '10px',
+                      background: '#dc2626'
+                    }} />
+                  </span>
+                  <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: '#f8fafc' }}>
+                    Live Headcount
+                  </span>
+                </div>
+                <h3 style={{ margin: '4px 0 0', fontSize: '16px', fontWeight: 800, color: '#f8fafc', textTransform: 'capitalize' }}>
+                  Current Meal ({mealTab})
+                </h3>
+              </div>
+
+              <div style={{
+                background: 'rgba(255,255,255,0.1)',
+                padding: '6px 10px',
+                borderRadius: '10px',
+                fontSize: '11px',
+                fontWeight: 700,
+                color: '#e2e8f0'
+              }}>
+                {selectedDate === getTodayStr() ? 'Today' : selectedDate}
+              </div>
+            </div>
+
+            <div style={{ marginTop: '10px', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+                <h1 style={{ margin: 0, fontSize: '44px', fontWeight: 900, lineHeight: 1, color: '#fde047' }}>
+                  {statsCount.eaten}
+                </h1>
+                <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#94a3b8' }}>
+                  / {students.length - statsCount.onVacation} active eating ({statsCount.onVacation} on leave)
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Action Buttons Row */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
               <button
-                onClick={() => setShowMessQRModal(true)}
+                onClick={onOpenDelivery}
                 style={{
-                  background: 'linear-gradient(135deg, #0891b2, #0e7490)',
-                  color: '#fff',
-                  border: 'none',
-                  padding: '9px 4px',
-                  borderRadius: 12,
-                  fontSize: 12,
+                  background: 'linear-gradient(135deg, #ffedd5, #fed7aa)',
+                  color: '#9a3412',
+                  border: '1.5px solid #fdba74',
+                  padding: '10px 4px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
                   fontWeight: 900,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 6,
+                  gap: '6px',
+                  boxShadow: '0 2px 6px rgba(234,88,12,0.15)'
+                }}
+                title="Open Tiffin & Food Delivery Operations"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#ea580c' }}>two_wheeler</span>
+                Delivery
+              </button>
+
+              <button
+                onClick={() => setShowAuditModal(true)}
+                style={{
+                  background: 'linear-gradient(135deg, #ede9fe, #ddd6fe)',
+                  color: '#5b21b6',
+                  border: '1.5px solid #c4b5fd',
+                  padding: '10px 4px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 6px rgba(124,58,237,0.15)'
+                }}
+                title="View Full Meal Verification Audit Trail"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#7c3aed' }}>fact_check</span>
+                Audit Log
+              </button>
+
+              <button
+                onClick={() => {
+                  setBroadcastMeal(mealTab.charAt(0).toUpperCase() + mealTab.slice(1));
+                  setShowBroadcastModal(true);
+                }}
+                style={{
+                  background: 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '10px 4px',
+                  borderRadius: '12px',
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 8px rgba(16,185,129,0.3)'
+                }}
+                title="Send notification to all active students"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>notifications_active</span>
+                Alert All
+              </button>
+            </div>
+
+            {/* Row 2: Mess Counter QR */}
+            <div style={{ marginTop: '8px' }}>
+              <button
+                onClick={() => setShowMessQRModal(true)}
+                style={{
+                  width: '100%',
+                  background: 'linear-gradient(135deg, #0891b2, #0e7490)',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '10px 14px',
+                  borderRadius: '12px',
+                  fontSize: '13px',
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
                   boxShadow: '0 2px 8px rgba(8,145,178,0.25)'
                 }}
                 title="Display QR code on counter for students to scan"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>qr_code_scanner</span>
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>qr_code_scanner</span>
                 Mess Counter QR
               </button>
+            </div>
+          </div>
 
+          {/* Date Selector & Shortcut Bar */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            marginBottom: '16px',
+            background: '#ffffff',
+            padding: '8px 12px',
+            borderRadius: '14px',
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 2px 8px rgba(15,23,42,0.03)'
+          }}>
+            <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#0891b2' }}>calendar_month</span>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                fontSize: '13px',
+                fontWeight: 800,
+                color: '#0f172a',
+                outline: 'none',
+                flex: 1,
+                fontFamily: 'inherit',
+                cursor: 'pointer'
+              }}
+            />
+            {selectedDate !== getTodayStr() && (
               <button
-                onClick={handleCloseMeal}
+                onClick={() => setSelectedDate(getTodayStr())}
                 style={{
-                  background: 'rgba(239,68,68,0.1)',
-                  color: '#b91c1c',
-                  border: '1.5px solid rgba(239,68,68,0.3)',
-                  padding: '9px 4px',
-                  borderRadius: 12,
-                  fontSize: 12,
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6
+                  background: '#f1f5f9',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  padding: '4px 8px',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  color: '#0891b2',
+                  cursor: 'pointer'
                 }}
-                title="Mark all remaining unserved students as Not Eaten and close meal"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#dc2626' }}>cancel_schedule_send</span>
-                Close Meal ({counts.requested + counts.pack})
+                Today
+              </button>
+            )}
+          </div>
+
+          {/* Meal Selection Tabs */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '12px' }}>
+            {[
+              { id: 'breakfast', label: 'Breakfast', icon: 'coffee' },
+              { id: 'lunch',     label: 'Lunch',     icon: 'lunch_dining' },
+              { id: 'snacks',    label: 'Snacks',    icon: 'bakery_dining' },
+              { id: 'dinner',    label: 'Dinner',    icon: 'dinner_dining' },
+            ].map(m => {
+              const active = mealTab === m.id;
+              return (
+                <div
+                  key={m.id}
+                  onClick={() => setMealTab(m.id)}
+                  style={{
+                    background: active ? '#ede9fe' : '#ffffff',
+                    border: `1.5px solid ${active ? '#8b5cf6' : '#e2e8f0'}`,
+                    borderRadius: '12px',
+                    padding: '10px 4px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    boxShadow: active ? '0 4px 12px rgba(139,92,246,0.15)' : 'none'
+                  }}
+                >
+                  <span
+                    className="material-symbols-outlined"
+                    style={{ fontSize: '22px', color: active ? '#7c3aed' : '#64748b' }}
+                  >
+                    {m.icon}
+                  </span>
+                  <p style={{
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    color: active ? '#7c3aed' : '#64748b',
+                    margin: '4px 0 0',
+                    textTransform: 'uppercase'
+                  }}>
+                    {m.label}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Meal Pause Control Banner */}
+          <div style={{
+            background: isPaused ? '#fff1f2' : '#f0fdf4',
+            border: `1.5px solid ${isPaused ? '#fecaca' : '#bbf7d0'}`,
+            borderRadius: '14px',
+            padding: '10px 14px',
+            marginBottom: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            boxShadow: isPaused ? '0 4px 12px rgba(225,29,72,0.08)' : '0 4px 12px rgba(22,163,74,0.06)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                width: '36px', height: '36px', borderRadius: '10px',
+                background: isPaused ? '#ffe4e6' : '#dcfce7',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: isPaused ? '#e11d48' : '#16a34a'
+              }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>
+                  {isPaused ? 'pause_circle' : 'check_circle'}
+                </span>
+              </div>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 800, color: isPaused ? '#9f1239' : '#166534', textTransform: 'capitalize' }}>
+                  {mealTab} is {isPaused ? 'Paused for Today ⏸️' : 'Active & Serving ✅'}
+                </div>
+                <div style={{ fontSize: '11px', color: isPaused ? '#be123c' : '#15803d', fontWeight: 600 }}>
+                  {isPaused ? 'Students cannot place requests or scan QR for this meal' : 'Students can view menu, request pack/extra & eat'}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => handleToggleMealPause(mealTab)}
+              style={{
+                background: isPaused ? '#10b981' : '#e11d48',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '10px',
+                padding: '8px 14px',
+                fontSize: '12px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: isPaused ? '0 2px 8px rgba(16,185,129,0.25)' : '0 2px 8px rgba(225,29,72,0.25)',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
+                {isPaused ? 'play_arrow' : 'pause'}
+              </span>
+              {isPaused ? 'Resume Meal' : 'Pause Meal'}
+            </button>
+          </div>
+
+          {/* When Meal is Paused: Big informative placeholder */}
+          {isPaused ? (
+            <div style={{
+              background: '#ffffff',
+              borderRadius: '18px',
+              border: '1.5px dashed #fecaca',
+              padding: '48px 24px',
+              textAlign: 'center',
+              marginBottom: '20px',
+              boxShadow: '0 4px 16px rgba(225,29,72,0.04)'
+            }}>
+              <div style={{
+                width: '64px',
+                height: '64px',
+                borderRadius: '20px',
+                background: '#ffe4e6',
+                color: '#e11d48',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px'
+              }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '36px' }}>pause_circle</span>
+              </div>
+              <h3 style={{ margin: '0 0 8px', fontSize: '18px', fontWeight: 900, color: '#9f1239', textTransform: 'capitalize' }}>
+                {mealTab} is Currently Paused
+              </h3>
+              <p style={{ margin: '0 auto 20px', fontSize: '13px', color: '#64748b', maxWidth: '340px', lineHeight: 1.5 }}>
+                This meal is paused for {selectedDate}. Students cannot view the menu or mark attendance, and headcount roster is hidden.
+              </p>
+              <button
+                onClick={() => handleToggleMealPause(mealTab)}
+                style={{
+                  background: '#10b981',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '12px',
+                  padding: '10px 20px',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  boxShadow: '0 4px 12px rgba(16,185,129,0.3)'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>play_arrow</span>
+                Resume {mealTab} Now
               </button>
             </div>
-          </>
-        )}
-      </div>
+          ) : (
+            <>
+              {/* Current Menu Item Pill with Per-Item Photos */}
+              {(() => {
+                const rawDishStr = currentDayMenu[currentActiveMealKey] || '';
+                const todayDishes = rawDishStr ? rawDishStr.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
+                const dishImgs = foodItemImages[currentSelectedDayName]?.[currentActiveMealKey] || {};
 
-      {/* When meal is paused, show notice and hide student checklist */}
-      {isPaused ? (
-        <div style={{ padding: '32px 20px', textAlign: 'center' }}>
-          <div style={{ width: 56, height: 56, borderRadius: 16, background: '#fee2e2', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 32 }}>pause_circle</span>
-          </div>
-          <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 900, color: '#991b1b', textTransform: 'capitalize' }}>
-            {mealTab} is Paused for Today
-          </h3>
-          <p style={{ margin: '0 auto 16px', fontSize: 13, color: '#64748b', maxWidth: 280, lineHeight: 1.4 }}>
-            Meal orders and headcount checklist are currently hidden while this meal is paused.
-          </p>
-          <button
-            onClick={handleTogglePause}
-            style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
-          >
-            Resume {mealTab.toUpperCase()}
-          </button>
-        </div>
-      ) : (
-      /* Student Eating Checklist */
-      <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {/* Search */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '8px 12px' }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>
-          <input
-            type="text"
-            placeholder="Search student or room..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ border: 'none', background: 'transparent', outline: 'none', width: '100%', fontSize: 13, fontWeight: 600 }}
-          />
-        </div>
+                return (
+                  <div style={{
+                    background: '#ffffff',
+                    borderRadius: '16px',
+                    border: '1px solid #e2e8f0',
+                    padding: '14px',
+                    marginBottom: '16px',
+                    boxShadow: '0 2px 8px rgba(15,23,42,0.03)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase' }}>
+                          {currentSelectedDayName}'s {mealTab}
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>({todayDishes.length} items)</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSelectedMenuDay(currentSelectedDayName);
+                          openEditMeal(currentSelectedDayName, currentActiveMealKey);
+                          setActiveMainTab('menu');
+                        }}
+                        style={{
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          padding: '5px 10px',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          color: '#475569',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>edit</span>
+                        Edit Menu
+                      </button>
+                    </div>
 
-        {loading ? (
-          <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, margin: 20 }}>Loading Headcount...</p>
-        ) : filteredStudents.length === 0 ? (
-          <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 13, margin: 20 }}>No students found in this filter.</p>
-        ) : (
-          filteredStudents.map(s => {
-            const isEaten = s.isEaten;
-            const isOnLeave = s.status === 'onVacation';
-            const isPack = s.status === 'pack';
-            const isDelivery = s.status === 'delivery';
-            const isExtra = s.status === 'extra';
+                    {todayDishes.length === 0 ? (
+                      <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', fontWeight: 600 }}>No menu items set for this meal.</p>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '2px' }}>
+                        {todayDishes.map((dish, i) => {
+                          const dImg = dishImgs[dish] || getDishPresetImage(dish);
+                          return (
+                            <div key={i} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '5px 9px' }}>
+                              {dImg ? (
+                                <img
+                                  src={dImg}
+                                  alt={dish}
+                                  onError={(e) => {
+                                    e.currentTarget.onerror = null;
+                                    e.currentTarget.src = DEFAULT_FOOD_PLACEHOLDER;
+                                  }}
+                                  style={{ width: '26px', height: '26px', borderRadius: '6px', objectFit: 'cover' }}
+                                />
+                              ) : (
+                                <div style={{ width: '26px', height: '26px', borderRadius: '6px', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <span className="material-symbols-outlined" style={{ fontSize: '15px', color: '#64748b' }}>restaurant</span>
+                                </div>
+                              )}
+                              <span style={{ fontSize: '12px', fontWeight: 700, color: '#1e293b' }}>{dish}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
-            return (
-              <div
-                key={s.id}
-                style={{
-                  background: isEaten ? '#f0fdf4' : isOnLeave ? '#f8fafc' : '#fff',
-                  border: `1px solid ${isEaten ? '#bbf7d0' : isOnLeave ? '#e2e8f0' : '#cbd5e1'}`,
-                  borderRadius: 14,
-                  padding: '12px 14px',
+              {/* Interactive Stat Breakdown Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '8px' }}>
+                <div
+                  onClick={() => setSelectedStatFilter(selectedStatFilter === 'pack' ? 'all' : 'pack')}
+                  style={{
+                    background: selectedStatFilter === 'pack' ? '#fef08a' : '#ffffff',
+                    border: `2px solid ${selectedStatFilter === 'pack' ? '#000' : '#e2e8f0'}`,
+                    borderRadius: '14px',
+                    padding: '12px 6px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <p style={{ fontSize: '22px', fontWeight: 900, color: '#000', margin: 0 }}>{statsCount.pack}</p>
+                  <p style={{ fontSize: '10.5px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
+                    📦 To Pack (Later)
+                  </p>
+                </div>
+
+                <div
+                  onClick={() => setSelectedStatFilter(selectedStatFilter === 'delivery' ? 'all' : 'delivery')}
+                  style={{
+                    background: selectedStatFilter === 'delivery' ? '#ede9fe' : '#ffffff',
+                    border: `2px solid ${selectedStatFilter === 'delivery' ? '#000' : '#e2e8f0'}`,
+                    borderRadius: '14px',
+                    padding: '12px 6px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <p style={{ fontSize: '22px', fontWeight: 900, color: '#6d28d9', margin: 0 }}>{statsCount.delivery}</p>
+                  <p style={{ fontSize: '10.5px', fontWeight: 800, color: '#6d28d9', margin: '2px 0 0', textTransform: 'uppercase' }}>
+                    🛵 Delivery (Tiffin)
+                  </p>
+                </div>
+
+                <div
+                  onClick={() => setSelectedStatFilter(selectedStatFilter === 'extra' ? 'all' : 'extra')}
+                  style={{
+                    background: selectedStatFilter === 'extra' ? '#cffafe' : '#ffffff',
+                    border: `2px solid ${selectedStatFilter === 'extra' ? '#000' : '#e2e8f0'}`,
+                    borderRadius: '14px',
+                    padding: '12px 6px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <p style={{ fontSize: '22px', fontWeight: 900, color: '#000', margin: 0 }}>{statsCount.extra}</p>
+                  <p style={{ fontSize: '10.5px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
+                    ➕ Extra Plate
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Filter Grid Chips */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginBottom: '16px' }}>
+                {[
+                  { id: 'requested',  label: 'Requested', val: statsCount.requested,  bg: '#fef9c3', border: '#eab308' },
+                  { id: 'onVacation', label: 'On Leave',  val: statsCount.onVacation, bg: '#f5f3ff', border: '#7c3aed' },
+                  { id: 'eaten',      label: 'Eaten',     val: statsCount.eaten,      bg: '#dcfce7', border: '#22c55e' },
+                  { id: 'notEaten',   label: 'Not Eaten', val: statsCount.notEaten,   bg: '#fee2e2', border: '#ef4444' },
+                ].map(s => {
+                  const isSelected = selectedStatFilter === s.id;
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => setSelectedStatFilter(isSelected ? 'all' : s.id)}
+                      style={{
+                        background: isSelected ? s.bg : '#ffffff',
+                        border: `2px solid ${isSelected ? '#000' : '#e2e8f0'}`,
+                        borderRadius: '14px',
+                        padding: '10px 4px',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <p style={{ fontSize: '20px', fontWeight: 900, color: '#000', margin: 0 }}>{s.val}</p>
+                      <p style={{ fontSize: '10px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
+                        {s.label}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Search & Student Roster Section */}
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid #e2e8f0',
+                padding: '14px',
+                boxShadow: '0 4px 16px rgba(15,23,42,0.04)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>
+                      Student Roster ({filteredStudents.length})
+                    </h3>
+                    <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b' }}>
+                      {selectedStatFilter === 'all' ? 'Showing all students' : `Filtered: ${selectedStatFilter.toUpperCase()}`}
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {selectedStatFilter === 'delivery' && (
+                      <button
+                        onClick={onOpenDelivery}
+                        style={{
+                          background: '#ffedd5',
+                          border: '1px solid #fed7aa',
+                          borderRadius: '8px',
+                          padding: '4px 10px',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          color: '#c2410c',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>two_wheeler</span>
+                        Open Delivery Module
+                      </button>
+                    )}
+                    {selectedStatFilter !== 'all' && (
+                      <button
+                        onClick={() => setSelectedStatFilter('all')}
+                        style={{
+                          background: '#f1f5f9',
+                          border: 'none',
+                          borderRadius: '8px',
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          color: '#64748b',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Clear Filter
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Search Input */}
+                <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between',
-                  boxShadow: '0 2px 8px rgba(15,23,42,0.03)'
-                }}
-              >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <h4 style={{ margin: 0, fontSize: 14, fontWeight: 900, color: '#0f172a' }}>{s.name}</h4>
-                    {isPack && <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 5px', borderRadius: 4, background: '#fef3c7', color: '#92400e' }}>PACK (LATER)</span>}
-                    {isDelivery && <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 5px', borderRadius: 4, background: '#ede9fe', color: '#6d28d9' }}>🛵 DELIVERY (TIFFIN)</span>}
-                    {isExtra && <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 5px', borderRadius: 4, background: '#e0f2fe', color: '#0369a1' }}>EXTRA</span>}
-                    {isOnLeave && <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 5px', borderRadius: 4, background: '#fee2e2', color: '#b91c1c' }}>ON LEAVE</span>}
-                  </div>
-                  <p style={{ margin: '2px 0 0', fontSize: 11.5, color: '#64748b' }}>
-                    Room {s.roomNo} · Bed {s.bedNo}
-                  </p>
-                  {isEaten && s.audit && (
-                    <div style={{
-                      marginTop: 4,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      fontSize: 10,
-                      fontWeight: 700,
-                      background: s.audit.confirmedVia === 'counter_qr' ? '#ecfdf5' : s.audit.confirmedVia === 'delivery_qr' ? '#f5f3ff' : s.audit.confirmedVia === 'delivery_boy' ? '#eff6ff' : '#fffbeb',
-                      color: s.audit.confirmedVia === 'counter_qr' ? '#047857' : s.audit.confirmedVia === 'delivery_qr' ? '#6d28d9' : s.audit.confirmedVia === 'delivery_boy' ? '#0284c7' : '#b45309',
-                      padding: '2px 6px',
-                      borderRadius: 6,
-                      border: '1px solid rgba(0,0,0,0.06)'
-                    }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>
-                        {s.audit.confirmedVia === 'counter_qr' ? 'qr_code_scanner' : s.audit.confirmedVia === 'delivery_qr' ? 'two_wheeler' : s.audit.confirmedVia === 'delivery_boy' ? 'local_shipping' : 'verified'}
-                      </span>
-                      <span>
-                        {s.audit.confirmedVia === 'counter_qr' ? 'Mess QR Scan' : s.audit.confirmedVia === 'delivery_qr' ? `Delivery QR (${s.audit.markedByName || 'Staff'})` : s.audit.confirmedVia === 'delivery_boy' ? `Delivered: ${s.audit.markedByName || 'Staff'}` : `${s.audit.markedByRole || 'Staff'}: ${s.audit.markedByName || 'Staff'}`}
-                        {s.audit.timestamp ? ` · ${new Date(s.audit.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
-                      </span>
-                    </div>
+                  gap: '8px',
+                  background: '#f8fafc',
+                  borderRadius: '10px',
+                  border: '1px solid #e2e8f0',
+                  padding: '8px 12px',
+                  marginBottom: '14px'
+                }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#94a3b8' }}>search</span>
+                  <input
+                    type="text"
+                    placeholder="Search by student name or room..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      outline: 'none',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      width: '100%',
+                      fontFamily: 'inherit'
+                    }}
+                  />
+                  {searchQuery && (
+                    <span
+                      className="material-symbols-outlined"
+                      onClick={() => setSearchQuery('')}
+                      style={{ fontSize: '16px', color: '#94a3b8', cursor: 'pointer' }}
+                    >
+                      close
+                    </span>
                   )}
                 </div>
 
-                {!isOnLeave ? (
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                      onClick={() => handleToggleEaten(s.id, isEaten)}
-                      style={{
-                        background: isEaten ? '#16a34a' : '#0f172a',
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: 10,
-                        padding: '8px 12px',
-                        fontSize: 12,
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4
-                      }}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                        {isEaten ? 'undo' : 'check'}
-                      </span>
-                      {isEaten ? 'Undo' : 'Eaten'}
-                    </button>
-                    {!isEaten && s.status !== 'notEaten' && (
+                {/* Student List */}
+                {loading ? (
+                  <div style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '32px', color: '#0891b2' }}>hourglass_top</span>
+                    <p style={{ fontSize: '13px', margin: '8px 0 0' }}>Loading students...</p>
+                  </div>
+                ) : filteredStudents.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '36px 12px' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '36px', color: '#cbd5e1' }}>person_off</span>
+                    <p style={{ fontSize: '14px', fontWeight: 700, color: '#64748b', margin: '8px 0 0' }}>No students found</p>
+                    <p style={{ fontSize: '12px', color: '#94a3b8', margin: '4px 0 0' }}>Try changing the status filter or search query</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '450px', overflowY: 'auto', paddingRight: '2px' }}>
+                    {filteredStudents.map(s => {
+                      const currentStatus = s[mealKey];
+                      const isEaten = currentStatus === 'eaten';
+                      const details = s[detailsKey];
+                      const audit = s[auditKey];
+
+                      return (
+                        <div
+                          key={s.id}
+                          style={{
+                            background: isEaten ? '#f0fdf4' : '#ffffff',
+                            border: `1.5px solid ${isEaten ? '#bbf7d0' : '#e2e8f0'}`,
+                            borderRadius: '14px',
+                            padding: '12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            boxShadow: '0 2px 6px rgba(15,23,42,0.03)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                            {/* Avatar */}
+                            {s.image ? (
+                              <img
+                                src={s.image}
+                                alt={s.name}
+                                style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }}
+                              />
+                            ) : (
+                              <div style={{
+                                width: '40px',
+                                height: '40px',
+                                borderRadius: '50%',
+                                background: isEaten ? '#dcfce7' : '#f1f5f9',
+                                color: isEaten ? '#166534' : '#475569',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 800,
+                                fontSize: '15px'
+                              }}>
+                                {s.name?.charAt(0)?.toUpperCase() || 'U'}
+                              </div>
+                            )}
+
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <h4 style={{
+                                margin: 0,
+                                fontSize: '14px',
+                                fontWeight: 800,
+                                color: '#0f172a',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}>
+                                {s.name}
+                              </h4>
+                              <p style={{ margin: '2px 0 4px', fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
+                                Room {s.room} · Bed {s.bed}
+                              </p>
+
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                {/* Status Chip */}
+                                <span style={{
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  textTransform: 'uppercase',
+                                  padding: '2px 8px',
+                                  borderRadius: '6px',
+                                  background: isEaten ? '#dcfce7' : currentStatus === 'selfCooking' ? '#fff7ed' : currentStatus === 'onVacation' ? '#f5f3ff' : currentStatus === 'delivery' ? '#ede9fe' : currentStatus === 'notEaten' ? '#fee2e2' : currentStatus === 'pack' ? '#fef08a' : currentStatus === 'extra' ? '#cffafe' : '#fef9c3',
+                                  color: isEaten ? '#166534' : currentStatus === 'selfCooking' ? '#ea580c' : currentStatus === 'onVacation' ? '#7c3aed' : currentStatus === 'delivery' ? '#6d28d9' : currentStatus === 'notEaten' ? '#991b1b' : currentStatus === 'pack' ? '#854d0e' : currentStatus === 'extra' ? '#0e7490' : '#854d0e',
+                                  border: currentStatus === 'selfCooking' ? '1px solid #fed7aa' : currentStatus === 'onVacation' ? '1px solid #ddd6fe' : currentStatus === 'delivery' ? '1px solid #c4b5fd' : 'none'
+                                }}>
+                                  {isEaten ? 'Eaten ✅' : currentStatus === 'selfCooking' ? '🍳 Self-Cooking' : currentStatus === 'onVacation' ? '🏖️ On Leave' : currentStatus === 'delivery' ? '🛵 Tiffin Delivery' : currentStatus === 'notEaten' ? 'Not Eaten' : currentStatus === 'pack' ? 'To Pack 📦' : currentStatus === 'extra' ? 'Extra Plate ➕' : 'Requested'}
+                                </span>
+
+                                {/* Audit verification badge if eaten */}
+                                {isEaten && audit && (
+                                  <span style={{
+                                    fontSize: '10px',
+                                    fontWeight: 700,
+                                    padding: '2px 7px',
+                                    borderRadius: '6px',
+                                    background: audit.confirmedVia === 'counter_qr' ? '#ecfdf5' : audit.confirmedVia === 'delivery_qr' ? '#f5f3ff' : audit.confirmedVia === 'delivery_boy' ? '#eff6ff' : audit.confirmedVia === 'manual_cook' ? '#fffbeb' : audit.confirmedVia === 'manual_manager' ? '#eef2ff' : '#f8fafc',
+                                    color: audit.confirmedVia === 'counter_qr' ? '#047857' : audit.confirmedVia === 'delivery_qr' ? '#6d28d9' : audit.confirmedVia === 'delivery_boy' ? '#0284c7' : audit.confirmedVia === 'manual_cook' ? '#b45309' : audit.confirmedVia === 'manual_manager' ? '#4338ca' : '#334155',
+                                    border: `1px solid ${audit.confirmedVia === 'counter_qr' ? '#a7f3d0' : audit.confirmedVia === 'delivery_qr' ? '#ddd6fe' : audit.confirmedVia === 'delivery_boy' ? '#bae6fd' : audit.confirmedVia === 'manual_cook' ? '#fde68a' : audit.confirmedVia === 'manual_manager' ? '#c7d2fe' : '#cbd5e1'}`,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px'
+                                  }}>
+                                    <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>
+                                      {audit.confirmedVia === 'counter_qr' ? 'qr_code_scanner' : audit.confirmedVia === 'delivery_qr' ? 'two_wheeler' : audit.confirmedVia === 'delivery_boy' ? 'local_shipping' : audit.confirmedVia === 'manual_cook' ? 'soup_kitchen' : audit.confirmedVia === 'manual_manager' ? 'shield_person' : 'admin_panel_settings'}
+                                    </span>
+                                    <span>
+                                      {audit.confirmedVia === 'counter_qr' ? 'Mess QR Scan' : audit.confirmedVia === 'delivery_qr' ? `Delivery QR (${audit.markedByName || 'Staff'})` : audit.confirmedVia === 'delivery_boy' ? `Delivered: ${audit.markedByName || 'Staff'}` : audit.confirmedVia === 'manual_cook' ? `Cook: ${audit.markedByName || 'Cook'}` : audit.confirmedVia === 'manual_manager' ? `Manager: ${audit.markedByName || 'Manager'}` : `Admin: ${audit.markedByName || 'Admin'}`}
+                                      {audit.timestamp ? ` · ${new Date(audit.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                    </span>
+                                  </span>
+                                )}
+
+                                {s.includedFoodPersons > 1 && s.foodIncluded && (
+                                  <span style={{ fontSize: '10px', fontWeight: 800, color: '#0369a1', background: '#e0f2fe', padding: '2px 6px', borderRadius: '4px', border: '1px solid #bae6fd' }}>
+                                    👥 {s.includedFoodPersons} Meals
+                                  </span>
+                                )}
+
+                                {currentStatus === 'onVacation' && s.foodVacation && (
+                                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', padding: '2px 6px', borderRadius: '4px', border: '1px solid #ede9fe' }}>
+                                    Paused: {formatDateDisplay(s.foodVacation.startDate)} → {formatDateDisplay(s.foodVacation.endDate)}
+                                  </span>
+                                )}
+
+                                {details && (
+                                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#475569', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
+                                    {details}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons: Phone & Eaten Toggle */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                            {s.phone && (
+                              <a
+                                href={`tel:${s.phone.replace(/\s+/g, '')}`}
+                                style={{
+                                  background: '#f1f5f9',
+                                  color: '#0f172a',
+                                  textDecoration: 'none',
+                                  borderRadius: '10px',
+                                  width: '34px',
+                                  height: '34px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  border: '1px solid #e2e8f0'
+                                }}
+                                title="Call Student"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>call</span>
+                              </a>
+                            )}
+
+                            {currentStatus === 'onVacation' ? (
+                              <span style={{
+                                background: '#ede9fe',
+                                color: '#7c3aed',
+                                padding: '8px 12px',
+                                borderRadius: '10px',
+                                fontSize: '11px',
+                                fontWeight: 800,
+                                border: '1px solid #ddd6fe',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}>
+                                🏖️ On Leave
+                              </span>
+                            ) : isEaten ? (
+                              <button
+                                onClick={() => handleToggleEaten(s.id, isEaten)}
+                                style={{
+                                  background: '#dcfce7',
+                                  color: '#166534',
+                                  border: '1.5px solid #86efac',
+                                  borderRadius: '10px',
+                                  padding: '8px 12px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  transition: 'all 0.15s ease'
+                                }}
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>undo</span>
+                                Undo
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleToggleEaten(s.id, false)}
+                                style={{
+                                  background: '#0f172a',
+                                  color: '#f8fafc',
+                                  border: 'none',
+                                  borderRadius: '10px',
+                                  padding: '8px 12px',
+                                  fontSize: '11px',
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  transition: 'all 0.15s ease'
+                                }}
+                                title="Mark Student as Eaten"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check</span>
+                                Eaten
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* ── TAB 2: FOOD MENU MANAGEMENT & PHOTOS ──────────────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {activeMainTab === 'menu' && (
+        <div style={{ padding: '16px' }}>
+
+          {/* Day Selector Pills */}
+          <div style={{
+            display: 'flex',
+            overflowX: 'auto',
+            gap: '8px',
+            paddingBottom: '12px',
+            scrollbarWidth: 'none'
+          }}>
+            {DAYS_OF_WEEK.map(day => {
+              const active = selectedMenuDay === day;
+              const isToday = getDayName(getTodayStr()) === day;
+              return (
+                <button
+                  key={day}
+                  onClick={() => setSelectedMenuDay(day)}
+                  style={{
+                    flexShrink: 0,
+                    padding: '8px 14px',
+                    borderRadius: '12px',
+                    border: `1.5px solid ${active ? '#0f172a' : '#e2e8f0'}`,
+                    background: active ? '#0f172a' : '#ffffff',
+                    color: active ? '#ffffff' : '#475569',
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    transition: 'all 0.15s ease',
+                    boxShadow: active ? '0 4px 12px rgba(15,23,42,0.15)' : 'none'
+                  }}
+                >
+                  {day.slice(0, 3)}
+                  {isToday && (
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: active ? '#fde047' : '#0891b2' }} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Selected Day Banner */}
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '18px',
+            padding: '16px',
+            border: '1px solid #e2e8f0',
+            marginBottom: '16px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            boxShadow: '0 4px 16px rgba(15,23,42,0.03)'
+          }}>
+            <div>
+              <span style={{ fontSize: '11px', fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase' }}>
+                Diet Schedule &amp; Photos
+              </span>
+              <h2 style={{
+                margin: '2px 0 0',
+                fontSize: '20px',
+                fontWeight: 800,
+                color: '#0f172a'
+              }}>
+                {selectedMenuDay} Menu
+              </h2>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => {
+                  fetchMenuHistory();
+                  setShowMenuHistoryModal(true);
+                }}
+                style={{
+                  background: '#ede9fe',
+                  border: '1px solid #ddd6fe',
+                  borderRadius: '10px',
+                  padding: '7px 12px',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  color: '#6d28d9',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+                title="View audit history of who edited menu and when"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>history</span>
+                Edit History
+              </button>
+
+              <button
+                onClick={handleResetToDefaultMenu}
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '10px',
+                  padding: '7px 12px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  color: '#64748b',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+                title="Reset all days to default menu template"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>restart_alt</span>
+                Reset Template
+              </button>
+            </div>
+          </div>
+
+          {/* Last Edited by Banner */}
+          {lastMenuEdit && (
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '14px',
+              padding: '10px 14px',
+              marginBottom: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '10px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#6366f1' }}>manage_accounts</span>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 800, color: '#0f172a' }}>
+                    Last edited by <span style={{ color: lastMenuEdit.editorRole === 'Cook' ? '#16a34a' : '#7c3aed' }}>{lastMenuEdit.editedBy} ({lastMenuEdit.editorRole})</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>
+                    {lastMenuEdit.day} {lastMenuEdit.meal} · {lastMenuEdit.editedAt ? new Date(lastMenuEdit.editedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Recently'}
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  fetchMenuHistory();
+                  setShowMenuHistoryModal(true);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#6366f1',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  textDecoration: 'underline'
+                }}
+              >
+                View History
+              </button>
+            </div>
+          )}
+
+          {/* 4 Meal Slots for Selected Day */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {[
+              { id: 'Breakfast', label: 'Breakfast', timing: '8:00 AM – 10:30 AM', icon: 'coffee', accent: '#f59e0b', bg: '#fef3c7' },
+              { id: 'Lunch',     label: 'Lunch',     timing: '12:30 PM – 3:00 PM',  icon: 'lunch_dining', accent: '#0891b2', bg: '#ecfeff' },
+              { id: 'Snacks',    label: 'Snacks',    timing: '5:00 PM – 6:30 PM',   icon: 'bakery_dining', accent: '#8b5cf6', bg: '#f3e8ff' },
+              { id: 'Dinner',    label: 'Dinner',    timing: '8:00 PM – 10:30 PM',  icon: 'dinner_dining', accent: '#10b981', bg: '#ecfdf5' },
+            ].map(mealSlot => {
+              const menuContent = weeklyFoodMenu[selectedMenuDay]?.[mealSlot.id] || 'Not set';
+              const slotDishes = menuContent !== 'Not set' ? menuContent.split(/[,;]/).map(s => s.trim()).filter(Boolean) : [];
+              const slotImgs = foodItemImages[selectedMenuDay]?.[mealSlot.id] || {};
+
+              return (
+                <div
+                  key={mealSlot.id}
+                  style={{
+                    background: '#ffffff',
+                    borderRadius: '18px',
+                    border: '1px solid #e2e8f0',
+                    overflow: 'hidden',
+                    boxShadow: '0 4px 16px rgba(15,23,42,0.03)',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <div style={{ padding: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '38px',
+                          height: '38px',
+                          borderRadius: '10px',
+                          background: mealSlot.bg,
+                          color: mealSlot.accent,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>{mealSlot.icon}</span>
+                        </div>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: '#0f172a' }}>
+                              {mealSlot.label}
+                            </h4>
+                            <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 700 }}>
+                              ({slotDishes.length} items)
+                            </span>
+                          </div>
+                          <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b', fontWeight: 600 }}>
+                            {mealSlot.timing}
+                          </p>
+                        </div>
+                      </div>
+
                       <button
-                        onClick={() => handleMarkNotEaten(s.id)}
+                        onClick={() => openEditMeal(selectedMenuDay, mealSlot.id)}
                         style={{
-                          background: '#fee2e2',
-                          color: '#dc2626',
-                          border: '1px solid #fecaca',
-                          borderRadius: 10,
-                          padding: '8px 10px',
-                          fontSize: 12,
+                          background: '#0f172a',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '10px',
+                          padding: '7px 12px',
+                          fontSize: '11px',
                           fontWeight: 800,
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 4
+                          gap: '4px',
+                          boxShadow: '0 2px 8px rgba(15,23,42,0.1)'
                         }}
-                        title="Mark Student as Not Eaten"
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
-                        Not Eaten
+                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>edit</span>
+                        Edit Dishes &amp; Photos
                       </button>
-                    )}
+                    </div>
+
+                    {/* Dish Photo Carousel/Row */}
+                    <div style={{
+                      background: '#f8fafc',
+                      borderRadius: '12px',
+                      padding: '12px',
+                      border: '1px solid #f1f5f9'
+                    }}>
+                      {slotDishes.length === 0 ? (
+                        <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8', fontWeight: 600, padding: '6px 0' }}>
+                          No dishes configured for {mealSlot.label}. Click "Edit Dishes &amp; Photos" to add.
+                        </p>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '2px' }}>
+                          {slotDishes.map((dish, i) => {
+                            const dImg = slotImgs[dish] || getDishPresetImage(dish);
+                            return (
+                              <div key={i} style={{ flexShrink: 0, width: '72px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+                                <div style={{
+                                  width: '64px',
+                                  height: '64px',
+                                  borderRadius: '12px',
+                                  overflow: 'hidden',
+                                  border: '1.5px solid #e2e8f0',
+                                  boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
+                                  background: '#f8fafc',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}>
+                                  <img
+                                    src={dImg || DEFAULT_FOOD_PLACEHOLDER}
+                                    alt={dish}
+                                    onError={(e) => {
+                                      e.currentTarget.onerror = null;
+                                      e.currentTarget.src = DEFAULT_FOOD_PLACEHOLDER;
+                                    }}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                  />
+                                </div>
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: '#334155', textAlign: 'center', lineHeight: 1.25, width: '70px', wordBreak: 'break-word' }}>
+                                  {dish}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                ) : (
-                  <span style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8' }}>Vacation</span>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
-      {/* Headcount Audit History Modal */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* ── EDIT MENU & PER-ITEM PHOTOS MODAL ──────────────────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {editingMeal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15,23,42,0.6)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 999,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'flex-end',
+          alignItems: 'center'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '24px 24px 0 0',
+            width: '100%',
+            maxWidth: '520px',
+            padding: '22px',
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+            boxShadow: '0 -10px 40px rgba(0,0,0,0.2)',
+            maxHeight: '92vh',
+            overflowY: 'auto'
+          }}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase' }}>
+                  Dish Items &amp; Photos Editor
+                </span>
+                <h3 style={{ margin: '2px 0 0', fontSize: '18px', fontWeight: 900, color: '#0f172a' }}>
+                  {editingMeal.day} · {editingMeal.meal}
+                </h3>
+              </div>
+              <button
+                onClick={() => setEditingMeal(null)}
+                style={{
+                  background: '#f1f5f9',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#64748b' }}>close</span>
+              </button>
+            </div>
+
+            {/* Current Items List */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Items in this Meal ({editItems.length})
+                </label>
+                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>Tap photo to change/upload</span>
+              </div>
+
+              {editItems.length === 0 ? (
+                <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '14px', textAlign: 'center', border: '1.5px dashed #cbd5e1', color: '#64748b', fontSize: '13px', fontWeight: 600 }}>
+                  No items added yet. Click from common dishes below or add custom item!
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '230px', overflowY: 'auto', paddingRight: '2px' }}>
+                  {editItems.map((item, idx) => (
+                    <div key={item.id} style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '12px',
+                      padding: '8px 10px'
+                    }}>
+                      {/* Dish Photo Thumbnail */}
+                      <div
+                        onClick={() => {
+                          setActivePhotoItemIndex(idx);
+                          setShowItemPhotoPicker(true);
+                        }}
+                        style={{
+                          width: '46px',
+                          height: '46px',
+                          borderRadius: '10px',
+                          backgroundImage: `url(${item.image || DEFAULT_FOOD_PLACEHOLDER})`,
+                          backgroundSize: 'cover',
+                          backgroundPosition: 'center',
+                          border: '1.5px solid #cbd5e1',
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                          position: 'relative',
+                          display: 'flex',
+                          alignItems: 'flex-end',
+                          justifyContent: 'flex-end'
+                        }}
+                      >
+                        <div style={{
+                          background: 'rgba(15,23,42,0.7)',
+                          color: '#fff',
+                          borderRadius: '4px',
+                          padding: '1px 3px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>photo_camera</span>
+                        </div>
+                      </div>
+
+                      {/* Name input */}
+                      <input
+                        type="text"
+                        value={item.name}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEditItems(prev => prev.map((it, i) => i === idx ? { ...it, name: val } : it));
+                        }}
+                        placeholder="Item name (e.g. 4 Roti)"
+                        style={{
+                          flex: 1,
+                          padding: '8px 10px',
+                          borderRadius: '8px',
+                          border: '1px solid #cbd5e1',
+                          fontSize: '13px',
+                          fontWeight: 700,
+                          outline: 'none',
+                          fontFamily: 'inherit',
+                          background: '#fff'
+                        }}
+                      />
+
+                      {/* Photo Change button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActivePhotoItemIndex(idx);
+                          setShowItemPhotoPicker(true);
+                        }}
+                        style={{
+                          background: '#ede9fe',
+                          color: '#7c3aed',
+                          border: 'none',
+                          borderRadius: '8px',
+                          padding: '7px 9px',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px'
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>image</span>
+                        Photo
+                      </button>
+
+                      {/* Delete button */}
+                      <button
+                        type="button"
+                        onClick={() => setEditItems(prev => prev.filter((_, i) => i !== idx))}
+                        style={{
+                          background: '#fee2e2',
+                          color: '#ef4444',
+                          border: 'none',
+                          borderRadius: '8px',
+                          padding: '7px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>delete</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Quick Add Common PG Dishes Section */}
+            <div style={{ marginBottom: '16px', background: '#f8fafc', borderRadius: '16px', padding: '12px', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase' }}>
+                  ⚡ Quick Pick: Common PG Dishes
+                </span>
+                <span style={{ fontSize: '11px', color: '#16a34a', fontWeight: 700 }}>Pre-loaded Photos</span>
+              </div>
+
+              {/* Category tabs */}
+              <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '6px', marginBottom: '8px' }}>
+                {DISH_CATEGORIES.map(cat => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setPresetCategory(cat)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '16px',
+                      border: 'none',
+                      background: presetCategory === cat ? '#7c3aed' : '#ffffff',
+                      color: presetCategory === cat ? '#ffffff' : '#64748b',
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      boxShadow: presetCategory === cat ? '0 2px 6px rgba(124,58,237,0.25)' : 'none'
+                    }}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search filter */}
+              <input
+                type="text"
+                placeholder="Search dish (e.g. Paneer, Roti, Dal, Poha)..."
+                value={presetSearch}
+                onChange={e => setPresetSearch(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '7px 10px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  outline: 'none',
+                  fontFamily: 'inherit',
+                  marginBottom: '10px',
+                  boxSizing: 'border-box'
+                }}
+              />
+
+              {/* Preset dishes grid */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+                gap: '8px',
+                maxHeight: '160px',
+                overflowY: 'auto',
+                paddingRight: '2px'
+              }}>
+                {COMMON_PG_DISHES
+                  .filter(d => presetCategory === 'All' || d.category === presetCategory)
+                  .filter(d => !presetSearch || d.name.toLowerCase().includes(presetSearch.toLowerCase()))
+                  .map(dish => {
+                    const isAdded = editItems.some(it => it.name.toLowerCase() === dish.name.toLowerCase());
+                    return (
+                      <div
+                        key={dish.id}
+                        onClick={() => {
+                          if (isAdded) return;
+                          setEditItems(prev => [
+                            ...prev,
+                            { id: Math.random().toString(36).substring(2, 9), name: dish.name, image: dish.image }
+                          ]);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          background: isAdded ? '#f0fdf4' : '#ffffff',
+                          border: `1px solid ${isAdded ? '#86efac' : '#e2e8f0'}`,
+                          borderRadius: '10px',
+                          padding: '6px 8px',
+                          cursor: isAdded ? 'default' : 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <img src={dish.image} alt={dish.name} style={{ width: '32px', height: '32px', borderRadius: '6px', objectFit: 'cover' }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: '11px', fontWeight: 800, color: isAdded ? '#15803d' : '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {dish.name}
+                          </p>
+                          <span style={{ fontSize: '10px', fontWeight: 700, color: isAdded ? '#16a34a' : '#7c3aed' }}>
+                            {isAdded ? 'Added ✓' : '+ Add'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* Custom Item Adder */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
+              <input
+                type="text"
+                placeholder="Or type custom dish (e.g. Matar Mushroom)..."
+                value={customItemInput}
+                onChange={e => setCustomItemInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && customItemInput.trim()) {
+                    e.preventDefault();
+                    const name = customItemInput.trim();
+                    const presetImg = getDishPresetImage(name);
+                    setEditItems(prev => [
+                      ...prev,
+                      { id: Math.random().toString(36).substring(2, 9), name, image: presetImg || null }
+                    ]);
+                    setCustomItemInput('');
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: '10px 12px',
+                  borderRadius: '10px',
+                  border: '1.5px solid #cbd5e1',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  outline: 'none',
+                  fontFamily: 'inherit'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!customItemInput.trim()) return;
+                  const name = customItemInput.trim();
+                  const presetImg = getDishPresetImage(name);
+                  setEditItems(prev => [
+                    ...prev,
+                    { id: Math.random().toString(36).substring(2, 9), name, image: presetImg || null }
+                  ]);
+                  setCustomItemInput('');
+                }}
+                style={{
+                  background: '#0f172a',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '10px',
+                  padding: '10px 16px',
+                  fontSize: '13px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                + Add Item
+              </button>
+            </div>
+
+            {/* Save Button */}
+            <button
+              onClick={handleSaveMenu}
+              disabled={savingMenu}
+              style={{
+                width: '100%',
+                padding: '16px',
+                borderRadius: '14px',
+                background: 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+                color: '#ffffff',
+                fontSize: '15px',
+                fontWeight: 800,
+                border: 'none',
+                cursor: savingMenu ? 'not-allowed' : 'pointer',
+                boxShadow: '0 4px 16px rgba(124,58,237,0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>save</span>
+              {savingMenu ? 'Saving Changes...' : `Save ${editItems.length} Dishes & Photos`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* ── ITEM PHOTO PICKER MODAL (FOR A SPECIFIC DISH) ───────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {showItemPhotoPicker && activePhotoItemIndex !== null && editItems[activePhotoItemIndex] && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15,23,42,0.7)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 1050,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'flex-end',
+          alignItems: 'center'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '24px 24px 0 0',
+            width: '100%',
+            maxWidth: '500px',
+            padding: '20px',
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+            maxHeight: '85vh',
+            overflowY: 'auto'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase' }}>Select Photo</span>
+                <h3 style={{ margin: '2px 0 0', fontSize: '17px', fontWeight: 900, color: '#0f172a' }}>
+                  Photo for "{editItems[activePhotoItemIndex]?.name}"
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowItemPhotoPicker(false)}
+                style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#64748b' }}>close</span>
+              </button>
+            </div>
+
+            {/* Current Selected Photo Preview */}
+            {editItems[activePhotoItemIndex]?.image && (
+              <div style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1.5px solid #e2e8f0', marginBottom: '14px', height: '110px' }}>
+                <img src={editItems[activePhotoItemIndex].image} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditItems(prev => prev.map((it, i) => i === activePhotoItemIndex ? { ...it, image: null } : it));
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: '8px',
+                    right: '8px',
+                    background: 'rgba(239,68,68,0.9)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '4px 8px',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Remove Photo
+                </button>
+              </div>
+            )}
+
+            {/* Upload / Snap Photo */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessingPhoto}
+              style={{
+                width: '100%',
+                padding: '14px',
+                borderRadius: '12px',
+                border: '2px dashed #8b5cf6',
+                background: '#f5f3ff',
+                color: '#6d28d9',
+                fontSize: '13px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                marginBottom: '14px'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>photo_camera</span>
+              {isProcessingPhoto ? 'Compressing photo...' : 'Take with Camera or Upload File'}
+            </button>
+
+            {/* Choose from Preset Library */}
+            <p style={{ margin: '0 0 8px', fontSize: '12px', fontWeight: 800, color: '#334155', textTransform: 'uppercase' }}>
+              Or Pick Pre-made Photo from Library:
+            </p>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(95px, 1fr))',
+              gap: '8px',
+              maxHeight: '220px',
+              overflowY: 'auto',
+              paddingRight: '2px'
+            }}>
+              {COMMON_PG_DISHES.map(dish => (
+                <div
+                  key={dish.id}
+                  onClick={() => {
+                    setEditItems(prev => prev.map((it, i) => i === activePhotoItemIndex ? { ...it, image: dish.image } : it));
+                    setShowItemPhotoPicker(false);
+                  }}
+                  style={{
+                    border: '1.5px solid #e2e8f0',
+                    borderRadius: '10px',
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    background: '#f8fafc',
+                    textAlign: 'center'
+                  }}
+                >
+                  <img src={dish.image} alt={dish.name} style={{ width: '100%', height: '65px', objectFit: 'cover' }} />
+                  <p style={{ margin: '4px 2px', fontSize: '10px', fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {dish.name}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* ── BROADCAST NOTIFICATION MODAL ─────────────────────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {showBroadcastModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15,23,42,0.6)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 999,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'flex-end',
+          alignItems: 'center'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '24px 24px 0 0',
+            width: '100%',
+            maxWidth: '480px',
+            padding: '24px',
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+            boxShadow: '0 -10px 40px rgba(0,0,0,0.2)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <span style={{ fontSize: '11px', fontWeight: 800, color: '#f59e0b', textTransform: 'uppercase' }}>
+                  Student Alert
+                </span>
+                <h3 style={{ margin: '2px 0 0', fontSize: '18px', fontWeight: 900, color: '#0f172a' }}>
+                  Broadcast "Food is Ready!" 📢
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowBroadcastModal(false)}
+                style={{
+                  background: '#f1f5f9',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#64748b' }}>close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSendBroadcast} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                  Select Meal:
+                </label>
+                <select
+                  value={broadcastMeal}
+                  onChange={(e) => setBroadcastMeal(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #e2e8f0',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    outline: 'none',
+                    fontFamily: 'inherit'
+                  }}
+                >
+                  <option value="Breakfast">Breakfast</option>
+                  <option value="Lunch">Lunch</option>
+                  <option value="Snacks">Snacks</option>
+                  <option value="Dinner">Dinner</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                  Recipients:
+                </label>
+                <select
+                  value={broadcastTarget}
+                  onChange={(e) => setBroadcastTarget(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #e2e8f0',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    outline: 'none',
+                    fontFamily: 'inherit'
+                  }}
+                >
+                  <option value="all">All Students ({students.length})</option>
+                  {students.map(s => (
+                    <option key={s.id} value={s.id}>{s.name} (Rm {s.room})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                  Custom Notification Message:
+                </label>
+                <textarea
+                  rows={2}
+                  value={broadcastMsg}
+                  onChange={(e) => setBroadcastMsg(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    border: '1.5px solid #e2e8f0',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    outline: 'none',
+                    fontFamily: 'inherit',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={sendingBroadcast}
+                style={{
+                  width: '100%',
+                  padding: '14px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                  color: '#000',
+                  fontSize: '14px',
+                  fontWeight: 900,
+                  border: 'none',
+                  cursor: sendingBroadcast ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit',
+                  boxShadow: '0 4px 16px rgba(245,158,11,0.3)',
+                  marginTop: '6px'
+                }}
+              >
+                {sendingBroadcast ? 'Sending Broadcast...' : '📢 Send Notification Now'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* ── MENU EDIT HISTORY MODAL ────────────────────────────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {showMenuHistoryModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15,23,42,0.6)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 1001,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '24px',
+            width: '100%',
+            maxWidth: '480px',
+            maxHeight: '82vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+            overflow: 'hidden'
+          }}>
+            <div style={{
+              padding: '18px 20px',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: '#ffffff'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '38px', height: '38px', borderRadius: '12px', background: '#ede9fe', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>history</span>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>Food Menu Edit History</h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b' }}>Audit trail of who edited the food menu &amp; when</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowMenuHistoryModal(false)}
+                style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>close</span>
+              </button>
+            </div>
+
+            <div style={{ padding: '16px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {loadingMenuHistory ? (
+                <div style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '28px', color: '#7c3aed' }}>hourglass_top</span>
+                  <p style={{ fontSize: '12px', margin: '6px 0 0' }}>Loading edit trail...</p>
+                </div>
+              ) : menuHistoryList.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '36px 16px', color: '#64748b' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '36px', color: '#cbd5e1' }}>receipt_long</span>
+                  <p style={{ fontSize: '13px', fontWeight: 700, margin: '8px 0 0' }}>No edit logs yet</p>
+                  <p style={{ fontSize: '11px', color: '#94a3b8', margin: '4px 0 0' }}>All menu updates made by Managers, Cooks or Admins will be recorded here.</p>
+                </div>
+              ) : (
+                menuHistoryList.map(entry => (
+                  <div
+                    key={entry.id}
+                    style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '14px',
+                      padding: '12px 14px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          padding: '2px 8px',
+                          borderRadius: '6px',
+                          background: entry.editorRole === 'Cook' ? '#dcfce7' : '#ede9fe',
+                          color: entry.editorRole === 'Cook' ? '#16a34a' : '#7c3aed'
+                        }}>
+                          {entry.editorRole || 'Staff'}
+                        </span>
+                        <span style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a' }}>
+                          {entry.editedBy || 'Unknown'}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>
+                        {entry.editedAt ? new Date(entry.editedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'N/A'}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                      {entry.day} · {entry.meal} ({entry.itemsCount || 0} items)
+                    </div>
+                    <div style={{ fontSize: '11.5px', color: '#64748b', lineHeight: 1.4, wordBreak: 'break-word' }}>
+                      Dishes: {entry.dishesSummary || 'None'}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* ── HEADCOUNT AUDIT & VERIFICATION HISTORY MODAL ─────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
       {showAuditModal && (
         <div style={{
           position: 'fixed',
@@ -730,31 +2883,32 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
             background: '#ffffff',
             borderRadius: '24px',
             width: '100%',
-            maxWidth: '560px',
-            maxHeight: '85vh',
+            maxWidth: '620px',
+            maxHeight: '88vh',
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
             overflow: 'hidden'
           }}>
+            {/* Modal Header */}
             <div style={{
-              padding: '16px 18px',
+              padding: '18px 20px',
               borderBottom: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               background: '#ffffff'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ede9fe', color: '#6d28d9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>fact_check</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#ecfdf5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '24px' }}>fact_check</span>
                 </div>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 900, color: '#0f172a' }}>
-                    Audit Log: {mealTab.toUpperCase()}
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: '#0f172a' }}>
+                    Meal Audit Log: {mealTab.toUpperCase()}
                   </h3>
-                  <p style={{ margin: '1px 0 0', fontSize: '11px', color: '#64748b' }}>
-                    {selectedDate} · Verification Source &amp; History
+                  <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b' }}>
+                    {selectedDate} · Verification trail (Counter QR, Delivery QR, Cook &amp; Staff)
                   </p>
                 </div>
               </div>
@@ -766,65 +2920,68 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
               </button>
             </div>
 
-            {/* Verification Breakdown */}
-            <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
-                <div style={{ background: '#fff', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px', textAlign: 'center' }}>
-                  <p style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#16a34a' }}>{counts.eaten}</p>
-                  <p style={{ margin: 0, fontSize: 9, fontWeight: 800, color: '#64748b' }}>EATEN</p>
+            {/* Verification Stats Summary */}
+            <div style={{ padding: '14px 20px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                <div style={{ background: '#ffffff', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#16a34a' }}>{statsCount.eaten}</p>
+                  <p style={{ margin: '2px 0 0', fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Total Eaten</p>
                 </div>
-                <div style={{ background: '#fff', border: '1px solid #a7f3d0', borderRadius: 8, padding: '6px', textAlign: 'center' }}>
-                  <p style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#047857' }}>
-                    {students.filter(s => s.audit?.confirmedVia === 'counter_qr').length}
+                <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#047857' }}>
+                    {students.filter(s => s[auditKey]?.confirmedVia === 'counter_qr').length}
                   </p>
-                  <p style={{ margin: 0, fontSize: 9, fontWeight: 800, color: '#64748b' }}>MESS QR</p>
+                  <p style={{ margin: '2px 0 0', fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Mess QR</p>
                 </div>
-                <div style={{ background: '#fff', border: '1px solid #ddd6fe', borderRadius: 8, padding: '6px', textAlign: 'center' }}>
-                  <p style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#7c3aed' }}>
-                    {students.filter(s => s.audit?.confirmedVia === 'delivery_qr' || s.audit?.confirmedVia === 'delivery_boy').length}
+                <div style={{ background: '#ffffff', border: '1px solid #ddd6fe', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#7c3aed' }}>
+                    {students.filter(s => s[auditKey]?.confirmedVia === 'delivery_qr' || s[auditKey]?.confirmedVia === 'delivery_boy').length}
                   </p>
-                  <p style={{ margin: 0, fontSize: 9, fontWeight: 800, color: '#64748b' }}>DELIVERY</p>
+                  <p style={{ margin: '2px 0 0', fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Delivery Scans</p>
                 </div>
-                <div style={{ background: '#fff', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px', textAlign: 'center' }}>
-                  <p style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#ea580c' }}>
-                    {students.filter(s => s.audit?.confirmedVia && s.audit?.confirmedVia.startsWith('manual_')).length}
+                <div style={{ background: '#ffffff', border: '1px solid #fed7aa', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: '18px', fontWeight: 900, color: '#ea580c' }}>
+                    {students.filter(s => s[auditKey]?.confirmedVia && s[auditKey]?.confirmedVia.startsWith('manual_')).length}
                   </p>
-                  <p style={{ margin: 0, fontSize: 9, fontWeight: 800, color: '#64748b' }}>MANUAL</p>
+                  <p style={{ margin: '2px 0 0', fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Manual Staff</p>
                 </div>
               </div>
             </div>
 
-            {/* Audit Search */}
-            <div style={{ padding: '10px 16px 0' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f1f5f9', borderRadius: 8, padding: '6px 10px' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#94a3b8' }}>search</span>
+            {/* Search within Audit */}
+            <div style={{ padding: '12px 20px 0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f1f5f9', borderRadius: '10px', padding: '6px 12px', border: '1px solid #e2e8f0' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#94a3b8' }}>search</span>
                 <input
                   type="text"
-                  placeholder="Filter student in audit..."
+                  placeholder="Filter student in audit log..."
                   value={auditSearchQuery}
                   onChange={e => setAuditSearchQuery(e.target.value)}
-                  style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: 12, fontWeight: 600, width: '100%' }}
+                  style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '12px', fontWeight: 600, width: '100%' }}
                 />
               </div>
             </div>
 
-            {/* Student Audit Rows */}
-            <div style={{ padding: '12px 16px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {/* Audit Log Entries List */}
+            <div style={{ padding: '14px 20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {(() => {
                 const list = students.filter(s => {
                   if (!auditSearchQuery.trim()) return true;
                   const q = auditSearchQuery.toLowerCase();
-                  return (s.name || '').toLowerCase().includes(q) || String(s.roomNo || '').toLowerCase().includes(q);
+                  return (s.name || '').toLowerCase().includes(q) || String(s.room || '').toLowerCase().includes(q);
                 });
 
                 if (list.length === 0) {
-                  return <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, margin: 16 }}>No students found</p>;
+                  return (
+                    <div style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>
+                      <p style={{ fontSize: '13px', margin: 0 }}>No matching audit logs found.</p>
+                    </div>
+                  );
                 }
 
                 return list.map(s => {
-                  const isEaten = s.isEaten;
-                  const audit = s.audit;
-                  const deliv = s.deliv;
+                  const audit = s[auditKey];
+                  const currentStatus = s[mealKey];
 
                   return (
                     <div
@@ -832,67 +2989,58 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
                       style={{
                         background: '#ffffff',
                         border: '1px solid #e2e8f0',
-                        borderRadius: 10,
-                        padding: '8px 10px',
+                        borderRadius: '12px',
+                        padding: '10px 14px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        gap: 8
+                        gap: '10px'
                       }}
                     >
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 13, fontWeight: 800, color: '#0f172a' }}>{s.name}</span>
-                          <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>R-{s.roomNo}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: 800, color: '#0f172a' }}>{s.name}</span>
+                          <span style={{ fontSize: '11px', color: '#64748b' }}>Rm {s.room} · Bed {s.bed}</span>
                         </div>
-                        <div style={{ marginTop: 2, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                          {isEaten && audit ? (
-                            <span style={{
-                              fontSize: 9.5,
-                              fontWeight: 700,
-                              padding: '2px 6px',
-                              borderRadius: 4,
-                              background: audit.confirmedVia === 'counter_qr' ? '#ecfdf5' : audit.confirmedVia === 'delivery_qr' ? '#f5f3ff' : audit.confirmedVia === 'delivery_boy' ? '#eff6ff' : '#fffbeb',
-                              color: audit.confirmedVia === 'counter_qr' ? '#047857' : audit.confirmedVia === 'delivery_qr' ? '#6d28d9' : audit.confirmedVia === 'delivery_boy' ? '#0284c7' : '#b45309',
-                              border: '1px solid rgba(0,0,0,0.06)'
-                            }}>
-                              {audit.confirmedVia === 'counter_qr' ? '🤳 Counter QR Scanned' : audit.confirmedVia === 'delivery_qr' ? `🛵 Delivery QR (${audit.markedByName || 'Staff'})` : audit.confirmedVia === 'delivery_boy' ? `📦 Delivered: ${audit.markedByName || 'Staff'}` : `✍️ ${audit.markedByRole || 'Staff'}: ${audit.markedByName || 'Staff'}`}
-                              {audit.timestamp ? ` · ${new Date(audit.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
-                            </span>
-                          ) : isEaten ? (
-                            <span style={{ fontSize: 9.5, fontWeight: 700, background: '#dcfce7', color: '#166534', padding: '1px 5px', borderRadius: 4 }}>
-                              ✅ Eaten (Untracked)
-                            </span>
-                          ) : s.status === 'delivery' ? (
-                            <span style={{ fontSize: 9.5, fontWeight: 700, background: '#ede9fe', color: '#6d28d9', padding: '1px 5px', borderRadius: 4 }}>
-                              🛵 Tiffin Delivery {deliv ? `(${deliv.destination || deliv.destinationType})` : ''}
-                            </span>
-                          ) : s.status === 'pack' ? (
-                            <span style={{ fontSize: 9.5, fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '1px 5px', borderRadius: 4 }}>
-                              📦 Pack for Later
-                            </span>
-                          ) : s.status === 'onVacation' ? (
-                            <span style={{ fontSize: 9.5, fontWeight: 700, background: '#fee2e2', color: '#b91c1c', padding: '1px 5px', borderRadius: 4 }}>
-                              🏖️ On Food Leave
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: 9.5, fontWeight: 700, background: '#f1f5f9', color: '#64748b', padding: '1px 5px', borderRadius: 4 }}>
-                              {s.status === 'extra' ? '➕ Extra Plate' : s.status === 'notEaten' ? '❌ Not Eating' : '⏳ Requested'}
-                            </span>
-                          )}
-                        </div>
+                        {audit && audit.timestamp && (
+                          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                            Verified at {new Date(audit.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </div>
+                        )}
                       </div>
 
-                      <span style={{
-                        fontSize: 10,
-                        fontWeight: 800,
-                        padding: '3px 6px',
-                        borderRadius: 6,
-                        background: isEaten ? '#dcfce7' : '#f1f5f9',
-                        color: isEaten ? '#166534' : '#64748b'
-                      }}>
-                        {isEaten ? 'CONFIRMED' : 'PENDING'}
-                      </span>
+                      <div>
+                        {audit ? (
+                          <span style={{
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            padding: '3px 9px',
+                            borderRadius: '8px',
+                            background: audit.confirmedVia === 'counter_qr' ? '#ecfdf5' : audit.confirmedVia === 'delivery_qr' ? '#f5f3ff' : '#eff6ff',
+                            color: audit.confirmedVia === 'counter_qr' ? '#047857' : audit.confirmedVia === 'delivery_qr' ? '#6d28d9' : '#1d4ed8',
+                            border: `1px solid ${audit.confirmedVia === 'counter_qr' ? '#a7f3d0' : audit.confirmedVia === 'delivery_qr' ? '#ddd6fe' : '#bfdbfe'}`,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>
+                              {audit.confirmedVia === 'counter_qr' ? 'qr_code_scanner' : audit.confirmedVia === 'delivery_qr' ? 'two_wheeler' : 'verified'}
+                            </span>
+                            {audit.confirmedVia === 'counter_qr' ? 'Mess QR' : audit.confirmedVia === 'delivery_qr' ? 'Delivery QR' : `${audit.markedByRole || 'Staff'}: ${audit.markedByName || 'Manual'}`}
+                          </span>
+                        ) : (
+                          <span style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: '8px',
+                            background: currentStatus === 'notEaten' ? '#fee2e2' : '#f1f5f9',
+                            color: currentStatus === 'notEaten' ? '#991b1b' : '#64748b'
+                          }}>
+                            {currentStatus === 'notEaten' ? 'Not Eaten' : currentStatus === 'onVacation' ? 'On Leave' : 'Pending'}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   );
                 });
@@ -902,7 +3050,9 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
         </div>
       )}
 
-      {/* ── Mess Counter QR Modal ────────────────────────────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
+      {/* ── MESS COUNTER QR MODAL ────────────────────────────────────────── */}
+      {/* ─────────────────────────────────────────────────────────────────── */}
       {showMessQRModal && (
         <div style={{
           position: 'fixed',
@@ -923,8 +3073,7 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
             padding: '24px',
             boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
             textAlign: 'center',
-            position: 'relative',
-            animation: 'fadeIn 0.2s ease-out'
+            position: 'relative'
           }}>
             <button
               onClick={() => setShowMessQRModal(false)}
@@ -969,7 +3118,7 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
               {mealTab} QR Code
             </h3>
             <p style={{ margin: '0 0 16px', fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
-              {selectedDate} · Display this on counter for students
+              {selectedDate === getTodayStr() ? 'Today' : selectedDate} · Display this on counter for students
             </p>
 
             <div style={{
@@ -982,7 +3131,7 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
               marginBottom: '16px'
             }}>
               <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(`FEBEBO_MEAL|${adminId}|${mealTab}|${selectedDate}`)}`}
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(`FEBEBO_MEAL|${pgDocId}|${mealTab}|${selectedDate}`)}`}
                 alt="Mess Counter QR"
                 style={{ width: '220px', height: '220px', display: 'block', borderRadius: '12px' }}
               />
@@ -1021,6 +3170,7 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
           </div>
         </div>
       )}
+
     </div>
   );
 }

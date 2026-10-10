@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { collection, query, where, onSnapshot, doc, updateDoc, addDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
+const cyan = '#0891b2';
+const DEFAULT_IMG = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=600&h=400&fit=crop';
 const FACILITIES_LIST = [
   'AC', 'WiFi', 'Attached Washroom', 'Hot Water', 'Balcony', 'TV', 
   'Fridge', 'Study Table', 'Chair', 'Wardrobe', 'Bed', 'Mattress', 'Geyser'
@@ -37,11 +39,228 @@ const compressImage = (file, maxWidth = 800) => {
   });
 };
 
+function RoomDetailView({ room, tenants, onBack, onOpenChat }) {
+  const roomTenants = tenants.filter(t => String(t.roomNo) === String(room.roomNo) || String(t.room) === String(room.roomNo));
+  const primaryTenant = roomTenants.find(t => t.isPrimaryPayer || t.leaseType === 'entire_room') || roomTenants[0];
+  const isEntireRoomLease = room.leaseType === 'entire_room' || roomTenants.some(t => t.isPrimaryPayer || t.leaseType === 'entire_room');
+  const coResidents = primaryTenant?.coResidents || room.coResidents || [];
+  const foodIncluded = room.foodIncluded !== undefined ? room.foodIncluded : (primaryTenant?.foodIncluded !== false);
+  const foodPersons = room.includedFoodPersons || primaryTenant?.includedFoodPersons || (coResidents.length + 1);
+
+  return (
+    <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100%', background: '#f8fafc', fontFamily: "'Hanken Grotesk',sans-serif", paddingBottom: 40 }}>
+      {/* Header */}
+      <div style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 20 }}>
+        <button onClick={onBack} style={{ background: '#f1f5f9', border: 'none', borderRadius: 10, width: 36, height: 36, cursor: 'pointer', color: cyan, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back</span>
+        </button>
+        <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontWeight: 800, fontSize: 18, color: '#0f172a', margin: 0, flex: 1, textAlign: 'center' }}>
+          Room No. {room.roomNo}
+        </p>
+        <div style={{ width: 36 }} />
+      </div>
+
+      <div style={{ padding: 16 }}>
+        {/* Room Photo & Basic Info */}
+        <div style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 16, background: '#ffffff', border: '1px solid #e2e8f0', boxShadow: '0 4px 14px rgba(15,23,42,0.06)' }}>
+          <img
+            src={room.image || DEFAULT_IMG}
+            alt={room.name || `Room ${room.roomNo}`}
+            style={{ width: '100%', height: 190, objectFit: 'cover', display: 'block' }}
+            onError={e => { e.target.src = DEFAULT_IMG; }}
+          />
+          <div style={{ padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <p style={{ fontWeight: 800, fontSize: 16, color: '#0f172a', margin: 0 }}>Room {room.roomNo}</p>
+              <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0', fontWeight: 600 }}>{room.roomType || 'Standard Room'} · {room.seaterLabel || `${room.beds} Seater`}</p>
+              {isEntireRoomLease && (
+                <span style={{ display: 'inline-block', marginTop: 4, fontSize: 11, fontWeight: 800, background: '#ede9fe', color: '#6d28d9', padding: '2px 8px', borderRadius: 6 }}>
+                  🏢 Entire Flat / Single Payer
+                </span>
+              )}
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontSize: 12, fontWeight: 800, background: roomTenants.length > 0 ? '#dcfce7' : '#f1f5f9', color: roomTenants.length > 0 ? '#059669' : '#64748b', padding: '4px 12px', borderRadius: 20 }}>
+                {roomTenants.length > 0 ? 'Occupied' : 'Vacant'}
+              </span>
+              <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0', fontWeight: 600 }}>
+                {isEntireRoomLease ? `${coResidents.length + 1} Total Occupants` : `${room.beds || 1} beds · ${roomTenants.length} residents`}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Food Plan Badge */}
+        <div style={{ background: foodIncluded ? '#ecfdf5' : '#fffbeb', border: `1px solid ${foodIncluded ? '#a7f3d0' : '#fde68a'}`, borderRadius: 14, padding: '12px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: foodIncluded ? '#d1fae5' : '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 20, color: foodIncluded ? '#059669' : '#d97706' }}>
+                {foodIncluded ? 'restaurant' : 'no_meals'}
+              </span>
+            </div>
+            <div>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: foodIncluded ? '#065f46' : '#92400e' }}>
+                {foodIncluded ? `Food / Mess Included (${foodPersons} Person${foodPersons > 1 ? 's' : ''})` : 'Self Cooking / Mess Excluded'}
+              </p>
+              <p style={{ margin: 0, fontSize: 11, color: foodIncluded ? '#047857' : '#b45309' }}>
+                {foodIncluded ? 'Counted in kitchen daily meal preparation' : 'No food headcount counted for this room'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Residents List */}
+        <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: '0 0 12px' }}>
+          {isEntireRoomLease ? 'Primary Payer (Main Resident)' : `Residents (${roomTenants.length})`}
+        </p>
+        
+        {roomTenants.length === 0 ? (
+          <div style={{ background: '#ffffff', borderRadius: 16, border: '1px solid #e2e8f0', padding: '36px', textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 44, color: '#cbd5e1', display: 'block', marginBottom: 8 }}>person_off</span>
+            <p style={{ color: '#94a3b8', fontSize: 14, margin: 0, fontWeight: 600 }}>No residents in this room yet</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {roomTenants.map(user => (
+              <div
+                key={user.id || user.tenantId}
+                style={{
+                  background: '#ffffff',
+                  borderRadius: 14,
+                  border: user.isPrimaryPayer || isEntireRoomLease ? '1.5px solid #8b5cf6' : '1px solid #e2e8f0',
+                  padding: 12,
+                  display: 'flex',
+                  gap: 12,
+                  alignItems: 'center',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                }}
+              >
+                <img
+                  src={user.kyc?.profilePhoto || user.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'User')}&background=0891b2&color=fff&size=150`}
+                  alt={user.name}
+                  style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'cover', flexShrink: 0 }}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: '0 0 2px' }}>{user.name}</p>
+                    {(user.isPrimaryPayer || isEntireRoomLease) && (
+                      <span style={{ fontSize: 9.5, fontWeight: 800, background: '#7c3aed', color: 'white', padding: '2px 6px', borderRadius: 4 }}>PRIMARY PAYER</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 13, color: cyan }}>badge</span>
+                    <span style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>{user.studentId || user.id?.slice(0, 8) || 'No ID'} · Bed {user.bedNo || user.bed || 'A'}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 13, color: cyan }}>phone</span>
+                    <span style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>{user.phone || 'No Phone'}</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {user.phone && (
+                    <a
+                      href={`tel:${user.phone}`}
+                      style={{
+                        background: '#f0fdf4',
+                        border: '1px solid #bbf7d0',
+                        color: '#16a34a',
+                        borderRadius: 10,
+                        width: 36,
+                        height: 36,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        textDecoration: 'none'
+                      }}
+                      title={`Call ${user.name}`}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>call</span>
+                    </a>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (onOpenChat) onOpenChat(user);
+                      else window.location.href = `tel:${user.phone}`;
+                    }}
+                    style={{
+                      background: '#ecfeff',
+                      border: '1px solid #a5f3fc',
+                      color: cyan,
+                      borderRadius: 10,
+                      width: 36,
+                      height: 36,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer'
+                    }}
+                    title={`Chat with ${user.name}`}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>chat</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Co-Residents / Roommates Section */}
+        {isEntireRoomLease && (
+          <div style={{ marginTop: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: 0 }}>
+                Co-Residents / Roommates ({coResidents.length})
+              </p>
+              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Non-paying co-occupants</span>
+            </div>
+
+            {coResidents.length === 0 ? (
+              <div style={{ background: '#ffffff', border: '1.5px dashed #cbd5e1', borderRadius: 14, padding: '20px', textAlign: 'center' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#94a3b8', display: 'block', marginBottom: 6 }}>group_add</span>
+                <p style={{ color: '#64748b', fontSize: 13, margin: 0, fontWeight: 700 }}>No co-residents listed yet</p>
+                <p style={{ color: '#94a3b8', fontSize: 11, margin: '4px 0 0' }}>Primary resident can register roommates via student app.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {coResidents.map((cr, idx) => (
+                  <div key={idx} style={{ background: '#ffffff', borderRadius: 14, border: '1px solid #e2e8f0', padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ width: 42, height: 42, borderRadius: 10, background: '#f5f3ff', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 16 }}>
+                        {cr.name ? cr.name.charAt(0).toUpperCase() : 'R'}
+                      </div>
+                      <div>
+                        <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{cr.name}</p>
+                        <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                          {cr.relation || 'Roommate'}{cr.phone ? ` · ${cr.phone}` : ''}
+                        </p>
+                        {cr.aadhar && (
+                          <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>ID: {cr.aadhar}</p>
+                        )}
+                      </div>
+                    </div>
+                    {cr.phone && (
+                      <a href={`tel:${cr.phone}`} style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }} title={`Call ${cr.name}`}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>call</span>
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ManagerRoomsView({
   adminId,
   activePgId,
   assignedProperties = [],
   onBack,
+  onOpenChat,
   showToast
 }) {
   // Target PG State
@@ -49,53 +268,99 @@ export default function ManagerRoomsView({
     return activePgId || (assignedProperties[0]?.id) || 'primary';
   });
 
+  useEffect(() => {
+    if (activePgId) setSelectedPgId(activePgId);
+  }, [activePgId]);
+
   const selectedPgName = useMemo(() => {
     const found = assignedProperties.find(p => p.id === selectedPgId);
     return found ? found.name : 'Primary PG';
   }, [assignedProperties, selectedPgId]);
 
+  const [view, setView] = useState('listing'); // 'listing' | 'add'
+  const [allRoomsList, setAllRoomsList] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedFloor, setSelectedFloor] = useState('All');
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [selectedRoom, setSelectedRoom] = useState(null);
 
-  // ── ADD ROOM FORM STATE (FULL PARITY WITH ADMIN) ──
+  // ── ADD ROOM FORM STATE (EXACT PARITY WITH ADMIN MANAGEROOMS.JSX) ──
   const [targetPgForRoom, setTargetPgForRoom] = useState(selectedPgId);
-  const [newRoomNo, setNewRoomNo] = useState('');
-  const [newFloor, setNewFloor] = useState('Ground Floor');
-  const [newBedsCount, setNewBedsCount] = useState('2');
-  const [newRoomType, setNewRoomType] = useState('Non AC Room');
-  const [newLeaseType, setNewLeaseType] = useState('bed_sharing'); // 'bed_sharing' | 'entire_room'
-  const [newRoomRent, setNewRoomRent] = useState('');
-  const [newFoodIncluded, setNewFoodIncluded] = useState(true);
-  const [newIncludedFoodPersons, setNewIncludedFoodPersons] = useState(1);
-  const [selectedFacilities, setSelectedFacilities] = useState(['WiFi', 'Bed', 'Mattress']);
-  const [selectedInventory, setSelectedInventory] = useState(['Mattress', 'Chair', 'Table']);
+  const [roomNo, setRoomNo] = useState('');
+  const [seaterType, setSeaterType] = useState('');
+  const [roomRent, setRoomRent] = useState('');
+  const [roomType, setRoomType] = useState('Non AC Room');
+  const [leaseType, setLeaseType] = useState('bed_sharing'); // 'bed_sharing' | 'entire_room'
+  const [foodIncluded, setFoodIncluded] = useState(true);
+  const [includedFoodPersons, setIncludedFoodPersons] = useState(1);
   const [imagePreview, setImagePreview] = useState(null);
-  const fileInputRef = useRef(null);
+  const [showImageOptions, setShowImageOptions] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [pgStats, setPgStats] = useState({ totalSeats: 0, totalRooms: 0 });
+  const [pgRents, setPgRents] = useState([]);
 
-  // Sync target PG when modal opens
+  const cameraInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
+
+  // Fetch PG Stats and Rents for capacity & rent auto-fill (identical to Admin)
   useEffect(() => {
-    if (showAddModal) {
-      setTargetPgForRoom(selectedPgId);
-    }
-  }, [showAddModal, selectedPgId]);
+    if (!adminId) return;
+    const fetchPgData = async () => {
+      try {
+        const targetPgOwnerId = (!selectedPgId || selectedPgId === 'primary') ? adminId : selectedPgId;
+        let pgDoc = await getDoc(doc(db, 'pg_owners', targetPgOwnerId));
+        if (!pgDoc.exists()) {
+          pgDoc = await getDoc(doc(db, 'pg_owners', adminId));
+        }
+        if (pgDoc.exists()) {
+          const data = pgDoc.data();
+          const pd = data.propertyDetails || {};
+          if (data.branches && selectedPgId && selectedPgId !== 'primary' && selectedPgId !== adminId) {
+            const branch = data.branches.find(b => b.id === selectedPgId || b.pgId === selectedPgId);
+            if (branch) {
+              setPgStats({
+                totalSeats: parseInt(branch.totalSeats) || parseInt(pd.totalSeats) || 0,
+                totalRooms: parseInt(branch.totalRooms) || parseInt(pd.totalRooms) || 0
+              });
+              if (branch.rents) {
+                setPgRents(branch.rents);
+                return;
+              }
+            }
+          }
+          setPgStats({
+            totalSeats: parseInt(pd.totalSeats) || 0,
+            totalRooms: parseInt(pd.totalRooms) || 0
+          });
+          if (pd.rents) setPgRents(pd.rents);
+        }
+      } catch (err) {
+        console.error('Error fetching PG data:', err);
+      }
+    };
+    fetchPgData();
+  }, [adminId, selectedPgId]);
 
   // Real-time listener for rooms & tenants of the selected PG
   useEffect(() => {
     if (!adminId) return;
     setLoading(true);
 
+    const isMatchPg = (rPgId, pgTarget) => {
+      if (!pgTarget || pgTarget === 'primary') return !rPgId || rPgId === 'primary' || rPgId === adminId;
+      return rPgId === pgTarget;
+    };
+
     const qRooms = query(collection(db, 'rooms'), where('adminId', '==', adminId));
     const unsubRooms = onSnapshot(qRooms, (snap) => {
       const allR = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setAllRoomsList(allR);
+
       // Filter by selected PG
-      const filtered = allR.filter(r => {
-        if (!r.pgId || r.pgId === 'primary') return selectedPgId === 'primary';
-        return r.pgId === selectedPgId;
-      });
+      const filtered = allR.filter(r => isMatchPg(r.pgId, selectedPgId));
       filtered.sort((a, b) => (String(a.roomNo || '')).localeCompare(String(b.roomNo || ''), undefined, { numeric: true, sensitivity: 'base' }));
       setRooms(filtered);
       setLoading(false);
@@ -109,8 +374,7 @@ export default function ManagerRoomsView({
       const allT = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const activeT = allT.filter(t => {
         if (t.status === 'Moved Out' || t.status === 'Exited') return false;
-        if (!t.pgId || t.pgId === 'primary') return selectedPgId === 'primary';
-        return t.pgId === selectedPgId;
+        return isMatchPg(t.pgId, selectedPgId);
       });
       setTenants(activeT);
     }, (err) => {
@@ -124,113 +388,118 @@ export default function ManagerRoomsView({
   }, [adminId, selectedPgId]);
 
   // Aggregate stats
-  const totalRooms = rooms.length;
-  const totalBeds = useMemo(() => {
-    return rooms.reduce((acc, r) => acc + (parseInt(r.beds || r.capacity || 1) || 1), 0);
-  }, [rooms]);
+  const totalBeds = useMemo(() => rooms.reduce((acc, r) => acc + (parseInt(r.beds) || 1), 0), [rooms]);
+  const occupiedBeds = useMemo(() => tenants.length, [tenants]);
+  const vacantBeds = Math.max(0, totalBeds - occupiedBeds);
 
-  const occupiedBedsCount = tenants.length;
-  const vacantBedsCount = Math.max(0, totalBeds - occupiedBedsCount);
-
-  // Distinct floors
-  const floors = useMemo(() => {
-    const set = new Set();
-    rooms.forEach(r => {
-      if (r.floor) set.add(r.floor);
+  // Filtered rooms by floor and search
+  const filteredRooms = useMemo(() => {
+    return rooms.filter(r => {
+      if (selectedFloor !== 'All' && r.floor !== selectedFloor) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const rNo = String(r.roomNo || '').toLowerCase();
+        const rType = String(r.roomType || '').toLowerCase();
+        return rNo.includes(q) || rType.includes(q);
+      }
+      return true;
     });
+  }, [rooms, selectedFloor, search]);
+
+  const uniqueFloors = useMemo(() => {
+    const set = new Set();
+    rooms.forEach(r => { if (r.floor) set.add(r.floor); });
     return ['All', ...Array.from(set)];
   }, [rooms]);
 
-  // Filtered rooms by floor
-  const filteredRooms = useMemo(() => {
-    if (selectedFloor === 'All') return rooms;
-    return rooms.filter(r => r.floor === selectedFloor);
-  }, [rooms, selectedFloor]);
-
-  // Image upload
-  const handleImageChange = async (e) => {
+  // Photo change handler
+  const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const base64 = await compressImage(file);
-    if (base64) {
+    if (file) {
+      const base64 = await compressImage(file);
       setImagePreview(base64);
     }
   };
 
-  const toggleFacility = (f) => {
-    setSelectedFacilities(prev => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]);
-  };
-
-  const toggleInventory = (i) => {
-    setSelectedInventory(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]);
-  };
-
-  // Handle Add Room (Full parity with Admin ManageRooms.jsx)
+  // Handle Add Room (Identical to Admin ManageRooms.jsx)
   const handleAddRoom = async (e) => {
     e.preventDefault();
-    const cleanRoomNo = newRoomNo.trim();
-    if (!cleanRoomNo) {
-      showToast?.('Please enter a room number', 'warning');
+    const cleanRoomNo = String(roomNo).trim();
+    if (!cleanRoomNo) return;
+    setErrorMsg('');
+
+    const targetPg = targetPgForRoom || selectedPgId || 'primary';
+    const isMatchTargetPg = (rPgId) => {
+      if (!targetPg || targetPg === 'primary') return !rPgId || rPgId === 'primary' || rPgId === adminId;
+      return rPgId === targetPg;
+    };
+
+    const targetPgName = assignedProperties.find(p => p.id === targetPg)?.name || selectedPgName;
+    if (allRoomsList.filter(r => isMatchTargetPg(r.pgId)).some(r => String(r.roomNo).trim() === cleanRoomNo)) {
+      setErrorMsg(`Room No. ${cleanRoomNo} is already registered in ${targetPgName}!`);
       return;
     }
 
-    // Check duplicate room number in this PG
-    if (rooms.some(r => String(r.roomNo).trim() === cleanRoomNo)) {
-      showToast?.(`Room No. ${cleanRoomNo} is already registered in ${selectedPgName}!`, 'error');
-      return;
+    if (pgStats.totalSeats > 0) {
+      const existingSeats = allRoomsList.filter(r => isMatchTargetPg(r.pgId)).reduce((acc, r) => acc + (parseInt(r.beds || r.roomBeds) || 0), 0);
+      const addingSeats = parseInt(seaterType) || 1;
+      if (existingSeats + addingSeats > pgStats.totalSeats) {
+        setErrorMsg(`Cannot add room! Total seats will exceed registered capacity (${pgStats.totalSeats}). Currently configured seats: ${existingSeats}.`);
+        return;
+      }
     }
 
-    setActionLoading(true);
+    setIsSaving(true);
     try {
-      const beds = parseInt(newBedsCount) || 1;
+      const beds = parseInt(seaterType) || 1;
       const seaterLabel = `${beds} Seater`;
-      const price = Number(newRoomRent) || 0;
-      const includedFoodPersons = newFoodIncluded ? (parseInt(newIncludedFoodPersons) || beds || 1) : 0;
+      const price = Number(roomRent) || 0;
+      const incFood = foodIncluded ? (parseInt(includedFoodPersons) || beds || 1) : 0;
 
       await addDoc(collection(db, 'rooms'), {
         adminId,
-        pgId: targetPgForRoom,
+        pgId: targetPg,
         name: cleanRoomNo,
         roomNo: cleanRoomNo,
-        floor: newFloor,
         beds: beds,
         seaterLabel: seaterLabel,
         price: price,
-        roomType: newRoomType,
-        leaseType: newLeaseType,
-        foodIncluded: newFoodIncluded,
-        includedFoodPersons: includedFoodPersons,
-        facilities: selectedFacilities,
-        inventory: selectedInventory,
+        roomType: roomType,
+        leaseType: leaseType, // 'bed_sharing' | 'entire_room'
+        foodIncluded: foodIncluded,
+        includedFoodPersons: incFood,
+        facilities: [],
+        inventory: [],
         image: imagePreview || null,
         status: 'Active',
         createdAt: new Date().toISOString()
       });
 
-      showToast?.(`Room ${cleanRoomNo} added successfully to ${selectedPgName}!`, 'success');
-      setShowAddModal(false);
-
-      // Reset form
-      setNewRoomNo('');
-      setNewRoomRent('');
+      showToast?.(`Room ${cleanRoomNo} added successfully to ${targetPgName}! ✅`, 'success');
+      setView('listing');
       setImagePreview(null);
-      setNewBedsCount('2');
-      setNewRoomType('Non AC Room');
-      setNewLeaseType('bed_sharing');
-      setNewFoodIncluded(true);
-      setNewIncludedFoodPersons(1);
-      setSelectedFacilities(['WiFi', 'Bed', 'Mattress']);
-      setSelectedInventory(['Mattress', 'Chair', 'Table']);
+      setRoomNo('');
+      setSeaterType('');
+      setRoomRent('');
+      setRoomType('Non AC Room');
+      setLeaseType('bed_sharing');
+      setFoodIncluded(true);
+      setIncludedFoodPersons(1);
+
+      if (selectedPgId !== targetPg) {
+        setSelectedPgId(targetPg);
+      }
     } catch (err) {
       console.error('Error adding room:', err);
-      showToast?.(`Failed to create room: ${err.message}`, 'error');
+      setErrorMsg('Failed to add room: ' + err.message);
     } finally {
-      setActionLoading(false);
+      setIsSaving(false);
     }
   };
 
-  // Handle Edit Room Status
-  const handleToggleRoomStatus = async (room) => {
+  // Toggle Room Maintenance status
+  const handleToggleMaintenance = async (room, e) => {
+    e.stopPropagation();
     const nextStatus = room.status === 'Maintenance' ? 'Active' : 'Maintenance';
     try {
       await updateDoc(doc(db, 'rooms', room.id), { status: nextStatus });
@@ -241,10 +510,323 @@ export default function ManagerRoomsView({
     }
   };
 
+  // ── ADD ROOM VIEW (100% IDENTICAL DETAILING TO ADMIN'S MANAGEROOMS.JSX) ──
+  if (view === 'add') {
+    return (
+      <div style={{ minHeight: '100%', background: '#f8fafc', display: 'flex', flexDirection: 'column', fontFamily: "'Hanken Grotesk', sans-serif", paddingBottom: 80 }}>
+        {/* Top Header */}
+        <div style={{ background: 'white', borderBottom: '1px solid #e2e8f0', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 10, paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))' }}>
+          <button
+            onClick={() => { setView('listing'); setImagePreview(null); setErrorMsg(''); }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: cyan }}
+          >
+            <span className="material-symbols-outlined">arrow_back</span>
+          </button>
+          <p style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 700, fontSize: 18, color: '#0f172a', margin: 0, flex: 1, textAlign: 'center' }}>Add Room</p>
+          <div style={{ width: 32 }} />
+        </div>
+
+        <div style={{ padding: 16, maxWidth: 500, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+          {errorMsg && (
+            <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', color: '#e11d48', padding: '12px 16px', borderRadius: 12, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, fontWeight: 600 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>error</span>
+              {errorMsg}
+            </div>
+          )}
+
+          <form onSubmit={handleAddRoom}>
+            {/* Target PG Selector (for managers managing multiple branches) */}
+            {assignedProperties && assignedProperties.length > 1 && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Target PG Property <span style={{ color: '#e11d48' }}>*</span>
+                </label>
+                <select
+                  value={targetPgForRoom}
+                  onChange={e => setTargetPgForRoom(e.target.value)}
+                  style={{ width: '100%', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 15, fontFamily: 'inherit', background: 'white', outline: 'none', boxSizing: 'border-box' }}
+                >
+                  {assignedProperties.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Room Number */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Room Number <span style={{ color: '#e11d48' }}>*</span>
+              </label>
+              <input
+                value={roomNo}
+                onChange={e => setRoomNo(e.target.value)}
+                required
+                placeholder="e.g. 101"
+                style={{ width: '100%', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 15, fontFamily: 'inherit', background: 'white', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Occupancy / Lease Model (Single Payer vs Individual Bed) */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Occupancy / Lease Model <span style={{ color: '#e11d48' }}>*</span>
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setLeaseType('bed_sharing')}
+                  style={{
+                    padding: '12px 10px',
+                    borderRadius: 12,
+                    border: `1.5px solid ${leaseType === 'bed_sharing' ? cyan : '#e2e8f0'}`,
+                    background: leaseType === 'bed_sharing' ? '#ecfeff' : 'white',
+                    color: leaseType === 'bed_sharing' ? '#0e7490' : '#475569',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 4
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 20 }}>bed</span>
+                  <span>Bed Sharing</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLeaseType('entire_room')}
+                  style={{
+                    padding: '12px 10px',
+                    borderRadius: 12,
+                    border: `1.5px solid ${leaseType === 'entire_room' ? '#7c3aed' : '#e2e8f0'}`,
+                    background: leaseType === 'entire_room' ? '#f5f3ff' : 'white',
+                    color: leaseType === 'entire_room' ? '#6d28d9' : '#475569',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 4
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 20 }}>home_work</span>
+                  <span>Entire Flat (Single Payer)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Capacity (Max Beds / Persons) */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Capacity (Max Beds / Persons) <span style={{ color: '#e11d48' }}>*</span>
+              </label>
+              <select
+                value={seaterType}
+                onChange={e => {
+                  const val = e.target.value;
+                  setSeaterType(val);
+                  setIncludedFoodPersons(parseInt(val) || 1);
+                  const selectedRentObj = pgRents.find(r => String(r.seater) === String(val));
+                  if (selectedRentObj) {
+                    setRoomRent(selectedRentObj.rent);
+                  } else {
+                    setRoomRent('');
+                  }
+                }}
+                required
+                style={{ width: '100%', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 15, fontFamily: 'inherit', background: 'white', outline: 'none', boxSizing: 'border-box' }}
+              >
+                <option value="">Select Seater Type</option>
+                {pgRents && pgRents.length > 0 ? (
+                  pgRents.map((r, i) => (
+                    <option key={i} value={r.seater}>{r.seater} Seater / Occupants</option>
+                  ))
+                ) : (
+                  [1, 2, 3, 4, 5, 6].map(num => (
+                    <option key={num} value={num}>{num} Seater / Occupants</option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            {/* Price */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Price <span style={{ color: '#e11d48' }}>*</span>
+              </label>
+              <input
+                type="number"
+                value={roomRent}
+                onChange={e => setRoomRent(e.target.value)}
+                placeholder="Rent amount per month"
+                style={{ width: '100%', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 15, fontFamily: 'inherit', background: 'white', color: '#0f172a', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            {/* Room Type */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Room Type (e.g. AC / Non-AC) <span style={{ color: '#e11d48' }}>*</span>
+              </label>
+              <select
+                value={roomType}
+                onChange={e => setRoomType(e.target.value)}
+                required
+                style={{ width: '100%', padding: '12px 14px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 15, fontFamily: 'inherit', background: 'white', outline: 'none', boxSizing: 'border-box' }}
+              >
+                <option value="Non AC Room">Non AC Room</option>
+                <option value="AC Room">AC Room</option>
+                <option value="Cooler Room">Cooler Room</option>
+                <option value="Standard Room">Standard Room</option>
+              </select>
+            </div>
+
+            {/* Mess / Food Facility */}
+            <div style={{ marginBottom: 16, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#0f172a' }}>Mess / Food Facility</p>
+                  <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Include meal plan in room rent</p>
+                </div>
+                <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={foodIncluded} onChange={e => setFoodIncluded(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ position: 'absolute', inset: 0, background: foodIncluded ? '#059669' : '#cbd5e1', borderRadius: 24, transition: '0.2s' }}>
+                    <span style={{ position: 'absolute', height: 18, width: 18, left: foodIncluded ? 22 : 3, bottom: 3, background: 'white', borderRadius: '50%', transition: '0.2s' }} />
+                  </span>
+                </label>
+              </div>
+
+              {foodIncluded && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Included Food Eaters (Headcount count)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={includedFoodPersons}
+                    onChange={e => setIncludedFoodPersons(Math.max(1, parseInt(e.target.value) || 1))}
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 14, background: 'white', boxSizing: 'border-box' }}
+                  />
+                  <p style={{ margin: '4px 0 0', fontSize: 11, color: '#059669' }}>✓ Kitchen mess headcount will automatically include {includedFoodPersons} meal portion(s).</p>
+                </div>
+              )}
+            </div>
+
+            {/* Room Image Upload */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Room Image</label>
+              <div
+                onClick={() => setShowImageOptions(true)}
+                style={{ width: '100%', height: 160, border: '2px dashed #cbd5e1', borderRadius: 16, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: '#f8fafc', overflow: 'hidden' }}
+              >
+                {imagePreview ? (
+                  <img src={imagePreview} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <>
+                    <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                      <span className="material-symbols-outlined" style={{ color: cyan, fontSize: 24 }}>add_a_photo</span>
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: '#475569' }}>Tap to upload image</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Save Room Submit */}
+            <button
+              type="submit"
+              disabled={isSaving}
+              style={{ width: '100%', marginTop: 24, padding: '14px 0', background: cyan, color: 'white', border: 'none', borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              {isSaving ? 'Saving...' : 'Save Room'}
+            </button>
+          </form>
+        </div>
+
+        {/* Action Sheet for Image Selection */}
+        {showImageOptions && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+            <div onClick={() => setShowImageOptions(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
+            <div style={{ position: 'relative', background: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: '24px 20px', paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+              <p style={{ fontWeight: 700, fontSize: 18, color: '#0f172a', margin: '0 0 20px' }}>Upload Room Image</p>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImageOptions(false);
+                  cameraInputRef.current?.click();
+                }}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 16, marginBottom: 12, cursor: 'pointer', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              >
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span className="material-symbols-outlined" style={{ color: cyan }}>photo_camera</span>
+                </div>
+                <span style={{ fontSize: 16, fontWeight: 600, color: '#334155' }}>Take a Photo</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowImageOptions(false);
+                  galleryInputRef.current?.click();
+                }}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 16, marginBottom: 16, cursor: 'pointer', fontFamily: 'inherit', boxSizing: 'border-box' }}
+              >
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <span className="material-symbols-outlined" style={{ color: '#16a34a' }}>photo_library</span>
+                </div>
+                <span style={{ fontSize: 16, fontWeight: 600, color: '#334155' }}>Choose from Folder</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowImageOptions(false)}
+                style={{ width: '100%', padding: '16px', background: 'white', border: '1px solid #e2e8f0', color: '#64748b', borderRadius: 16, fontWeight: 700, fontSize: 16, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Hidden Camera & Gallery Inputs */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handlePhotoUpload}
+          style={{ display: 'none' }}
+        />
+        <input
+          ref={galleryInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handlePhotoUpload}
+          style={{ display: 'none' }}
+        />
+      </div>
+    );
+  }
+
+  // If a room is selected, render the dedicated Room Detail View
+  if (selectedRoom) {
+    return (
+      <RoomDetailView
+        room={selectedRoom}
+        tenants={tenants}
+        onBack={() => setSelectedRoom(null)}
+        onOpenChat={onOpenChat}
+      />
+    );
+  }
+
   return (
-    <div style={{ minHeight: '100%', background: '#ffffff', display: 'flex', flexDirection: 'column', fontFamily: "'Hanken Grotesk', sans-serif", paddingBottom: 'calc(32px + env(safe-area-inset-bottom, 0px))' }}>
+    <div style={{ minHeight: '100%', background: '#f8fafc', display: 'flex', flexDirection: 'column', fontFamily: "'Hanken Grotesk', sans-serif", paddingBottom: 'calc(32px + env(safe-area-inset-bottom, 0px))' }}>
       
-      {/* ── HEADER (APPLE BRIGHT) ── */}
+      {/* ── HEADER ── */}
       <div style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '16px 16px', position: 'sticky', top: 0, zIndex: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -265,8 +847,7 @@ export default function ManagerRoomsView({
               <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0f172a' }}>arrow_back</span>
             </button>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Manage Rooms & Beds</h2>
-              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Capacity & Bed Allotment · {selectedPgName}</p>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Rooms</h2>
             </div>
           </div>
 
@@ -300,14 +881,15 @@ export default function ManagerRoomsView({
               </div>
             )}
 
+            {/* + Add Room Button */}
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => { setView('add'); setErrorMsg(''); setImagePreview(null); setTargetPgForRoom(selectedPgId); }}
               style={{
-                background: '#0891b2',
+                background: cyan,
                 color: '#fff',
                 border: 'none',
                 borderRadius: 10,
-                padding: '8px 12px',
+                padding: '8px 14px',
                 fontSize: 12,
                 fontWeight: 800,
                 cursor: 'pointer',
@@ -323,126 +905,190 @@ export default function ManagerRoomsView({
           </div>
         </div>
 
-        {/* ── CAPACITY STATS (APPLE CLEAN CARDS) ── */}
+        {/* ── KPI METRICS CARDS ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-          {[
-            { l: 'Total Rooms', v: totalRooms, c: '#0f172a', bg: '#f8fafc' },
-            { l: 'Total Beds', v: totalBeds, c: '#0284c7', bg: '#e0f2fe' },
-            { l: 'Occupied', v: occupiedBedsCount, c: '#16a34a', bg: '#dcfce7' },
-            { l: 'Vacant', v: vacantBedsCount, c: '#d97706', bg: '#fef3c7' }
-          ].map(k => (
-            <div key={k.l} style={{ background: k.bg, borderRadius: 12, padding: '8px 6px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
-              <p style={{ margin: 0, fontSize: 18, fontWeight: 900, color: k.c }}>{k.v}</p>
-              <p style={{ margin: '2px 0 0', fontSize: 10, fontWeight: 800, color: k.c, textTransform: 'uppercase', opacity: 0.85 }}>{k.l}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Floor Filter Tabs */}
-        {floors.length > 2 && (
-          <div style={{ display: 'flex', gap: 6, marginTop: 12, overflowX: 'auto', paddingBottom: 2 }}>
-            {floors.map(f => (
-              <button
-                key={f}
-                onClick={() => setSelectedFloor(f)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background: selectedFloor === f ? '#0891b2' : '#f1f5f9',
-                  color: selectedFloor === f ? '#fff' : '#475569',
-                  fontSize: 12,
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                {f}
-              </button>
-            ))}
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 8px', textAlign: 'center' }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Rooms</span>
+            <p style={{ margin: '2px 0 0', fontSize: 16, fontWeight: 900, color: '#0f172a' }}>{rooms.length}</p>
           </div>
-        )}
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 8px', textAlign: 'center' }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Total Beds</span>
+            <p style={{ margin: '2px 0 0', fontSize: 16, fontWeight: 900, color: '#0891b2' }}>{totalBeds}</p>
+          </div>
+          <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 12, padding: '10px 8px', textAlign: 'center' }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: '#047857', textTransform: 'uppercase' }}>Occupied</span>
+            <p style={{ margin: '2px 0 0', fontSize: 16, fontWeight: 900, color: '#059669' }}>{occupiedBeds}</p>
+          </div>
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, padding: '10px 8px', textAlign: 'center' }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: '#b45309', textTransform: 'uppercase' }}>Vacant</span>
+            <p style={{ margin: '2px 0 0', fontSize: 16, fontWeight: 900, color: '#d97706' }}>{vacantBeds}</p>
+          </div>
+        </div>
       </div>
 
-      {/* ── ROOMS LIST ── */}
-      <div style={{ padding: '16px 14px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* ── FILTERS & SEARCH ── */}
+      <div style={{ padding: '12px 16px', background: '#ffffff', borderBottom: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <input
+              type="text"
+              placeholder="Search by room no. or type..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '9px 12px 9px 34px',
+                borderRadius: 10,
+                border: '1px solid #cbd5e1',
+                fontSize: 13,
+                outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+            <span className="material-symbols-outlined" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 18, color: '#94a3b8' }}>
+              search
+            </span>
+          </div>
+        </div>
+
+        {/* Floor Pills */}
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+          {uniqueFloors.map(floor => (
+            <button
+              key={floor}
+              onClick={() => setSelectedFloor(floor)}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 20,
+                border: `1.5px solid ${selectedFloor === floor ? '#0891b2' : '#e2e8f0'}`,
+                background: selectedFloor === floor ? '#ecfeff' : '#ffffff',
+                color: selectedFloor === floor ? '#0891b2' : '#64748b',
+                fontSize: 11.5,
+                fontWeight: 800,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {floor}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── ROOMS LIST CARDS ── */}
+      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
         {loading ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
-            <div style={{ width: 32, height: 32, border: '3px solid #e2e8f0', borderTop: '3px solid #0891b2', borderRadius: '50%', margin: '0 auto 12px', animation: 'spin 1s linear infinite' }} />
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 36, animation: 'spin 1s infinite' }}>progress_activity</span>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>Loading Rooms...</p>
           </div>
         ) : filteredRooms.length === 0 ? (
-          <div style={{ background: '#ffffff', border: '1px dashed #cbd5e1', borderRadius: 16, padding: '36px 20px', textAlign: 'center' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 40, color: '#cbd5e1', marginBottom: 8 }}>meeting_room</span>
-            <p style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#64748b' }}>No rooms configured for {selectedPgName}</p>
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#94a3b8' }}>Tap "Add Room" above to set up rooms and bed capacity</p>
+          <div style={{ textAlign: 'center', padding: '48px 20px', background: '#ffffff', borderRadius: 16, border: '1px solid #e2e8f0' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 44, color: '#cbd5e1' }}>hotel</span>
+            <p style={{ margin: '8px 0 2px', fontSize: 15, fontWeight: 900, color: '#0f172a' }}>No Rooms Found</p>
+            <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>No rooms registered for {selectedPgName} matching this filter.</p>
+            <button
+              onClick={() => { setView('add'); setErrorMsg(''); setImagePreview(null); setTargetPgForRoom(selectedPgId); }}
+              style={{
+                marginTop: 14,
+                background: cyan,
+                color: '#fff',
+                border: 'none',
+                borderRadius: 10,
+                padding: '9px 18px',
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: 'pointer'
+              }}
+            >
+              + Add Room Now
+            </button>
           </div>
         ) : (
           filteredRooms.map(room => {
-            const bedCount = parseInt(room.beds || room.capacity || 1) || 1;
-            const roomTenants = tenants.filter(t => (String(t.roomNo) === String(room.roomNo) || String(t.room) === String(room.roomNo)));
-            const isMaintenance = room.status === 'Maintenance';
+            const bedCount = parseInt(room.beds) || 1;
+            const roomTenants = tenants.filter(t => String(t.roomNo) === String(room.roomNo) || String(t.room) === String(room.roomNo));
             const occupiedCount = roomTenants.length;
             const isFull = occupiedCount >= bedCount;
-            const isEntireRoom = room.leaseType === 'entire_room';
+            const isMaintenance = room.status === 'Maintenance';
 
             return (
               <div
                 key={room.id}
+                onClick={() => setSelectedRoom(room)}
                 style={{
                   background: '#ffffff',
-                  border: `1.5px solid ${isMaintenance ? '#fde68a' : isFull ? '#e2e8f0' : '#bbf7d0'}`,
-                  borderRadius: 18,
-                  padding: 14,
+                  borderRadius: 16,
+                  border: '1px solid #e2e8f0',
+                  padding: '16px',
                   boxShadow: '0 2px 8px rgba(15,23,42,0.04)',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 12
+                  gap: 12,
+                  cursor: 'pointer',
+                  transition: 'transform 0.15s ease, box-shadow 0.15s ease'
                 }}
               >
-                {/* Header of Room Card */}
+                {/* Top: Room Number & Rent */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    {room.image ? (
-                      <img src={room.image} alt={room.roomNo} style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'cover' }} />
-                    ) : (
-                      <div style={{ width: 56, height: 56, borderRadius: 12, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 26, color: '#94a3b8' }}>door_front</span>
-                      </div>
-                    )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 12, overflow: 'hidden', flexShrink: 0, background: '#f1f5f9' }}>
+                      <img
+                        src={room.image || DEFAULT_IMG}
+                        alt={room.roomNo}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        onError={e => { e.target.src = DEFAULT_IMG; }}
+                      />
+                    </div>
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#0f172a' }}>Room {room.roomNo}</h3>
-                        {room.floor && (
-                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: '#f1f5f9', color: '#475569' }}>
-                            {room.floor}
-                          </span>
-                        )}
-                        {room.price ? (
-                          <span style={{ fontSize: 11, fontWeight: 800, color: '#059669', background: '#dcfce7', padding: '2px 6px', borderRadius: 6 }}>
-                            ₹{room.price}/mo
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                        <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>
-                          {room.seaterLabel || `${bedCount} Seater`} · {room.roomType || 'Standard'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#0f172a' }}>
+                          Room {room.roomNo}
+                        </h3>
+                        <span style={{ fontSize: 10, fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: 4 }}>
+                          {room.floor || 'Ground'}
                         </span>
-                        {isEntireRoom && (
-                          <span style={{ fontSize: 10, fontWeight: 800, background: '#ede9fe', color: '#7c3aed', padding: '1px 6px', borderRadius: 4 }}>
-                            🏢 Flat
-                          </span>
-                        )}
                       </div>
+                      <p style={{ margin: '2px 0 0', fontSize: 12, fontWeight: 600, color: '#64748b' }}>
+                        {room.roomType || 'Non AC'} · {room.seaterLabel || `${bedCount} Seater`}
+                      </p>
                     </div>
                   </div>
 
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: 15, fontWeight: 900, color: '#0f172a' }}>
+                      ₹{room.price || 0}<span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8' }}>/mo</span>
+                    </span>
+                    <div style={{ marginTop: 2 }}>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 800,
+                          padding: '2px 8px',
+                          borderRadius: 12,
+                          background: isFull ? '#fee2e2' : '#dcfce7',
+                          color: isFull ? '#991b1b' : '#166534'
+                        }}
+                      >
+                        {isFull ? 'Full' : `${bedCount - occupiedCount} Vacant`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Toggle & Details Prompt */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', background: '#f8fafc', borderRadius: 10, border: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: cyan }}>info</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: cyan }}>Click to view details & residents</span>
+                  </div>
+
                   <button
-                    onClick={() => handleToggleRoomStatus(room)}
+                    type="button"
+                    onClick={(e) => handleToggleMaintenance(room, e)}
                     style={{
                       padding: '4px 10px',
-                      borderRadius: 12,
+                      borderRadius: 8,
                       border: 'none',
                       background: isMaintenance ? '#fef3c7' : '#dcfce7',
                       color: isMaintenance ? '#92400e' : '#166534',
@@ -527,291 +1173,6 @@ export default function ManagerRoomsView({
         )}
       </div>
 
-      {/* ── ADD ROOM MODAL (FULL PARITY WITH ADMIN) ── */}
-      {showAddModal && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <form
-            onSubmit={handleAddRoom}
-            style={{
-              background: '#ffffff',
-              borderRadius: 24,
-              padding: '20px 20px 24px',
-              width: '100%',
-              maxWidth: 440,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-              boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
-            }}
-          >
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Add Room</h3>
-                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Configure room specifications & beds</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                style={{
-                  background: '#f1f5f9',
-                  border: 'none',
-                  borderRadius: 10,
-                  width: 32,
-                  height: 32,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#475569'
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
-              </button>
-            </div>
-
-            {/* Target PG Selector */}
-            {assignedProperties && assignedProperties.length > 1 && (
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Target PG Property</label>
-                <select
-                  value={targetPgForRoom}
-                  onChange={e => setTargetPgForRoom(e.target.value)}
-                  style={{ width: '100%', marginTop: 4, padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, background: '#fff', color: '#0f172a' }}
-                >
-                  {assignedProperties.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Room Number & Floor */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Room Number *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. 101, 201"
-                  value={newRoomNo}
-                  onChange={e => setNewRoomNo(e.target.value)}
-                  style={{ width: '100%', marginTop: 4, padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 14, fontWeight: 700, color: '#0f172a', background: '#fff', boxSizing: 'border-box' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Floor</label>
-                <select
-                  value={newFloor}
-                  onChange={e => setNewFloor(e.target.value)}
-                  style={{ width: '100%', marginTop: 4, padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, background: '#fff', color: '#0f172a', boxSizing: 'border-box' }}
-                >
-                  <option value="Ground Floor">Ground Floor</option>
-                  <option value="1st Floor">1st Floor</option>
-                  <option value="2nd Floor">2nd Floor</option>
-                  <option value="3rd Floor">3rd Floor</option>
-                  <option value="4th Floor">4th Floor</option>
-                  <option value="5th Floor">5th Floor</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Beds Capacity & Room Rent */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Beds Capacity</label>
-                <select
-                  value={newBedsCount}
-                  onChange={e => {
-                    setNewBedsCount(e.target.value);
-                    if (newFoodIncluded) setNewIncludedFoodPersons(parseInt(e.target.value) || 1);
-                  }}
-                  style={{ width: '100%', marginTop: 4, padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, background: '#fff', color: '#0f172a', boxSizing: 'border-box' }}
-                >
-                  <option value="1">1 Bed (Single)</option>
-                  <option value="2">2 Beds (Double)</option>
-                  <option value="3">3 Beds (Triple)</option>
-                  <option value="4">4 Beds (4-Share)</option>
-                  <option value="5">5 Beds</option>
-                  <option value="6">6 Beds</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Monthly Rent (₹)</label>
-                <input
-                  type="number"
-                  placeholder="e.g. 7500"
-                  value={newRoomRent}
-                  onChange={e => setNewRoomRent(e.target.value)}
-                  style={{ width: '100%', marginTop: 4, padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, color: '#0f172a', background: '#fff', boxSizing: 'border-box' }}
-                />
-              </div>
-            </div>
-
-            {/* Room Type & Occupancy Model */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Room Type</label>
-                <select
-                  value={newRoomType}
-                  onChange={e => setNewRoomType(e.target.value)}
-                  style={{ width: '100%', marginTop: 4, padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, background: '#fff', color: '#0f172a', boxSizing: 'border-box' }}
-                >
-                  <option value="Non AC Room">Non AC Room</option>
-                  <option value="AC Room">AC Room</option>
-                  <option value="Deluxe AC">Deluxe AC</option>
-                  <option value="Standard Room">Standard Room</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Lease Model</label>
-                <select
-                  value={newLeaseType}
-                  onChange={e => setNewLeaseType(e.target.value)}
-                  style={{ width: '100%', marginTop: 4, padding: '10px 12px', borderRadius: 10, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, background: '#fff', color: '#0f172a', boxSizing: 'border-box' }}
-                >
-                  <option value="bed_sharing">Bed Sharing</option>
-                  <option value="entire_room">Entire Flat / Single Payer</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Food Plan Toggle */}
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 20, color: newFoodIncluded ? '#059669' : '#94a3b8' }}>restaurant</span>
-                <div>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#0f172a' }}>Food / Mess Included</p>
-                  <p style={{ margin: 0, fontSize: 10.5, color: '#64748b' }}>Counted in daily mess preparation</p>
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={newFoodIncluded}
-                onChange={e => setNewFoodIncluded(e.target.checked)}
-                style={{ width: 18, height: 18, accentColor: '#0891b2', cursor: 'pointer' }}
-              />
-            </div>
-
-            {/* Facilities Selection Chips */}
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Facilities & Amenities</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, maxHeight: 100, overflowY: 'auto' }}>
-                {FACILITIES_LIST.map(f => {
-                  const sel = selectedFacilities.includes(f);
-                  return (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => toggleFacility(f)}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: 8,
-                        border: `1px solid ${sel ? '#0891b2' : '#cbd5e1'}`,
-                        background: sel ? '#ecfeff' : '#ffffff',
-                        color: sel ? '#0e7490' : '#475569',
-                        fontSize: 11,
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {sel ? '✓ ' : '+ '}{f}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Room Photo */}
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Room Photo</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
-                {imagePreview ? (
-                  <div style={{ position: 'relative', width: 64, height: 64, borderRadius: 10, overflow: 'hidden' }}>
-                    <img src={imagePreview} alt="Room" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    <button
-                      type="button"
-                      onClick={() => setImagePreview(null)}
-                      style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff', borderRadius: '50%', width: 18, height: 18, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    >✕</button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    style={{
-                      padding: '8px 14px',
-                      borderRadius: 10,
-                      border: '1px dashed #cbd5e1',
-                      background: '#f8fafc',
-                      color: '#475569',
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6
-                    }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add_a_photo</span>
-                    Upload Room Photo
-                  </button>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageChange}
-                  style={{ display: 'none' }}
-                />
-              </div>
-            </div>
-
-            {/* Buttons */}
-            <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-              <button
-                type="button"
-                onClick={() => setShowAddModal(false)}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  borderRadius: 12,
-                  border: '1px solid #e2e8f0',
-                  background: '#ffffff',
-                  fontWeight: 800,
-                  color: '#64748b',
-                  cursor: 'pointer'
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={actionLoading}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  borderRadius: 12,
-                  border: 'none',
-                  background: '#0891b2',
-                  color: '#ffffff',
-                  fontWeight: 800,
-                  cursor: actionLoading ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading ? 0.7 : 1,
-                  boxShadow: '0 2px 8px rgba(8,145,178,0.25)'
-                }}
-              >
-                {actionLoading ? 'Creating Room...' : 'Create Room'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   );
 }

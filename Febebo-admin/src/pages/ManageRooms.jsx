@@ -307,7 +307,7 @@ export default function ManageRooms() {
 
   useEffect(() => {
     fetchData();
-  }, [user]);
+  }, [user, activePgId]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -326,8 +326,13 @@ export default function ManageRooms() {
     if (!roomNo) return;
     setErrorMsg('');
 
-    if (rooms.some(r => String(r.roomNo).trim() === String(roomNo).trim())) {
-      setErrorMsg(`Room No. ${roomNo} is already registered!`);
+    const isMatchPg = (rPgId) => {
+      if (!activePgId || activePgId === 'primary') return !rPgId || rPgId === 'primary' || rPgId === user.uid;
+      return rPgId === activePgId;
+    };
+
+    if (rooms.filter(r => isMatchPg(r.pgId)).some(r => String(r.roomNo).trim() === String(roomNo).trim())) {
+      setErrorMsg(`Room No. ${roomNo} is already registered in this PG!`);
       return;
     }
 

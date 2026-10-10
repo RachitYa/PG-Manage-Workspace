@@ -50,13 +50,19 @@ export default function AssignWork() {
     setIsSending(true);
     try {
       await addDoc(collection(db, 'staff_tasks'), {
-        adminId: user.uid, pgId: activePgId, 
+        adminId: user.uid,
+        ownerUid: user.uid,
+        pgId: activePgId || selectedStaff.pgId || 'primary', 
         staffId: selectedStaff.id,
+        assignedTo: selectedStaff.id,
         staffName: selectedStaff.name,
         role: selectedStaff.role,
+        staffRole: selectedStaff.role,
+        staffPhone: selectedStaff.phone || '',
         title: title.trim(),
         description: description.trim(),
         status: 'Pending',
+        assignedDate: new Date().toISOString(),
         createdAt: new Date().toISOString()
       });
       setShowModal(false);

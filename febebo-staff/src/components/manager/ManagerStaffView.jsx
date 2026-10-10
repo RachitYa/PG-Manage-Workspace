@@ -2,7 +2,24 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, doc, updateDoc, addDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
-export default function ManagerStaffView({ adminId, onBack, showToast }) {
+export default function ManagerStaffView({ adminId, activePgId, assignedProperties = [], onBack, showToast }) {
+  const [selectedPgId, setSelectedPgId] = useState(() => activePgId || assignedProperties[0]?.id || 'primary');
+
+  useEffect(() => {
+    if (activePgId) setSelectedPgId(activePgId);
+  }, [activePgId]);
+
+  const matchesPgStaff = (s) => {
+    const cur = selectedPgId || 'primary';
+    const assigned = Array.isArray(s.assignedPgs) && s.assignedPgs.length > 0 
+      ? s.assignedPgs 
+      : [s.pgId || 'primary'];
+    if (cur === 'primary') {
+      return assigned.includes('primary') || assigned.includes(adminId) || (!s.pgId && (!s.assignedPgs || s.assignedPgs.length === 0));
+    }
+    return assigned.includes(cur);
+  };
+
   const [staffList, setStaffList] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [attendance, setAttendance] = useState([]);
@@ -24,9 +41,12 @@ export default function ManagerStaffView({ adminId, onBack, showToast }) {
     if (!adminId) return;
     setLoading(true);
 
+    let matchingStaffIds = new Set();
     const qStaff = query(collection(db, 'staff_tokens'), where('ownerUid', '==', adminId));
     const unsubStaff = onSnapshot(qStaff, (snap) => {
-      setStaffList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const filtered = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(matchesPgStaff);
+      matchingStaffIds = new Set(filtered.map(s => s.id));
+      setStaffList(filtered);
       setLoading(false);
     }, (err) => {
       console.error('Staff tokens fetch error:', err);
@@ -44,7 +64,14 @@ export default function ManagerStaffView({ adminId, onBack, showToast }) {
 
     const qAtt = query(collection(db, 'staff_attendance'), where('adminId', '==', adminId), where('date', '==', todayStr));
     const unsubAtt = onSnapshot(qAtt, (snap) => {
-      setAttendance(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const curPg = selectedPgId || 'primary';
+      const filteredAtt = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(a => {
+        if (a.pgId) {
+          return curPg === 'primary' ? (!a.pgId || a.pgId === 'primary' || a.pgId === adminId) : a.pgId === curPg;
+        }
+        return matchingStaffIds.has(a.staffId) || curPg === 'primary';
+      });
+      setAttendance(filteredAtt);
     }, (err) => {
       console.error('Staff attendance fetch error:', err);
     });
@@ -54,7 +81,7 @@ export default function ManagerStaffView({ adminId, onBack, showToast }) {
       unsubTasks();
       unsubAtt();
     };
-  }, [adminId, todayStr]);
+  }, [adminId, todayStr, selectedPgId]);
 
   // Aggregate counts
   const onDutyCount = useMemo(() => {
@@ -77,13 +104,18 @@ export default function ManagerStaffView({ adminId, onBack, showToast }) {
       const staffMember = staffList.find(s => s.id === taskAssignee);
       await addDoc(collection(db, 'staff_tasks'), {
         adminId,
+        ownerUid: adminId,
+        pgId: selectedPgId || staffMember?.pgId || 'primary',
+        staffId: taskAssignee,
         assignedTo: taskAssignee,
         staffName: staffMember?.name || 'Staff',
         staffRole: staffMember?.role || 'Staff',
+        staffPhone: staffMember?.phone || '',
         title: taskTitle.trim(),
         description: taskDesc.trim(),
         priority: taskPriority,
         status: 'Pending',
+        assignedDate: new Date().toISOString(),
         createdAt: new Date().toISOString()
       });
 
@@ -124,8 +156,7 @@ export default function ManagerStaffView({ adminId, onBack, showToast }) {
               <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0f172a' }}>arrow_back</span>
             </button>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Staff & Work</h2>
-              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Roster, Attendance & Tasks</p>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Staff</h2>
             </div>
           </div>
           <button

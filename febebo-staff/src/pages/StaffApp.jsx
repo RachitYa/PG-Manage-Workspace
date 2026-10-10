@@ -1337,25 +1337,32 @@ export default function StaffApp(){
   const [selectedAttMonth, setSelectedAttMonth] = useState(null);
   const [tasks, setTasks]               = useState([]);
 
-  // ── 🔗 CONNECTION 1: Real-time Tasks from Admin ──────────────────────────
+  // ── 🔗 CONNECTION 1: Real-time Tasks from Admin & Manager ───────────────────
   useEffect(() => {
-    if (!(user?.id || user?.uid) || !user?.ownerUid) return;
+    const adminOwnerId = user?.ownerUid || user?.adminId;
+    const myId = String(user?.id || user?.uid || '');
+    if (!myId || !adminOwnerId) return;
+
     const q = query(
       collection(db, 'staff_tasks'),
-      where('staffId', '==', (user.id || (user?.uid || user?.id))),
-      where('adminId', '==', user.ownerUid)
+      where('adminId', '==', adminOwnerId)
     );
     const unsub = onSnapshot(q, (snap) => {
       let firestoreTasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      firestoreTasks.sort((a, b) => new Date(b.assignedDate || 0) - new Date(a.assignedDate || 0));
-      if (firestoreTasks.length > 0) {
-        setTasks(firestoreTasks);
-      }
+      const myTasks = firestoreTasks.filter(t => 
+        String(t.staffId || '') === myId || 
+        String(t.assignedTo || '') === myId ||
+        (user?.phone && t.staffPhone === user.phone)
+      );
+      myTasks.sort((a, b) => new Date(b.assignedDate || b.createdAt || 0) - new Date(a.assignedDate || a.createdAt || 0));
+      setTasks(myTasks);
+    }, (err) => {
+      console.error('staff_tasks listener error:', err);
     });
     return () => unsub();
-  }, [(user?.id || user?.uid), user?.ownerUid]);
+  }, [(user?.id || user?.uid), user?.ownerUid, user?.adminId, user?.phone]);
 
-  // ── 🔗 CONNECTION 2: Real-time Visitors from Admin ──────────────────────────
+  // ── 🔗 CONNECTION 2: Real-time Visitors from Admin & Manager ────────────────
   useEffect(() => {
     if (!user?.ownerUid || staffRole !== 'Security Guard') return;
     const q = query(
@@ -1363,9 +1370,10 @@ export default function StaffApp(){
       where('adminId', '==', user.ownerUid)
     );
     const unsub = onSnapshot(q, (snap) => {
-      const fbVisitors = snap.docs.map(d => ({ docId: d.id, ...d.data() }));
+      const fbVisitors = snap.docs.map(d => ({ docId: d.id, id: d.id, ...d.data() }));
       fbVisitors.sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
       setVisitorLogs(fbVisitors);
+      setVisitors(fbVisitors);
     });
     return () => unsub();
   }, [user?.ownerUid, staffRole]);
@@ -1464,9 +1472,15 @@ export default function StaffApp(){
     const qTenants = query(collection(db, 'tenants'), where('adminId', '==', adminId));
     const unsubTenants = onSnapshot(qTenants, async snap => {
       const raw = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const curPg = activePgId || 'primary';
       const current = raw.filter(t => {
         const s = t.status;
-        return s === 'Approved' || s === 'Current User' || !s;
+        const statusOk = s === 'Approved' || s === 'Current User' || !s;
+        const tPg = t.pgId || t.subscribedPG?.pgId;
+        const matches = (curPg === 'primary')
+          ? (!tPg || tPg === 'primary' || tPg === adminId)
+          : (tPg === curPg);
+        return statusOk && matches;
       });
       // Enrich with users doc for room number and name
       const enriched = await Promise.all(current.map(async t => {
@@ -1490,7 +1504,7 @@ export default function StaffApp(){
     });
 
     return () => { unsubMeal(); unsubTenants(); if (unsubVac) unsubVac(); if (unsubHeadcount) unsubHeadcount(); };
-  }, [user?.ownerUid, workDate]);
+  }, [user?.ownerUid, workDate, activePgId]);
 
   // Transaction History Filters
   const [txnMonthFilter, setTxnMonthFilter] = useState('All Months');
@@ -2781,7 +2795,11 @@ export default function StaffApp(){
     // 2. Complaints / Maintenance Tickets (Plumber, Electrician, Carpenter)
     const qComplaints = query(collection(db, 'complaints'), where('adminId', '==', adminId));
     const unsubComplaints = onSnapshot(qComplaints, (snap) => {
-      const allComp = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const curPg = activePgId || 'primary';
+      const allComp = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(c => {
+        if (curPg === 'primary') return !c.pgId || c.pgId === 'primary' || c.pgId === adminId;
+        return c.pgId === curPg;
+      });
       setPlumbingJobs(allComp.filter(c => c.category === 'Plumbing' || c.subCategory === 'Plumbing'));
       setElectricalJobs(allComp.filter(c => c.category === 'Electrical' || c.subCategory === 'Electrical'));
       setCarpenterJobs(allComp.filter(c => c.category === 'Carpenter' || c.subCategory === 'Carpenter'));
@@ -2791,7 +2809,12 @@ export default function StaffApp(){
     // 3. Supplies Requests (Purchase Manager)
     const qItems = query(collection(db, 'item_requests'), where('adminId', '==', adminId));
     const unsubItems = onSnapshot(qItems, (snap) => {
-      setDemands(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const curPg = activePgId || 'primary';
+      const allItems = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(item => {
+        if (curPg === 'primary') return !item.pgId || item.pgId === 'primary' || item.pgId === adminId;
+        return item.pgId === curPg;
+      });
+      setDemands(allItems);
     });
 
     // 3.5 Attendance for this staff member
@@ -2936,9 +2959,15 @@ export default function StaffApp(){
         const rawTenants = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
         // Filter to current users only (same logic as admin ManageTenants)
+        const curPg = activePgId || 'primary';
         const currentTenants = rawTenants.filter(t => {
           const s = t.status;
-          return s === 'Approved' || s === 'Current User' || !s;
+          const statusOk = s === 'Approved' || s === 'Current User' || !s;
+          const tPg = t.pgId || t.subscribedPG?.pgId;
+          const matches = (curPg === 'primary')
+            ? (!tPg || tPg === 'primary' || tPg === adminId)
+            : (tPg === curPg);
+          return statusOk && matches;
         });
 
         // Enrich each tenant with their users doc for accurate roomNo / name
@@ -2985,11 +3014,15 @@ export default function StaffApp(){
       computeStudents();
     }, (err) => console.error('computeStudents vacation error:', err));
 
-    const unsubPG = onSnapshot(doc(db, 'pg_owners', adminId), (docSnap) => {
+    const curPg = activePgId || 'primary';
+    const targetPgDocId = curPg === 'primary' ? adminId : curPg;
+    let pgDocCapacity = 0;
+    const unsubPG = onSnapshot(doc(db, 'pg_owners', targetPgDocId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.propertyDetails && data.propertyDetails.totalSeats) {
-          setTotalCapacity(data.propertyDetails.totalSeats);
+          pgDocCapacity = parseInt(data.propertyDetails.totalSeats) || 0;
+          setTotalCapacity(pgDocCapacity);
         }
         if (data.foodMenu) {
           setWeeklyFoodMenu(data.foodMenu);
@@ -2998,9 +3031,6 @@ export default function StaffApp(){
           setFoodMenuImages(data.foodMenuImages);
         } else if (data.foodImages) {
           setFoodMenuImages(data.foodImages);
-        }
-        if (data.foodItemImages) {
-          setFoodItemImages(data.foodItemImages);
         }
         if (data.foodItemImages) {
           setFoodItemImages(data.foodItemImages);
@@ -3014,34 +3044,69 @@ export default function StaffApp(){
       }
     });
 
+    const qRooms = query(collection(db, 'rooms'), where('adminId', '==', adminId));
+    const unsubRooms = onSnapshot(qRooms, (snap) => {
+      const filteredRooms = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => {
+        if (curPg === 'primary') return !r.pgId || r.pgId === 'primary' || r.pgId === adminId;
+        return r.pgId === curPg;
+      });
+      const roomCapacity = filteredRooms.reduce((acc, r) => acc + (parseInt(r.beds || r.capacity || 1) || 1), 0);
+      setTotalCapacity(Math.max(pgDocCapacity, roomCapacity) || roomCapacity || 0);
+    });
+
     let unsubTokens, unsubAllAtt, unsubEnquiries, unsubApplications;
     if (staffRole === 'Manager' || staffRole === 'Sales') {
       const qTokens = query(collection(db, 'staff_tokens'), where('ownerUid', '==', adminId));
       unsubTokens = onSnapshot(qTokens, (snap) => {
-        setTotalStaff(snap.docs.length);
-        setAllStaff(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const filteredStaff = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => {
+          const assigned = Array.isArray(s.assignedPgs) && s.assignedPgs.length > 0 
+            ? s.assignedPgs 
+            : [s.pgId || 'primary'];
+          if (curPg === 'primary') {
+            return assigned.includes('primary') || assigned.includes(adminId) || (!s.pgId && (!s.assignedPgs || s.assignedPgs.length === 0));
+          }
+          return assigned.includes(curPg);
+        });
+        setTotalStaff(filteredStaff.length);
+        setAllStaff(filteredStaff);
       });
       
       const qAllAtt = query(collection(db, 'staff_attendance'), where('adminId', '==', adminId), where('date', '==', todayStr));
       unsubAllAtt = onSnapshot(qAllAtt, (snap) => {
         let dutyCount = 0;
         snap.forEach(d => {
-          if (!d.data().clockOut) dutyCount++;
+          const att = d.data();
+          if (!att.clockOut) {
+            if (att.pgId) {
+              const matches = (curPg === 'primary') ? (!att.pgId || att.pgId === 'primary' || att.pgId === adminId) : (att.pgId === curPg);
+              if (matches) dutyCount++;
+            } else {
+              if (curPg === 'primary') dutyCount++;
+            }
+          }
         });
         setStaffOnDuty(dutyCount);
       });
 
       const qEnquiries = query(collection(db, 'enquiries'), where('adminId', '==', adminId));
       unsubEnquiries = onSnapshot(qEnquiries, (snap) => {
-        setEnquiries(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const filtered = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(e => {
+          if (curPg === 'primary') return !e.pgId || e.pgId === 'primary' || e.pgId === adminId;
+          return e.pgId === curPg;
+        });
+        setEnquiries(filtered);
       });
       const qApps = query(collection(db, 'pg_applications'), where('adminId', '==', adminId));
       unsubApplications = onSnapshot(qApps, (snap) => {
-        setMgr_applications(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => {
+        const filtered = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(a => {
+          if (curPg === 'primary') return !a.pgId || a.pgId === 'primary' || a.pgId === adminId;
+          return a.pgId === curPg;
+        }).sort((a,b) => {
           const tA = a.date ? new Date(a.date).getTime() : 0;
           const tB = b.date ? new Date(b.date).getTime() : 0;
           return tB - tA;
-        }));
+        });
+        setMgr_applications(filtered);
       });
     }
 
@@ -3089,6 +3154,7 @@ export default function StaffApp(){
 
     return () => {
       unsubPG();
+      if (unsubRooms) unsubRooms();
       unsubMeal();
       if(unsubVacations) unsubVacations();
       unsubCleaning();
@@ -3104,7 +3170,7 @@ export default function StaffApp(){
       if(unsubEnquiries) unsubEnquiries();
       if(unsubApplications) unsubApplications();
     };
-  }, [user?.ownerUid, (user?.id || user?.uid), user?.uid, fbAuthReady, workDate]);
+  }, [user?.ownerUid, (user?.id || user?.uid), user?.uid, fbAuthReady, workDate, activePgId]);
 
   // Greeting
   const hr   = new Date().getHours();
@@ -3160,6 +3226,9 @@ export default function StaffApp(){
           const newStatus = isFullDay ? 'present' : 'pending_review';
 
           await setDoc(doc(db, 'staff_attendance', attDocId), {
+            adminId: user?.ownerUid || adminId,
+            ownerUid: user?.ownerUid || adminId,
+            pgId: activePgId || user?.pgId || 'primary',
             clockOut: now,
             outLat: lat,
             outLng: lng,
@@ -3172,18 +3241,18 @@ export default function StaffApp(){
           try {
             if (isFullDay) {
               await addDoc(collection(db, 'notifications'), {
-                adminId: user?.ownerUid,
+                adminId: user?.ownerUid || adminId,
                 title: 'Staff Punched Out',
                 desc: `${user?.name || staffName} (${staffRole}) punched out at ${now}. Worked for ${hoursWorked.toFixed(1)} hours (Present).`,
                 type: 'Attendance',
                 date: new Date().toISOString(),
                 createdAt: new Date().toISOString(),
-                pgId: 'primary',
+                pgId: activePgId || user?.pgId || 'primary',
                 resolved: false
               });
             } else {
               await addDoc(collection(db, 'notifications'), {
-                adminId: user?.ownerUid,
+                adminId: user?.ownerUid || adminId,
                 title: 'Staff Punched Out Early',
                 desc: `${user?.name || staffName} (${staffRole}) punched out at ${now}, working only ${hoursWorked.toFixed(1)} hours. Please review.`,
                 type: 'Attendance_Review',
@@ -3192,7 +3261,7 @@ export default function StaffApp(){
                 staffName: user?.name || staffName,
                 date: new Date().toISOString(),
                 createdAt: new Date().toISOString(),
-                pgId: 'primary',
+                pgId: activePgId || user?.pgId || 'primary',
                 resolved: false
               });
             }
@@ -3215,7 +3284,9 @@ export default function StaffApp(){
             staffId:    user?.id || user?.uid,
             staffName:  user?.name || staffName,
             role:       staffRole,
-            adminId:    user?.ownerUid,
+            adminId:    user?.ownerUid || adminId,
+            ownerUid:   user?.ownerUid || adminId,
+            pgId:       activePgId || user?.pgId || 'primary',
             year,
             month,
             day,
@@ -3235,13 +3306,13 @@ export default function StaffApp(){
           // Send notification to Admin
           try {
             await addDoc(collection(db, 'notifications'), {
-              adminId: user?.ownerUid,
+              adminId: user?.ownerUid || adminId,
               title: 'Staff Punched In',
               desc: `${user?.name || staffName} (${staffRole}) punched in at ${now}.`,
               type: 'Attendance',
               date: new Date().toISOString(),
               createdAt: new Date().toISOString(),
-              pgId: 'primary',
+              pgId: activePgId || user?.pgId || 'primary',
               resolved: false
             });
           } catch(notifErr) {
@@ -3366,6 +3437,9 @@ export default function StaffApp(){
         // We already calculated newTotalRestMs and restDiff above
         
         await setDoc(doc(db, 'staff_attendance', attDocId), {
+          adminId: user?.ownerUid || adminId,
+          ownerUid: user?.ownerUid || adminId,
+          pgId: activePgId || user?.pgId || 'primary',
           status: 'working',
           totalRestMs: newTotalRestMs,
           lastRestStart: null,
@@ -3378,14 +3452,17 @@ export default function StaffApp(){
           desc: `${user?.name || 'Staff'} has resumed work after resting for ${durationStr}.`,
           type: 'info',
           unread: true,
-          adminId: user?.ownerUid || 'admin',
+          adminId: user?.ownerUid || adminId || 'admin',
           createdAt: now.toISOString(),
-              pgId: 'primary',
+          pgId: activePgId || user?.pgId || 'primary',
         });
         showToast('Work Restarted', 'success');
       } else {
         const timeStr = now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
         await setDoc(doc(db, 'staff_attendance', attDocId), {
+          adminId: user?.ownerUid || adminId,
+          ownerUid: user?.ownerUid || adminId,
+          pgId: activePgId || user?.pgId || 'primary',
           status: 'resting',
           lastRestStart: now.toISOString(),
           restStartLog: now.toISOString()
@@ -3396,9 +3473,9 @@ export default function StaffApp(){
           desc: `${user?.name || 'Staff'} is taking rest at ${timeStr}.`,
           type: 'info',
           unread: true,
-          adminId: user?.ownerUid || 'admin',
+          adminId: user?.ownerUid || adminId || 'admin',
           createdAt: now.toISOString(),
-              pgId: 'primary',
+          pgId: activePgId || user?.pgId || 'primary',
         });
         showToast('Rest Started', 'success');
       }
@@ -3539,16 +3616,33 @@ export default function StaffApp(){
         status: 'Completed',
         completedAt: new Date().toISOString()
       });
-      // Send notification to admin
+
+      // If associated with a complaint ticket, also mark ticket Resolved
+      if (task.complaintId) {
+        try {
+          await updateDoc(doc(db, 'complaints', task.complaintId), {
+            status: 'Resolved',
+            resolvedAt: new Date().toISOString(),
+            resolvedBy: staffName || 'Staff'
+          });
+        } catch(cErr) {
+          console.error('Error resolving associated complaint:', cErr);
+        }
+      }
+
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'Completed', completedAt: new Date().toISOString() } : t));
+
+      // Send notification to admin / manager
       await addDoc(collection(db, 'notifications'), {
-        adminId: task.adminId || adminId,
+        adminId: task.adminId || user?.ownerUid || adminId,
         type: 'task_completed',
         title: 'Task Completed',
         message: `${staffName} (${staffRole}) completed the task: ${task.title}`,
         createdAt: new Date().toISOString(),
         resolved: false,
-              pgId: 'primary',
+        pgId: task.pgId || activePgId || 'primary',
       });
+      showToast('Task marked as completed! ✅', 'success');
     } catch(e) {
       console.error(e);
       alert('Error updating task');
@@ -3647,12 +3741,16 @@ export default function StaffApp(){
   const submitRequest = async (e) => {
     e.preventDefault();
     if(!reqReason.trim()) return;
+    const currentAdminId = user?.ownerUid || adminId;
+    const currentPgId = activePgId || user?.pgId || 'primary';
     try {
       if (reqType === 'Leave') {
         await addDoc(collection(db, 'leave_requests'), {
           staffId: (user?.uid || user?.id),
-          adminId: user.ownerUid,
-          staffName: user.name || 'Staff',
+          adminId: currentAdminId,
+          ownerUid: currentAdminId,
+          pgId: currentPgId,
+          staffName: user?.name || staffName || 'Staff',
           role: staffRole,
           from: reqFrom || new Date().toISOString(),
           to: reqTo || new Date().toISOString(),
@@ -3664,8 +3762,11 @@ export default function StaffApp(){
       } else {
         await addDoc(collection(db, 'staff_requests'), {
           staffId: (user?.uid || user?.id),
-          adminId: user.ownerUid,
-          staffName: user.name || 'Staff',
+          adminId: currentAdminId,
+          ownerUid: currentAdminId,
+          pgId: currentPgId,
+          staffName: user?.name || staffName || 'Staff',
+          role: staffRole,
           type: reqType,
           reason: reqReason,
           amt: reqAmt ? `₹${reqAmt}` : '-',
@@ -3676,14 +3777,14 @@ export default function StaffApp(){
       }
 
       await addDoc(collection(db, 'notifications'), {
-        adminId: user.ownerUid,
+        adminId: currentAdminId,
         staffId: (user?.uid || user?.id),
         title: 'New Staff Request',
-        desc: `${user.name || 'Staff'} submitted a request for ${reqType}.`,
+        desc: `${user?.name || staffName || 'Staff'} submitted a request for ${reqType}.`,
         type: 'Staff Request',
         resolved: false,
         createdAt: new Date().toISOString(),
-              pgId: 'primary',
+        pgId: currentPgId,
       });
 
       setReqReason(''); setReqAmt(''); setReqFrom(''); setReqTo('');
@@ -3694,37 +3795,126 @@ export default function StaffApp(){
     }
   };
 
-  const submitDemand = e=>{
+  const submitDemand = async (e) => {
     e.preventDefault();
     if(!dItem.trim()) return;
-    const newD = {
-      id: Date.now(),
-      item: dItem.trim(),
-      qty: dQty || '1 unit',
-      reqBy: `${staffName} (${staffRole})`,
-      vendor: 'Pending Admin Assignment',
-      date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
-      status: 'Pending'
-    };
-    setMyDemands(p=>[newD, ...p]);
-    setDemands(p=>[newD, ...p]);
-    setDItem(''); setDQty(''); setDNote('');
-    setShowDemandForm(false);
-    showToast('Requisition submitted to Admin!', 'success');
+    const itemText = dItem.trim();
+    const qtyText = dQty?.trim() || '1 unit';
+    const reqByText = `${staffName} (${staffRole})`;
+    const currentAdminId = user?.ownerUid || adminId;
+    const currentPgId = activePgId || user?.pgId || 'primary';
+
+    try {
+      // 1. Write to item_requests for real-time demand sync
+      await addDoc(collection(db, 'item_requests'), {
+        adminId: currentAdminId,
+        ownerUid: currentAdminId,
+        pgId: currentPgId,
+        staffId: (user?.id || user?.uid) || null,
+        staffName: staffName,
+        role: staffRole,
+        reqBy: reqByText,
+        item: itemText,
+        qty: qtyText,
+        note: dNote?.trim() || '',
+        date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+        status: 'Pending',
+        createdAt: new Date().toISOString()
+      });
+
+      // 2. Also write to staff_requisitions for Admin Vendor & Purchase integration
+      await addDoc(collection(db, 'staff_requisitions'), {
+        reqId: Date.now(),
+        item: itemText,
+        qty: qtyText,
+        staff: staffName,
+        staffId: (user?.id || user?.uid) || null,
+        adminId: currentAdminId,
+        ownerUid: currentAdminId,
+        pgId: currentPgId,
+        sendTo: 'Admin',
+        date: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+        status: 'Pending Rate',
+        note: dNote?.trim() || '',
+        createdAt: new Date().toISOString()
+      });
+
+      // 3. Send notification to Admin & Manager
+      await addDoc(collection(db, 'notifications'), {
+        adminId: currentAdminId,
+        title: 'New Supply Requisition',
+        desc: `${reqByText} requested ${qtyText} of ${itemText}`,
+        type: 'Inventory',
+        resolved: false,
+        createdAt: new Date().toISOString(),
+        pgId: currentPgId
+      });
+
+      setDItem(''); setDQty(''); setDNote('');
+      setShowDemandForm(false);
+      showToast('Requisition submitted to Admin & Manager! ✅', 'success');
+    } catch(err) {
+      console.error('Error submitting demand:', err);
+      showToast('Failed to submit requisition', 'error');
+    }
   };
 
-  const addVisitor = e=>{
+  const addVisitor = async (e) => {
     e.preventDefault();
     if(!vName.trim()) return;
-    setVisitors(p=>[{id:Date.now(),name:vName,phone:vPhone||'—',purpose:vPurp||'Visitor',inTime:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),outTime:null,status:'Inside'},...p]);
-    setVName(''); setVPhone(''); setVPurp(''); setShowVisitor(false);
+    const currentAdminId = user?.ownerUid || adminId;
+    const currentPgId = activePgId || user?.pgId || 'primary';
+    try {
+      await addDoc(collection(db, 'visitors'), {
+        name: vName.trim(),
+        phone: vPhone.trim() || '—',
+        purpose: vPurp.trim() || 'Visitor',
+        inTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        checkInTime: new Date().toISOString(),
+        outTime: null,
+        status: 'Inside',
+        adminId: currentAdminId,
+        ownerUid: currentAdminId,
+        pgId: currentPgId,
+        loggedBy: `${staffName} (${staffRole})`,
+        createdAt: new Date().toISOString()
+      });
+      setVName(''); setVPhone(''); setVPurp(''); setShowVisitor(false);
+      showToast('Visitor entry logged! ✅', 'success');
+    } catch(err) {
+      console.error('Error adding visitor:', err);
+      showToast('Failed to log visitor', 'error');
+    }
   };
 
-  const addParcel = e=>{
+  const addParcel = async (e) => {
     e.preventDefault();
     if(!pStu.trim()) return;
-    setParcels(p=>[{id:Date.now(),student:pStu,room:pRoom||'—',carrier:pCarr,tracking:pTrk||'TRK-'+Math.floor(1000+Math.random()*9000),date:'Today '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),status:'Pending'},...p]);
-    setPStu(''); setPRoom(''); setPTrk(''); setShowParcel(false);
+    const currentAdminId = user?.ownerUid || adminId;
+    const currentPgId = activePgId || user?.pgId || 'primary';
+    const newP = {
+      student: pStu.trim(),
+      room: pRoom.trim() || '—',
+      carrier: pCarr || 'Amazon',
+      tracking: pTrk.trim() || ('TRK-' + Math.floor(1000 + Math.random() * 9000)),
+      date: 'Today ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'Pending',
+      adminId: currentAdminId,
+      ownerUid: currentAdminId,
+      pgId: currentPgId,
+      loggedBy: `${staffName} (${staffRole})`,
+      createdAt: new Date().toISOString()
+    };
+    try {
+      const docRef = await addDoc(collection(db, 'parcels'), newP);
+      setParcels(p => [{ id: docRef.id, ...newP }, ...p]);
+      setPStu(''); setPRoom(''); setPTrk(''); setShowParcel(false);
+      showToast('Parcel recorded! ✅', 'success');
+    } catch(err) {
+      console.error('Error adding parcel:', err);
+      setParcels(p => [{ id: Date.now(), ...newP }, ...p]);
+      setPStu(''); setPRoom(''); setPTrk(''); setShowParcel(false);
+    }
   };
 
   const eaten = students.filter(s=>s.statusB==='eaten').length; // Home view demo data
@@ -3854,10 +4044,10 @@ export default function StaffApp(){
 
       {/* ── HEADER (always visible) ──────────────────────────────────────── */}
       {view === 'home' ? (
-        <div style={{background: isManager ? '#ffffff' : 'linear-gradient(to bottom, #fffef2, #fffdf0)', padding:'0 16px 20px', paddingTop:'max(0px, env(safe-area-inset-top, 0px))', color: isManager ? '#0f172a' : '#1a1500', borderBottom: isManager ? '1px solid #e2e8f0' : '1.5px solid #e8df9a'}}>
+        <div style={{background: 'linear-gradient(to bottom, #fffef2, #fffdf0)', padding:'0 16px 20px', paddingTop:'max(0px, env(safe-area-inset-top, 0px))', color: '#1a1500', borderBottom: '1.5px solid #e8df9a'}}>
           <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', height:60, position:'relative'}}>
             <div style={{display:'flex', alignItems:'center', gap:10, zIndex:10}}>
-              <p style={{fontFamily:"'Hanken Grotesk',sans-serif", fontSize:24, fontWeight:900, color: isManager ? '#0f172a' : '#1a1500', margin:0, letterSpacing:-.5}}>febebo</p>
+              <p style={{fontFamily:"'Hanken Grotesk',sans-serif", fontSize:24, fontWeight:900, color: '#1a1500', margin:0, letterSpacing:-.5}}>febebo</p>
               
               {/* Multi-PG Switcher Pill */}
               {assignedProperties && assignedProperties.length > 0 && (
@@ -3867,27 +4057,27 @@ export default function StaffApp(){
                   }}
                   style={{
                     display:'flex', alignItems:'center', gap:5,
-                    background: '#ffffff', border: isManager ? '1.5px solid #e2e8f0' : '1.5px solid #e8df9a',
+                    background: '#ffffff', border: '1.5px solid #e8df9a',
                     borderRadius: 20, padding: '4px 10px', cursor: assignedProperties.length > 1 ? 'pointer' : 'default',
-                    boxShadow: isManager ? '0 1px 6px rgba(15,23,42,0.04)' : '0 1px 4px rgba(0,0,0,0.04)'
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
                   }}
                 >
-                  <span className="material-symbols-outlined" style={{fontSize:15, color: isManager ? '#4f46e5' : '#ca8a04'}}>domain</span>
-                  <span style={{fontSize:11.5, fontWeight:800, color: isManager ? '#0f172a' : '#1a1500', maxWidth:110, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                  <span className="material-symbols-outlined" style={{fontSize:15, color: '#ca8a04'}}>domain</span>
+                  <span style={{fontSize:11.5, fontWeight:800, color: '#1a1500', maxWidth:110, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
                     {assignedProperties.find(p => p.id === activePgId)?.name || 'Primary PG'}
                   </span>
                   {assignedProperties.length > 1 && (
-                    <span className="material-symbols-outlined" style={{fontSize:15, color: isManager ? '#4f46e5' : '#ca8a04'}}>expand_more</span>
+                    <span className="material-symbols-outlined" style={{fontSize:15, color: '#ca8a04'}}>expand_more</span>
                   )}
                 </div>
               )}
             </div>
 
-            <button onClick={()=>setView('profile_view')} style={{background: isManager ? '#f8fafc' : '#fefce8', border: isManager ? '1.5px solid #e2e8f0' : '1.5px solid #e8df9a', borderRadius:50, width:44, height:44, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative', zIndex:10, overflow:'hidden', padding:0}}>
+            <button onClick={()=>setView('profile_view')} style={{background: '#fefce8', border: '1.5px solid #e8df9a', borderRadius:50, width:44, height:44, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', position:'relative', zIndex:10, overflow:'hidden', padding:0}}>
               {profilePic ? (
                 <img src={profilePic} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} />
               ) : (
-                <span className="material-symbols-outlined" style={{fontSize:24, color: isManager ? '#4f46e5' : '#ca8a04'}}>person</span>
+                <span className="material-symbols-outlined" style={{fontSize:24, color: '#ca8a04'}}>person</span>
               )}
             </button>
           </div>
@@ -3908,102 +4098,98 @@ export default function StaffApp(){
             </div>
           </div>
 
-          {/* Punch card */}
+          {/* Staff Duty / Presence Status Card (Whole Area Clickable) */}
           {(() => {
-            const _now = new Date();
-            const _todayStr = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}-${String(_now.getDate()).padStart(2,'0')}`;
-            const _todayLog = allAttendanceLogs.find(l => l.date === _todayStr);
-            const _isCompleted = _todayLog && _todayLog.clockOut;
-            const _isMarkedExternally = _todayLog && !_todayLog.clockIn && (_todayLog.status === 'absent' || _todayLog.status === 'present');
-            const hasCompletedShift = !clocked && (_isCompleted || _isMarkedExternally);
-
-            if (hasCompletedShift) {
-              return (
-                <div style={{marginTop:18, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius:18, padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow: '0 4px 16px rgba(120, 104, 10, 0.04)'}}>
-                  <div style={{display:'flex', flexDirection:'column', gap:2}}>
-                    <div style={{display:'flex', alignItems:'center', gap:8}}>
-                      <span style={{position:'relative', display:'flex', height:10, width:10}}>
-                        <span style={{position:'relative', display:'inline-flex', borderRadius:'50%', height:10, width:10, background: '#16a34a'}}></span>
-                      </span>
-                      <span style={{fontSize:14, fontWeight:800, color: '#1a1500'}}>Shift Completed</span>
-                    </div>
-                    <span style={{fontSize:11, fontWeight:700, color: '#64748b', marginLeft:18}}>You have finished work for today</span>
-                  </div>
-                  <div style={{
-                    padding:'8px 16px', 
-                    borderRadius:12, 
-                    background: '#e2e8f0', 
-                    color: '#64748b', 
-                    fontSize:12, 
-                    fontWeight:900, 
-                    display:'flex', 
-                    alignItems:'center', 
-                    gap:6
-                  }}>
-                    <span className="material-symbols-outlined" style={{fontSize:16}}>done_all</span>
-                    Done
-                  </div>
-                </div>
-              );
-            }
+            const isDutyOn = !!clocked;
 
             return (
-              <div style={{marginTop:18, background: '#ffffff', border: '1.5px solid #e8df9a', borderRadius:18, padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow: '0 4px 16px rgba(120, 104, 10, 0.04)'}}>
-                <div style={{display:'flex', flexDirection:'column', gap:2}}>
-                  <div style={{display:'flex', alignItems:'center', gap:8}}>
-                    <span style={{position:'relative', display:'flex', height:10, width:10}}>
-                      {clocked && (
-                        <span style={{animation:'ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite', position:'absolute', display:'inline-flex', height:'100%', width:'100%', borderRadius:'50%', background:'#10b981', opacity:0.75}}></span>
-                      )}
-                      <span style={{position:'relative', display:'inline-flex', borderRadius:'50%', height:10, width:10, background: clocked ? '#10b981' : '#ef4444'}}></span>
-                    </span>
-                    <span style={{fontSize:14, fontWeight:800, color: '#1a1500'}}>{clocked ? 'On Duty' : 'Off Shift'}</span>
-                  </div>
-                  {clocked && (
-                    <span style={{fontSize:11, fontWeight:700, color: '#64748b', marginLeft:18}}>Logged in at {clockIn}</span>
-                  )}
-                </div>
-                
-                <button 
-                  onClick={() => {
-                    if (clocked) {
-                      setShowPunchOutConfirm(true);
-                    } else {
-                      punch();
-                    }
-                  }} 
-                  disabled={isPunching}
+              <div
+                onClick={() => {
+                  if (isPunching) return;
+                  punch();
+                }}
+                role="button"
+                tabIndex={0}
+                style={{
+                  marginTop: 18,
+                  borderRadius: 18,
+                  padding: '14px 18px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  cursor: isPunching ? 'not-allowed' : 'pointer',
+                  userSelect: 'none',
+                  transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                  background: isDutyOn
+                    ? 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)'
+                    : 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+                  border: isDutyOn ? '1.5px solid #86efac' : '1.5px solid #fca5a5',
+                  boxShadow: isDutyOn
+                    ? '0 6px 20px rgba(16, 185, 129, 0.15)'
+                    : '0 6px 20px rgba(239, 68, 68, 0.12)',
+                  opacity: isPunching ? 0.75 : 1
+                }}
+              >
+                {/* Indicator Icon */}
+                <div
                   style={{
-                    padding:'8px 16px', 
-                    borderRadius:12, 
-                    border: 'none', 
-                    background: clocked ? '#fee2e2' : '#dcfce7', 
-                    color: clocked ? '#991b1b' : '#166534', 
-                    fontSize:12, 
-                    fontWeight:900, 
-                    cursor:isPunching?'not-allowed':'pointer', 
-                    fontFamily:'inherit', 
-                    display:'flex', 
-                    alignItems:'center', 
-                    gap:6, 
-                    boxShadow:'0 2px 6px rgba(0,0,0,0.03)',
-                    opacity: isPunching ? 0.7 : 1
+                    width: 44,
+                    height: 44,
+                    borderRadius: '50%',
+                    background: isDutyOn ? '#16a34a' : '#dc2626',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: isDutyOn
+                      ? '0 4px 12px rgba(22, 163, 74, 0.35)'
+                      : '0 4px 12px rgba(220, 38, 38, 0.35)',
+                    position: 'relative',
+                    flexShrink: 0
                   }}
                 >
-                  {isPunching ? (
-                    <>
-                      <div style={{ width: 14, height: 14, border: '2px solid rgba(0,0,0,0.2)', borderTopColor: clocked ? '#991b1b' : '#166534', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-                      Wait...
-                    </>
-                  ) : (
-                    <>
-                      <span className="material-symbols-outlined" style={{fontSize:16}}>
-                        {clocked ? 'logout' : 'login'}
-                      </span>
-                      {clocked ? 'Punch Out' : 'Punch In'}
-                    </>
+                  {isDutyOn && (
+                    <span
+                      style={{
+                        animation: 'ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite',
+                        position: 'absolute',
+                        inset: 0,
+                        borderRadius: '50%',
+                        background: '#22c55e',
+                        opacity: 0.6
+                      }}
+                    />
                   )}
-                </button>
+                  <span className="material-symbols-outlined" style={{ fontSize: 24, position: 'relative' }}>
+                    {isDutyOn ? 'check_circle' : 'power_settings_new'}
+                  </span>
+                </div>
+
+                {/* Status Title + Loading state */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                  <span
+                    style={{
+                      fontSize: 17,
+                      fontWeight: 900,
+                      color: isDutyOn ? '#14532d' : '#7f1d1d',
+                      letterSpacing: -0.3
+                    }}
+                  >
+                    {isDutyOn ? 'On Duty' : 'Off Duty'}
+                  </span>
+                  {isPunching && (
+                    <div
+                      style={{
+                        width: 14,
+                        height: 14,
+                        border: '2px solid rgba(0,0,0,0.15)',
+                        borderTopColor: isDutyOn ? '#16a34a' : '#dc2626',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite'
+                      }}
+                    />
+                  )}
+                </div>
               </div>
             );
           })()}
@@ -4050,14 +4236,14 @@ export default function StaffApp(){
                   onClick={() => s.view && setView(s.view)}
                   style={{
                     background: '#ffffff',
-                    border: '1.5px solid #e2e8f0',
+                    border: '1.5px solid #e8df9a',
                     borderRadius: 16,
                     padding: '10px 12px',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 10,
                     cursor: 'pointer',
-                    boxShadow: '0 2px 8px rgba(15,23,42,0.04)',
+                    boxShadow: '0 2px 8px rgba(120, 104, 10, 0.04)',
                     transition: 'all 0.15s'
                   }}
                 >
@@ -4147,17 +4333,17 @@ export default function StaffApp(){
             const isManager = staffRole === 'Manager';
             const managerModules = [
               { id: 'manage_tenants', label: 'Tenants',       icon: 'groups',                 bg: '#fef3c7', c: '#d97706' },
-              { id: 'manage_rooms',   label: 'Rooms & Beds',  icon: 'meeting_room',           bg: '#dcfce7', c: '#059669' },
+              { id: 'manage_rooms',   label: 'Rooms',         icon: 'meeting_room',           bg: '#dcfce7', c: '#059669' },
               { id: 'complaints',     label: 'Complaints',    icon: 'report_problem',         bg: '#fee2e2', c: '#dc2626', badgeCount: tickets.filter(t => t.status === 'Active' || t.status === 'Pending' || t.status === 'Open').length },
-              { id: 'mess_headcount', label: 'Live Mess',     icon: 'restaurant',             bg: '#fef9c3', c: '#ca8a04' },
+              { id: 'mess_headcount', label: 'Mess',          icon: 'restaurant',             bg: '#fef9c3', c: '#ca8a04' },
               { id: 'manage_vendors', label: 'Vendors',       icon: 'storefront',             bg: '#ede9fe', c: '#7c3aed' },
               ...(hasDeliveryDuty ? [{ id: 'delivery_orders', label: 'Delivery', icon: 'two_wheeler', bg: '#ffedd5', c: '#ea580c' }] : []),
               { id: 'student_leaves', label: 'Leaves',        icon: 'event_busy',             bg: '#e0f2fe', c: '#0284c7' },
               { id: 'visitor_log',    label: 'Visitors',      icon: 'recent_actors',          bg: '#d1fae5', c: '#059669' },
-              { id: 'manage_staff',   label: 'Staff & Work',  icon: 'badge',                  bg: '#ffe4e6', c: '#e11d48' },
+              { id: 'manage_staff',   label: 'Staff',         icon: 'badge',                  bg: '#ffe4e6', c: '#e11d48' },
               { id: 'approvals',      label: 'Approvals',     icon: 'verified',               bg: '#fef08a', c: '#a16207' },
               { id: 'inout',          label: 'Attendance',    icon: 'schedule',               bg: '#dcfce7', c: '#16a34a' },
-              { id: 'foodMenu',       label: 'Food Menu',     icon: 'restaurant_menu',        bg: '#f3e8ff', c: '#9333ea' },
+              { id: 'foodMenu',       label: 'Menu',          icon: 'restaurant_menu',        bg: '#f3e8ff', c: '#9333ea' },
               { id: 'enquiry',        label: 'Leads',         icon: 'contact_support',        bg: '#cffafe', c: '#0891b2', badgeCount: enquiries.filter(e => e.status === 'New' || e.status === 'New Lead').length },
               { id: 'add_tenant',     label: 'Add Tenant',    icon: 'person_add',             bg: '#dcfce7', c: '#15803d' },
               { id: 'meter_reading',  label: 'Meter',         icon: 'electric_meter',         bg: '#cffafe', c: '#0891b2' },
@@ -4567,6 +4753,18 @@ export default function StaffApp(){
             setMgr_addTenantMode(mode || 'new');
             setView('add_tenant');
           }}
+          onOpenChat={(tenant) => {
+            setActiveContact({
+              id: tenant.id || tenant.tenantId,
+              name: tenant.name,
+              phone: tenant.phone,
+              room: tenant.roomNo || tenant.room,
+              bed: tenant.bedNo || tenant.bed,
+              avatar: tenant.avatar || tenant.photo || tenant.profilePhoto || tenant.name?.[0],
+              role: 'Tenant'
+            });
+            setView('chat');
+          }}
           showToast={showToast}
         />
       )}
@@ -4577,6 +4775,16 @@ export default function StaffApp(){
           activePgId={activePgId}
           assignedProperties={assignedProperties}
           onBack={() => setView('home')}
+          onOpenChat={(tenant) => {
+            setActiveContact({
+              id: tenant.id || tenant.tenantId,
+              name: tenant.name,
+              phone: tenant.phone,
+              room: tenant.roomNo || tenant.room,
+              bed: tenant.bedNo || tenant.bed
+            });
+            setView('chat');
+          }}
           showToast={showToast}
         />
       )}
@@ -4584,6 +4792,8 @@ export default function StaffApp(){
       {view === 'complaints' && (
         <ManagerComplaintsView
           adminId={user?.ownerUid}
+          activePgId={activePgId}
+          assignedProperties={assignedProperties}
           onBack={() => setView('home')}
           showToast={showToast}
         />
@@ -4592,6 +4802,8 @@ export default function StaffApp(){
       {view === 'student_leaves' && (
         <ManagerLeavesView
           adminId={user?.ownerUid}
+          activePgId={activePgId}
+          assignedProperties={assignedProperties}
           onBack={() => setView('home')}
           showToast={showToast}
         />
@@ -4600,6 +4812,8 @@ export default function StaffApp(){
       {view === 'visitor_log' && (
         <ManagerVisitorsView
           adminId={user?.ownerUid}
+          activePgId={activePgId}
+          assignedProperties={assignedProperties}
           onBack={() => setView('home')}
           showToast={showToast}
         />
@@ -4608,6 +4822,8 @@ export default function StaffApp(){
       {view === 'manage_staff' && (
         <ManagerStaffView
           adminId={user?.ownerUid}
+          activePgId={activePgId}
+          assignedProperties={assignedProperties}
           onBack={() => setView('home')}
           showToast={showToast}
         />
@@ -4616,6 +4832,8 @@ export default function StaffApp(){
       {view === 'mess_headcount' && (
         <ManagerMessHeadcountView
           adminId={user?.ownerUid}
+          activePgId={activePgId}
+          assignedProperties={assignedProperties}
           staffName={staffName}
           staffRole={staffRole}
           onBack={() => setView('home')}
@@ -4628,6 +4846,8 @@ export default function StaffApp(){
       {view === 'approvals' && (
         <ManagerApprovalsView
           adminId={user?.ownerUid}
+          activePgId={activePgId}
+          assignedProperties={assignedProperties}
           onBack={() => setView('home')}
           showToast={showToast}
         />
@@ -4636,6 +4856,8 @@ export default function StaffApp(){
       {view === 'manage_vendors' && (
         <ManagerVendorsView
           adminId={user?.ownerUid}
+          activePgId={activePgId}
+          assignedProperties={assignedProperties}
           onBack={() => setView('home')}
           showToast={showToast}
           currentStaffName={staffName}
@@ -6268,11 +6490,11 @@ export default function StaffApp(){
           {/* MANAGER OPERATIONS OVERVIEW */}
           {staffRole === 'Manager' && (<>
             {/* Command Center Header */}
-            <div style={{background: isManager ? 'linear-gradient(135deg, #ffffff 0%, #eff6ff 100%)' : 'linear-gradient(135deg, #fffef2 0%, #fefce8 100%)', borderRadius:18, border: isManager ? '1.5px solid #e2e8f0' : `1.5px solid ${C.border}`, padding:'16px 18px', color: isManager ? '#0f172a' : C.text, boxShadow: isManager ? '0 2px 10px rgba(15,23,42,0.04)' : '0 4px 12px rgba(120, 104, 10, 0.04)', position:'relative', overflow:'hidden'}}>
-              <div style={{position:'absolute', top:-30, right:-30, width:120, height:120, borderRadius:'50%', background: isManager ? 'rgba(79, 70, 229, 0.12)' : 'rgba(250, 204, 21, 0.18)', pointerEvents:'none'}} />
-              <p style={{margin:0, fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:0.5, color: isManager ? '#4f46e5' : C.primaryDk}}>🏢 Operations Hub</p>
-              <h3 style={{margin:'4px 0 2px', fontSize:20, fontWeight:900, color: isManager ? '#0f172a' : C.text}}>Operations Overview</h3>
-              <p style={{margin:0, fontSize:12, color: isManager ? '#64748b' : C.muted, fontWeight:600}}>All departments & live status</p>
+            <div style={{background: 'linear-gradient(135deg, #fffef2 0%, #fefce8 100%)', borderRadius:18, border: '1.5px solid #e8df9a', padding:'16px 18px', color: '#1a1500', boxShadow: '0 4px 12px rgba(120, 104, 10, 0.04)', position:'relative', overflow:'hidden'}}>
+              <div style={{position:'absolute', top:-30, right:-30, width:120, height:120, borderRadius:'50%', background: 'rgba(250, 204, 21, 0.18)', pointerEvents:'none'}} />
+              <p style={{margin:0, fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:0.5, color: '#ca8a04'}}>🏢 Operations Hub</p>
+              <h3 style={{margin:'4px 0 2px', fontSize:20, fontWeight:900, color: '#1a1500'}}>Operations Overview</h3>
+              <p style={{margin:0, fontSize:12, color: '#64748b', fontWeight:600}}>All departments & live status</p>
             </div>
 
             {/* Department KPI Grid */}
@@ -6285,11 +6507,11 @@ export default function StaffApp(){
                 {label:'New Leads', value: String(enquiries.filter(e=>e.status==='New' || e.status==='New Lead').length), icon:'contact_phone', bg:'#ede9fe', color:'#7c3aed', sub:'Room enquiries', view:'enquiry'},
                 {label:'Mess Covers', value:`${students.filter(s=>s['status'+(mealTab||'Lunch').charAt(0)]!=='notEaten').length} / ${students.length}`, icon:'restaurant', bg:'#fef9c3', color:'#ca8a04', sub:`Today ${mealTab||'Lunch'}`, view:'mess_headcount'},
               ].map(k => (
-                <div key={k.label} onClick={() => k.view && setView(k.view)} style={{background:'white', borderRadius:18, border: isManager ? '1px solid #e2e8f0' : `1px solid ${C.border}`, padding:'14px 16px', boxShadow:'0 2px 8px rgba(15,23,42,0.03)', cursor:'pointer', transition:'all 0.15s'}}>
+                <div key={k.label} onClick={() => k.view && setView(k.view)} style={{background:'white', borderRadius:18, border: '1.5px solid #e8df9a', padding:'14px 16px', boxShadow:'0 2px 8px rgba(120, 104, 10, 0.03)', cursor:'pointer', transition:'all 0.15s'}}>
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
                     <div>
-                      <p style={{fontSize:11, fontWeight:700, color: isManager ? '#64748b' : C.muted, margin:0, textTransform:'uppercase', letterSpacing:0.3}}>{k.label}</p>
-                      <p style={{fontSize:22, fontWeight:900, color: isManager ? '#0f172a' : C.text, margin:'4px 0 2px'}}>{k.value}</p>
+                      <p style={{fontSize:11, fontWeight:700, color: '#64748b', margin:0, textTransform:'uppercase', letterSpacing:0.3}}>{k.label}</p>
+                      <p style={{fontSize:22, fontWeight:900, color: '#1a1500', margin:'4px 0 2px'}}>{k.value}</p>
                       <p style={{fontSize:11, fontWeight:600, color:k.color, margin:0}}>{k.sub}</p>
                     </div>
                     <div style={{width:36, height:36, borderRadius:12, background:k.bg, display:'flex', alignItems:'center', justifyContent:'center'}}>
@@ -6301,24 +6523,24 @@ export default function StaffApp(){
             </div>
 
             {/* Mess & Meal Management Card */}
-            <div style={{background:'#fff', borderRadius:18, border: isManager ? '1px solid #e2e8f0' : `1px solid ${C.border}`, padding:16, boxShadow:'0 2px 8px rgba(15,23,42,0.03)'}}>
+            <div style={{background:'#fff', borderRadius:18, border: '1.5px solid #e8df9a', padding:16, boxShadow:'0 2px 8px rgba(120, 104, 10, 0.03)'}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
                 <div style={{display:'flex', alignItems:'center', gap:8}}>
                   <div style={{width:36, height:36, borderRadius:10, background:'#ede9fe', display:'flex', alignItems:'center', justifyContent:'center'}}>
                     <span className="material-symbols-outlined" style={{fontSize:20, color:'#7c3aed'}}>restaurant_menu</span>
                   </div>
                   <div>
-                    <p style={{margin:0, fontSize:14, fontWeight:900, color: isManager ? '#0f172a' : C.text}}>Mess & Meal Management</p>
-                    <p style={{margin:'2px 0 0', fontSize:11, color: isManager ? '#64748b' : C.muted}}>Pause / resume meals & manage food menu</p>
+                    <p style={{margin:0, fontSize:14, fontWeight:900, color: '#1a1500'}}>Mess & Meal Management</p>
+                    <p style={{margin:'2px 0 0', fontSize:11, color: '#64748b'}}>Pause / resume meals & manage food menu</p>
                   </div>
                 </div>
                 <div style={{display:'flex', gap:6}}>
                   <button
                     onClick={() => setView('mess_headcount')}
                     style={{
-                      background: isManager ? '#eff6ff' : '#fefce8',
-                      color: isManager ? '#4f46e5' : '#ca8a04',
-                      border: isManager ? '1px solid #dbeafe' : `1px solid ${C.border}`,
+                      background: '#fefce8',
+                      color: '#ca8a04',
+                      border: '1.5px solid #e8df9a',
                       borderRadius: 10,
                       padding: '6px 10px',
                       fontSize: 12,
@@ -6696,48 +6918,48 @@ export default function StaffApp(){
             const isCompleted = todayLog && todayLog.clockOut;
             const isMarkedExternally = todayLog && !todayLog.clockIn && (todayLog.status === 'absent' || todayLog.status === 'present');
             
-            if (!clocked && (isCompleted || isMarkedExternally)) {
-              return (
-                <div style={{background: '#f8fafc', borderRadius:18, border: '1px solid #e2e8f0', padding:'20px 18px', textAlign: 'center', boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
-                  <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-                    <span className="material-symbols-outlined">check_circle</span>
-                  </div>
-                  <p style={{margin:0, fontSize:15, fontWeight:800, color:'#0f172a'}}>Attendance Recorded</p>
-                  <p style={{margin:'4px 0 0', fontSize:13, color:'#64748b', fontWeight:600}}>You have already completed your shift or been marked for today.</p>
-                </div>
-              );
-            }
-
             return (
-              <div style={{background: C.primary, borderRadius:18, border: '1px solid #e2e8f0', padding:'20px 18px', color:'#000', boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
+              <div style={{background: C.primary, borderRadius:18, border: '1.5px solid #e8df9a', padding:'20px 18px', color:'#000', boxShadow: '0 4px 16px rgba(15,23,42,0.05)'}}>
                 <p style={{margin:0, fontSize:11, fontWeight:800, textTransform:'uppercase', color:'#000', letterSpacing:.5}}>Today's Shift Timer</p>
                 <ShiftTimer clockIn={clockIn} clockInExact={clockInExact} clocked={clocked} resting={resting} lastRestStart={restStart} totalRestMs={totalRestDurationMs} />
-                <p style={{margin:'0 0 14px', fontSize:12, fontWeight:700, color:'#333'}}>{clocked?`Punched IN at ${clockIn}`:'Not currently punched in'}</p>
+                <p style={{margin:'0 0 14px', fontSize:12, fontWeight:700, color:'#333'}}>{clocked?`On Duty since ${clockIn}`:'Currently Off Duty'}</p>
                 <div style={{display:'flex',gap:12,width:'100%',justifyContent:'center'}}>
                   <button 
                     onClick={() => {
-                      if (clocked) {
-                        setShowPunchOutConfirm(true);
-                      } else {
-                        punch();
-                      }
+                      if (!isPunching) punch();
                     }} 
                     disabled={isPunching}
-                    style={{padding:'10px 20px', background:'#fff', border: '1px solid #e2e8f0', borderRadius: 10, color:'#000', fontSize:13, fontWeight:800, cursor:isPunching?'not-allowed':'pointer', fontFamily:'inherit', boxShadow: '0 2px 8px rgba(15,23,42,0.04)', opacity: isPunching ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center'}}
+                    style={{
+                      padding:'10px 20px', 
+                      background: clocked ? '#fee2e2' : '#dcfce7', 
+                      border: clocked ? '1.5px solid #fca5a5' : '1.5px solid #86efac', 
+                      borderRadius: 12, 
+                      color: clocked ? '#991b1b' : '#166534', 
+                      fontSize:13, 
+                      fontWeight:900, 
+                      cursor:isPunching?'not-allowed':'pointer', 
+                      fontFamily:'inherit', 
+                      boxShadow: '0 2px 8px rgba(15,23,42,0.04)', 
+                      opacity: isPunching ? 0.7 : 1, 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 6, 
+                      justifyContent: 'center'
+                    }}
                   >
                     {isPunching ? (
                       <>
-                        <div style={{ width: 14, height: 14, border: '2px solid rgba(0,0,0,0.2)', borderTopColor: '#000', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-                        Wait...
+                        <div style={{ width: 14, height: 14, border: '2px solid rgba(0,0,0,0.2)', borderTopColor: clocked ? '#991b1b' : '#166534', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                        Updating...
                       </>
                     ) : (
-                      clocked?'⏹ Punch Out Now':'▶ Punch In'
+                      clocked ? '🔴 Go Off Duty' : '🟢 Go On Duty'
                     )}
                   </button>
                   {clocked && (
                     <button 
                       onClick={takeRest}
-                      style={{padding:'10px 20px', background: resting ? '#f59e0b' : '#fff', border: '1px solid #e2e8f0', borderRadius: 10, color: resting ? '#fff' : '#000', fontSize:13, fontWeight:800, cursor:'pointer', fontFamily:'inherit', boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}
+                      style={{padding:'10px 20px', background: resting ? '#f59e0b' : '#fff', border: '1px solid #e2e8f0', borderRadius: 12, color: resting ? '#fff' : '#000', fontSize:13, fontWeight:800, cursor:'pointer', fontFamily:'inherit', boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}
                     >
                       {resting ? '▶ Restart Work' : '⏸ Take Rest'}
                     </button>
@@ -8725,418 +8947,564 @@ export default function StaffApp(){
         <div style={{padding:'16px 14px calc(96px + env(safe-area-inset-bottom, 0px))', display:'flex', flexDirection:'column', gap:14}}>
           
           {/* Top Tab Switcher */}
-          <div style={{display:'flex', background:'#f1f5f9', padding:4, borderRadius:12, gap:4}}>
-            <button
-              onClick={() => setInventoryTab('kitchen')}
-              style={{
-                flex: 1,
-                padding: '9px 0',
-                borderRadius: 9,
-                border: 'none',
-                background: inventoryTab === 'kitchen' ? '#0891b2' : 'transparent',
-                color: inventoryTab === 'kitchen' ? '#fff' : '#64748b',
-                fontSize: 13,
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                transition: 'all 0.15s'
-              }}
-            >
-              <span className="material-symbols-outlined" style={{fontSize:18}}>kitchen</span>
-              <span>Kitchen Stock ({kitchenInventoryList.length})</span>
-            </button>
+          {!selectedKitchenDetailItem && (
+            <div style={{display:'flex', background:'#f1f5f9', padding:4, borderRadius:12, gap:4}}>
+              <button
+                onClick={() => setInventoryTab('kitchen')}
+                style={{
+                  flex: 1,
+                  padding: '9px 0',
+                  borderRadius: 9,
+                  border: 'none',
+                  background: inventoryTab === 'kitchen' ? '#0891b2' : 'transparent',
+                  color: inventoryTab === 'kitchen' ? '#fff' : '#64748b',
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  transition: 'all 0.15s'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{fontSize:18}}>kitchen</span>
+                <span>Kitchen Stock ({kitchenInventoryList.length})</span>
+              </button>
 
-            <button
-              onClick={() => setInventoryTab('petty_cash')}
-              style={{
-                flex: 1,
-                padding: '9px 0',
-                borderRadius: 9,
-                border: 'none',
-                background: inventoryTab === 'petty_cash' ? '#0891b2' : 'transparent',
-                color: inventoryTab === 'petty_cash' ? '#fff' : '#64748b',
-                fontSize: 13,
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-                transition: 'all 0.15s'
-              }}
-            >
-              <span className="material-symbols-outlined" style={{fontSize:18}}>payments</span>
-              <span>Petty Cash</span>
-            </button>
-          </div>
+              <button
+                onClick={() => setInventoryTab('petty_cash')}
+                style={{
+                  flex: 1,
+                  padding: '9px 0',
+                  borderRadius: 9,
+                  border: 'none',
+                  background: inventoryTab === 'petty_cash' ? '#0891b2' : 'transparent',
+                  color: inventoryTab === 'petty_cash' ? '#fff' : '#64748b',
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  transition: 'all 0.15s'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{fontSize:18}}>payments</span>
+                <span>Petty Cash</span>
+              </button>
+            </div>
+          )}
 
           {/* ── TAB 1: KITCHEN INVENTORY ────────────────────────── */}
           {inventoryTab === 'kitchen' && (
-            <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                
-                {/* Header Card */}
-                <div style={{background:'#fff', borderRadius:16, border:`1px solid ${C.border}`, padding:14, display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 2px 8px rgba(15,23,42,0.03)'}}>
-                  <div>
-                    <span style={{fontSize:10, fontWeight:800, color:'#0891b2', textTransform:'uppercase', letterSpacing:0.5}}>Kitchen Inventory</span>
-                    <h3 style={{margin:'2px 0 0', fontSize:18, fontWeight:900, color:'#0f172a'}}>
-                      {kitchenSubTab === 'current' ? `${currentKitchenItems.length} Items In Stock` : `${usedKitchenItems.length} Used / Archived Items`}
-                    </h3>
-                    <span style={{fontSize:11, color: kitchenSubTab === 'current' ? '#16a34a' : '#b45309', fontWeight:700}}>
-                      {kitchenSubTab === 'current' ? '✓ Synced with Cook, Manager & Admin' : '🗂️ Completed & Used Items History'}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => setShowAddKitchenItemModal(true)}
-                    style={{display:'flex', alignItems:'center', gap:4, background:'#0891b2', color:'#fff', border:'none', borderRadius:10, padding:'8px 12px', fontSize:12, fontWeight:800, cursor:'pointer'}}
-                  >
-                    <span className="material-symbols-outlined" style={{fontSize:16}}>add</span>
-                    <span>Add Item</span>
-                  </button>
-                </div>
+            selectedKitchenDetailItem ? (
+              /* DEDICATED SECTION FOR ITEM DETAILS (REPLACES SLIDER MODAL) */
+              (() => {
+                const liveItem = kitchenInventoryList.find(i => i.docId === selectedKitchenDetailItem.docId) || selectedKitchenDetailItem;
+                const totalSpend = Array.isArray(liveItem.purchaseHistory)
+                  ? liveItem.purchaseHistory.reduce((acc, h) => acc + (Number(h.price) || 0), 0)
+                  : 0;
+                const totalRefillQty = Array.isArray(liveItem.purchaseHistory)
+                  ? liveItem.purchaseHistory.reduce((acc, h) => acc + (Number(h.qty) || 0), 0)
+                  : 0;
 
-                {/* Sub-Tab Switcher: Current vs Used */}
-                <div style={{display:'flex', background:'#e2e8f0', borderRadius:10, padding:3, gap:4}}>
-                  <button
-                    onClick={() => setKitchenSubTab('current')}
-                    style={{
-                      flex: 1, padding: '8px 10px', border: 'none', borderRadius: 8,
-                      fontWeight: 800, fontSize: 12, cursor: 'pointer', transition: 'all 0.15s',
-                      background: kitchenSubTab === 'current' ? '#fff' : 'transparent',
-                      color: kitchenSubTab === 'current' ? '#0891b2' : '#64748b',
-                      boxShadow: kitchenSubTab === 'current' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none'
-                    }}>
-                    📦 Current Stock ({currentKitchenItems.length})
-                  </button>
-                  <button
-                    onClick={() => setKitchenSubTab('used')}
-                    style={{
-                      flex: 1, padding: '8px 10px', border: 'none', borderRadius: 8,
-                      fontWeight: 800, fontSize: 12, cursor: 'pointer', transition: 'all 0.15s',
-                      background: kitchenSubTab === 'used' ? '#fff' : 'transparent',
-                      color: kitchenSubTab === 'used' ? '#0891b2' : '#64748b',
-                      boxShadow: kitchenSubTab === 'used' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none'
-                    }}>
-                    🗂️ Used Stock ({usedKitchenItems.length})
-                  </button>
-                </div>
-
-                {/* Search input */}
-                <div style={{display:'flex', alignItems:'center', gap:8, background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 12px'}}>
-                  <span className="material-symbols-outlined" style={{fontSize:18, color:'#94a3b8'}}>search</span>
-                  <input
-                    type="text"
-                    value={stockSearchQuery}
-                    onChange={(e) => setStockSearchQuery(e.target.value)}
-                    placeholder={kitchenSubTab === 'current' ? "Search current kitchen supplies..." : "Search used items history..."}
-                    style={{border:'none', outline:'none', width:'100%', fontSize:13, fontFamily:'inherit'}}
-                  />
-                  {stockSearchQuery && (
-                    <button onClick={() => setStockSearchQuery('')} style={{background:'none', border:'none', cursor:'pointer', color:'#94a3b8', padding:0}}>
-                      <span className="material-symbols-outlined" style={{fontSize:16}}>close</span>
-                    </button>
-                  )}
-                </div>
-
-                {/* Items List */}
-                {kitchenInventoryLoading ? (
-                  <div style={{textAlign:'center', padding:30, color:'#64748b'}}>
-                    <span className="material-symbols-outlined" style={{fontSize:30, color:'#0891b2', animation:'spin 1s linear infinite'}}>progress_activity</span>
-                    <p style={{margin:'6px 0 0', fontSize:12, fontWeight:700}}>Loading kitchen stock...</p>
-                  </div>
-                ) : filteredKitchenItems.length === 0 ? (
-                  <div style={{background:'#fff', borderRadius:16, border:'1px dashed #cbd5e1', padding:32, textAlign:'center', color:'#94a3b8'}}>
-                    <span className="material-symbols-outlined" style={{fontSize:40, color:'#cbd5e1', marginBottom:6}}>
-                      {kitchenSubTab === 'current' ? 'kitchen' : 'history_toggle_off'}
-                    </span>
-                    <p style={{margin:0, fontSize:14, fontWeight:800, color:'#475569'}}>
-                      {kitchenSubTab === 'current' ? 'Current Kitchen Inventory is Empty' : 'No Used Items Yet'}
-                    </p>
-                    <p style={{margin:'4px 0 14px', fontSize:12}}>
-                      {kitchenSubTab === 'current'
-                        ? 'Any kitchen items requested by Cook or purchased will appear here automatically.'
-                        : 'When an item is deleted or completed, it moves here for audit & reporting.'}
-                    </p>
-                    {kitchenSubTab === 'current' && (
-                      <button
-                        onClick={() => setShowAddKitchenItemModal(true)}
-                        style={{background:'#0891b2', color:'#fff', border:'none', borderRadius:10, padding:'8px 16px', fontSize:12, fontWeight:800, cursor:'pointer'}}
-                      >
-                        + Add Item to Stock
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{display:'flex', flexDirection:'column', gap:8}}>
-                    {filteredKitchenItems.map(item => (
-                      <div
-                        key={item.docId}
-                        onClick={() => setSelectedKitchenDetailItem(item)}
-                        style={{background:'#fff', borderRadius:14, border:`1px solid ${C.border}`, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 1px 4px rgba(15,23,42,0.02)', cursor:'pointer'}}
-                      >
-                        <div style={{display:'flex', alignItems:'center', gap:10, flex:1, minWidth:0}}>
-                          <div style={{width:36, height:36, borderRadius:10, background: item.isUsed ? '#fef3c7' : '#ecfeff', display:'flex', alignItems:'center', justifyContent:'center', color: item.isUsed ? '#b45309' : '#0891b2', flexShrink:0}}>
-                            <span className="material-symbols-outlined" style={{fontSize:20}}>
-                              {item.isUsed ? 'history_toggle_off' : (item.icon || 'kitchen')}
-                            </span>
-                          </div>
-                          <div style={{minWidth:0, flex:1}}>
-                            <div style={{display:'flex', alignItems:'center', gap:6}}>
-                              <p style={{margin:0, fontSize:14, fontWeight:800, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{item.name}</p>
-                              {item.isUsed && (
-                                <span style={{fontSize:10, fontWeight:800, background:'#fef3c7', color:'#b45309', padding:'2px 6px', borderRadius:6}}>
-                                  USED
-                                </span>
-                              )}
-                            </div>
-                            <span style={{fontSize:11, color: item.isUsed ? '#b45309' : '#64748b', fontWeight:600}}>
-                              {item.isUsed && item.usedAt ? (
-                                `🗂️ Moved to used: ${new Date(item.usedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-                              ) : item.lastPurchasedDate ? (
-                                `🕒 Purchased: ${new Date(item.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-                              ) : item.lastUpdatedBy ? (
-                                `By: ${item.lastUpdatedBy}`
-                              ) : (
-                                'Kitchen Stock'
-                              )}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div style={{display:'flex', alignItems:'center', gap:8, flexShrink:0}} onClick={e => e.stopPropagation()}>
-                          {/* Clean Read-Only Quantity Display */}
-                          <div style={{background: item.isUsed ? '#fef3c7' : '#ecfeff', border: `1px solid ${item.isUsed ? '#fde68a' : '#cffafe'}`, padding: '6px 12px', borderRadius: 10, textAlign: 'right', display: 'flex', alignItems: 'baseline', gap: 4}}>
-                            <span style={{fontSize: 15, fontWeight: 900, color: item.isUsed ? '#b45309' : '#0891b2'}}>{item.totalQty}</span>
-                            <span style={{fontSize: 11, fontWeight: 700, color: item.isUsed ? '#92400e' : '#0e7490'}}>{item.unit || 'kg'}</span>
-                          </div>
-
-                          {/* If in Used tab: Restore button */}
-                          {item.isUsed && (
-                            <button
-                              title="Restore to Current inventory"
-                              onClick={async () => {
-                                if (window.confirm(`Restore "${item.name}" back to Current inventory?`)) {
-                                  try {
-                                    await updateDoc(doc(db, 'pg_inventory_master', item.docId), {
-                                      isUsed: false,
-                                      usedMonth: null,
-                                      usedAt: null,
-                                      lastUpdated: new Date().toISOString(),
-                                      lastUpdatedBy: `${staffName} (${staffRole})`
-                                    });
-                                    showToast(`"${item.name}" restored to Current stock`, 'success');
-                                  } catch (err) {
-                                    console.error(err);
-                                    showToast('Failed to restore item', 'error');
-                                  }
-                                }
-                              }}
-                              style={{background:'#ecfeff', border:'1px solid #cffafe', borderRadius:8, width:30, height:30, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#0891b2', padding:0}}
-                            >
-                              <span className="material-symbols-outlined" style={{fontSize:18}}>settings_backup_restore</span>
-                            </button>
-                          )}
-
-                          {/* Delete button: In Current, moves to Used; in Used, permanently deletes */}
-                          <button
-                            title={item.isUsed ? "Delete from archive" : "Move to Used inventory"}
-                            onClick={async () => {
-                              if (item.isUsed) {
-                                if (window.confirm(`Permanently delete "${item.name}" from archive?`)) {
-                                  try {
-                                    await deleteDoc(doc(db, 'pg_inventory_master', item.docId));
-                                    showToast('Item deleted from archive', 'success');
-                                  } catch (err) { console.error(err); }
-                                }
-                              } else {
-                                if (window.confirm(`Move "${item.name}" to Used inventory?`)) {
-                                  try {
-                                    const currentMonthKey = new Date().toISOString().slice(0, 7);
-                                    await updateDoc(doc(db, 'pg_inventory_master', item.docId), {
-                                      isUsed: true,
-                                      usedMonth: currentMonthKey,
-                                      usedAt: new Date().toISOString(),
-                                      usedBy: `${staffName} (${staffRole})`,
-                                      lastUpdated: new Date().toISOString(),
-                                      lastUpdatedBy: `${staffName} (${staffRole})`
-                                    });
-                                    showToast(`"${item.name}" moved to Used inventory`, 'success');
-                                  } catch (err) {
-                                    console.error(err);
-                                    showToast('Failed to move item to used', 'error');
-                                  }
-                                }
-                              }
-                            }}
-                            style={{background:'#fee2e2', border:'none', borderRadius:8, width:30, height:30, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#ef4444', padding:0}}
-                          >
-                            <span className="material-symbols-outlined" style={{fontSize:16}}>delete</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Item Detailing Modal in Staff App */}
-                {selectedKitchenDetailItem && (
-                  <div style={{position:'fixed', inset:0, background:'rgba(15,23,42,0.6)', zIndex:200, display:'flex', alignItems:'flex-end', justifyContent:'center', backdropFilter:'blur(3px)'}}
-                    onClick={e => { if (e.target === e.currentTarget) setSelectedKitchenDetailItem(null); }}>
-                    <div style={{background:'#fff', width:'100%', maxWidth:480, borderRadius:'24px 24px 0 0', maxHeight:'88vh', display:'flex', flexDirection:'column'}}>
-                      <div style={{width:40, height:4, background:'#e2e8f0', borderRadius:99, margin:'12px auto 6px'}} />
-                      
-                      <div style={{padding:'12px 20px 14px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', justifyContent:'space-between'}}>
-                        <div style={{display:'flex', alignItems:'center', gap:10}}>
-                          <div style={{width:38, height:38, borderRadius:12, background: selectedKitchenDetailItem.isUsed ? '#fef3c7' : '#ecfeff', display:'flex', alignItems:'center', justifyContent:'center', color: selectedKitchenDetailItem.isUsed ? '#b45309' : '#0891b2'}}>
-                            <span className="material-symbols-outlined" style={{fontSize:22}}>{selectedKitchenDetailItem.icon || 'kitchen'}</span>
-                          </div>
-                          <div>
-                            <div style={{display:'flex', alignItems:'center', gap:8}}>
-                              <h3 style={{margin:0, fontSize:16, fontWeight:900, color:'#0f172a'}}>{selectedKitchenDetailItem.name}</h3>
-                              {selectedKitchenDetailItem.isUsed && (
-                                <span style={{fontSize:10, fontWeight:800, background:'#fef3c7', color:'#b45309', padding:'2px 8px', borderRadius:6}}>
-                                  USED
-                                </span>
-                              )}
-                            </div>
-                            <span style={{fontSize:12, color:'#64748b'}}>Kitchen Stock Details</span>
-                          </div>
-                        </div>
-                        <button onClick={() => setSelectedKitchenDetailItem(null)} style={{background:'#f1f5f9', border:'none', borderRadius:10, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>
-                          <span className="material-symbols-outlined" style={{fontSize:18, color:'#64748b'}}>close</span>
+                return (
+                  <div style={{display:'flex', flexDirection:'column', gap:14}}>
+                    {/* Top Navigation & Header Card */}
+                    <div style={{background:'#fff', borderRadius:16, border:`1px solid ${C.border}`, padding:'12px 14px', display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow:'0 2px 8px rgba(15,23,42,0.03)'}}>
+                      <div style={{display:'flex', alignItems:'center', gap:10}}>
+                        <button
+                          onClick={() => setSelectedKitchenDetailItem(null)}
+                          style={{
+                            display:'flex', alignItems:'center', justifyContent:'center',
+                            width:38, height:38, borderRadius:10, background:'#f1f5f9',
+                            border:'1px solid #e2e8f0', color:'#0f172a', cursor:'pointer'
+                          }}
+                          title="Back to Stock List"
+                        >
+                          <span className="material-symbols-outlined" style={{fontSize:20}}>arrow_back_ios_new</span>
                         </button>
+                        <div>
+                          <div style={{display:'flex', alignItems:'center', gap:6}}>
+                            <span style={{fontSize:10, fontWeight:800, color:'#0891b2', textTransform:'uppercase', letterSpacing:0.5}}>Kitchen Stock</span>
+                            <span style={{fontSize:10, fontWeight:800, padding:'2px 8px', borderRadius:6, background: liveItem.isUsed ? '#fef3c7' : '#ecfeff', color: liveItem.isUsed ? '#b45309' : '#0891b2'}}>
+                              {liveItem.isUsed ? '🗂️ USED / ARCHIVED' : '📦 CURRENT STOCK'}
+                            </span>
+                          </div>
+                          <h2 style={{margin:'2px 0 0', fontSize:18, fontWeight:900, color:'#0f172a'}}>{liveItem.name}</h2>
+                        </div>
                       </div>
 
-                      <div style={{padding:'16px 20px', overflowY:'auto', flex:1, display:'flex', flexDirection:'column', gap:14}}>
-                        {/* Status banner */}
-                        {selectedKitchenDetailItem.isUsed && (
-                          <div style={{background:'#fffbeb', border:'1px solid #fde68a', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10, color:'#92400e', fontSize:12}}>
-                            <span className="material-symbols-outlined" style={{fontSize:20, color:'#b45309'}}>history_toggle_off</span>
-                            <div>
-                              <strong>Moved to Used Inventory</strong>
-                              <div>{selectedKitchenDetailItem.usedAt ? `On ${new Date(selectedKitchenDetailItem.usedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''} {selectedKitchenDetailItem.usedBy ? `by ${selectedKitchenDetailItem.usedBy}` : ''}</div>
-                            </div>
+                      <button
+                        onClick={() => setSelectedKitchenDetailItem(null)}
+                        style={{display:'flex', alignItems:'center', gap:4, background:'#f1f5f9', color:'#475569', border:'none', borderRadius:10, padding:'8px 12px', fontSize:12, fontWeight:700, cursor:'pointer'}}
+                      >
+                        <span className="material-symbols-outlined" style={{fontSize:16}}>arrow_back</span>
+                        <span>Back</span>
+                      </button>
+                    </div>
+
+                    {/* Notice banner if moved to used */}
+                    {liveItem.isUsed && (
+                      <div style={{background:'#fffbeb', border:'1px solid #fde68a', borderRadius:14, padding:'12px 14px', display:'flex', alignItems:'center', gap:10, color:'#92400e', fontSize:13}}>
+                        <span className="material-symbols-outlined" style={{fontSize:22, color:'#b45309'}}>history_toggle_off</span>
+                        <div>
+                          <strong>Archived in Used Stock</strong>
+                          <div style={{fontSize:12, marginTop:2}}>
+                            {liveItem.usedAt ? `Moved on ${new Date(liveItem.usedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''} 
+                            {liveItem.usedBy ? ` by ${liveItem.usedBy}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Hero Stock Card */}
+                    <div style={{
+                      background: liveItem.isUsed 
+                        ? 'linear-gradient(135deg, #78350f 0%, #b45309 100%)' 
+                        : 'linear-gradient(135deg, #0e7490 0%, #0891b2 50%, #06b6d4 100%)',
+                      borderRadius: 18,
+                      padding: '20px 20px',
+                      color: '#fff',
+                      boxShadow: '0 8px 24px rgba(8,145,178,0.2)'
+                    }}>
+                      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
+                        <div style={{display:'flex', alignItems:'center', gap:8}}>
+                          <div style={{width:32, height:32, borderRadius:8, background:'rgba(255,255,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                            <span className="material-symbols-outlined" style={{fontSize:18}}>{liveItem.icon || 'kitchen'}</span>
+                          </div>
+                          <span style={{fontSize:12, fontWeight:800, textTransform:'uppercase', letterSpacing:0.5, opacity:0.9}}>
+                            {liveItem.isUsed ? 'Recorded Used Quantity' : 'Available Kitchen Stock'}
+                          </span>
+                        </div>
+                        <span style={{background:'rgba(255,255,255,0.25)', padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:800}}>
+                          {(liveItem.unit || 'kg').toUpperCase()}
+                        </span>
+                      </div>
+
+                      <div style={{display:'flex', alignItems:'baseline', gap:8, margin:'8px 0'}}>
+                        <span style={{fontSize:36, fontWeight:900, lineHeight:1}}>{liveItem.totalQty}</span>
+                        <span style={{fontSize:18, fontWeight:700, opacity:0.9}}>{liveItem.unit || 'kg'}</span>
+                      </div>
+
+                      <div style={{display:'flex', alignItems:'center', gap:16, borderTop:'1px solid rgba(255,255,255,0.2)', paddingTop:12, marginTop:12, fontSize:12, opacity:0.9}}>
+                        <div>
+                          <span style={{opacity:0.75}}>Last Purchase: </span>
+                          <strong>{liveItem.lastPurchasedDate ? new Date(liveItem.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Direct Entry'}</strong>
+                        </div>
+                        {liveItem.lastUpdatedBy && (
+                          <div>
+                            <span style={{opacity:0.75}}>Updated by: </span>
+                            <strong>{liveItem.lastUpdatedBy}</strong>
                           </div>
                         )}
+                      </div>
+                    </div>
 
-                        {/* Stock Banner */}
-                        <div style={{background: selectedKitchenDetailItem.isUsed ? 'linear-gradient(135deg, #b45309, #78350f)' : 'linear-gradient(135deg, #0891b2, #0e7490)', borderRadius:16, padding:'16px 18px', color:'#fff'}}>
-                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4}}>
-                            <span style={{fontSize:11, fontWeight:800, textTransform:'uppercase', opacity:0.9}}>
-                              {selectedKitchenDetailItem.isUsed ? 'Recorded Used Quantity' : 'Current Available Stock'}
-                            </span>
-                            <span style={{background:'rgba(255,255,255,0.2)', padding:'2px 8px', borderRadius:8, fontSize:11, fontWeight:800}}>
-                              {(selectedKitchenDetailItem.unit || 'kg').toUpperCase()}
-                            </span>
-                          </div>
-                          <p style={{fontSize:26, fontWeight:900, margin:'0 0 4px'}}>
-                            {selectedKitchenDetailItem.totalQty} <span style={{fontSize:16, fontWeight:700}}>{selectedKitchenDetailItem.unit || 'kg'}</span>
-                          </p>
-                          <p style={{fontSize:12, opacity:0.85, margin:0}}>
-                            {selectedKitchenDetailItem.lastPurchasedDate
-                              ? `Last purchased: ${new Date(selectedKitchenDetailItem.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
-                              : `Last updated: ${selectedKitchenDetailItem.lastUpdatedBy || 'Kitchen'}`}
-                          </p>
-                        </div>
+                    {/* KPI Quick Stats Grid */}
+                    <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:10}}>
+                      <div style={{background:'#fff', borderRadius:14, border:`1px solid ${C.border}`, padding:'12px 10px', textAlign:'center'}}>
+                        <span style={{fontSize:10, fontWeight:800, color:'#64748b', textTransform:'uppercase'}}>Purchases</span>
+                        <p style={{margin:'4px 0 0', fontSize:18, fontWeight:900, color:'#0f172a'}}>
+                          {Array.isArray(liveItem.purchaseHistory) ? liveItem.purchaseHistory.length : 0}
+                        </p>
+                        <span style={{fontSize:10, color:'#64748b'}}>Total refills</span>
+                      </div>
+                      <div style={{background:'#fff', borderRadius:14, border:`1px solid ${C.border}`, padding:'12px 10px', textAlign:'center'}}>
+                        <span style={{fontSize:10, fontWeight:800, color:'#64748b', textTransform:'uppercase'}}>Total Refilled</span>
+                        <p style={{margin:'4px 0 0', fontSize:18, fontWeight:900, color:'#0891b2'}}>
+                          {totalRefillQty > 0 ? totalRefillQty : liveItem.totalQty}
+                        </p>
+                        <span style={{fontSize:10, color:'#64748b'}}>{liveItem.unit || 'kg'}</span>
+                      </div>
+                      <div style={{background:'#fff', borderRadius:14, border:`1px solid ${C.border}`, padding:'12px 10px', textAlign:'center'}}>
+                        <span style={{fontSize:10, fontWeight:800, color:'#64748b', textTransform:'uppercase'}}>Total Spend</span>
+                        <p style={{margin:'4px 0 0', fontSize:18, fontWeight:900, color: totalSpend > 0 ? '#16a34a' : '#64748b'}}>
+                          {totalSpend > 0 ? `₹${Math.round(totalSpend).toLocaleString('en-IN')}` : '—'}
+                        </p>
+                        <span style={{fontSize:10, color:'#64748b'}}>Recorded cost</span>
+                      </div>
+                    </div>
 
-                        {/* Purchase History Ledger */}
+                    {/* Purchase & Refill History Ledger */}
+                    <div style={{background:'#fff', borderRadius:16, border:`1px solid ${C.border}`, padding:16, boxShadow:'0 2px 8px rgba(15,23,42,0.02)'}}>
+                      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
                         <div>
-                          <p style={{fontWeight:800, fontSize:14, color:'#0f172a', margin:'0 0 10px'}}>Purchase & Refill History</p>
-                          {Array.isArray(selectedKitchenDetailItem.purchaseHistory) && selectedKitchenDetailItem.purchaseHistory.length > 0 ? (
-                            <div style={{display:'flex', flexDirection:'column', gap:8}}>
-                              {selectedKitchenDetailItem.purchaseHistory.map((h, i) => (
-                                <div key={h.id || i} style={{background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:12, padding:'10px 12px'}}>
-                                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:4}}>
-                                    <div>
-                                      <p style={{margin:0, fontWeight:800, fontSize:14, color:'#0f172a'}}>
-                                        +{h.qty} {h.unit || selectedKitchenDetailItem.unit || 'kg'}
-                                        {h.rate ? <span style={{fontSize:12, fontWeight:600, color:'#64748b', marginLeft:6}}>@ ₹{h.rate}/{h.unit || selectedKitchenDetailItem.unit || 'kg'}</span> : null}
-                                      </p>
-                                      {h.price ? (
-                                        <p style={{margin:'2px 0 0', fontSize:12, fontWeight:700, color:'#0891b2'}}>₹{Math.round(h.price).toLocaleString('en-IN')}</p>
-                                      ) : null}
-                                    </div>
-                                    <span style={{background:'#e2e8f0', color:'#475569', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:6}}>
-                                      {h.date ? new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Logged'}
-                                    </span>
-                                  </div>
-                                  <div style={{display:'flex', justifyContent:'space-between', fontSize:11, color:'#64748b', borderTop:'1px dashed #e2e8f0', paddingTop:4, marginTop:4}}>
-                                    <span>👤 {h.purchasedBy || 'Admin/Cook'}</span>
-                                    {h.vendorName && <span>🏪 {h.vendorName}</span>}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div style={{background:'#f8fafc', border:'1px dashed #cbd5e1', borderRadius:12, padding:18, textAlign:'center', color:'#64748b', fontSize:12}}>
-                              <span className="material-symbols-outlined" style={{fontSize:28, color:'#94a3b8', display:'block', margin:'0 auto 4px'}}>receipt_long</span>
-                              Direct inventory item entry. Future vendor purchases will automatically log here!
-                            </div>
-                          )}
+                          <h4 style={{margin:0, fontSize:15, fontWeight:900, color:'#0f172a'}}>Purchase & Refill Ledger</h4>
+                          <span style={{fontSize:11, color:'#64748b'}}>Logged history of all purchases & deliveries</span>
                         </div>
+                        <span style={{fontSize:11, fontWeight:800, background:'#f1f5f9', color:'#475569', padding:'3px 8px', borderRadius:8}}>
+                          {Array.isArray(liveItem.purchaseHistory) ? `${liveItem.purchaseHistory.length} logs` : '0 logs'}
+                        </span>
                       </div>
 
-                      {/* Modal Footer Actions */}
-                      <div style={{padding:'14px 20px', borderTop:'1px solid #f1f5f9', background:'#fff', borderRadius:'0 0 24px 24px', display:'flex', gap:10}}>
-                        {selectedKitchenDetailItem.isUsed ? (
+                      {Array.isArray(liveItem.purchaseHistory) && liveItem.purchaseHistory.length > 0 ? (
+                        <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                          {liveItem.purchaseHistory.map((h, i) => (
+                            <div key={h.id || i} style={{background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:12, padding:'12px 14px'}}>
+                              <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6}}>
+                                <div>
+                                  <div style={{display:'flex', alignItems:'center', gap:8}}>
+                                    <span style={{fontSize:16, fontWeight:900, color:'#0f172a'}}>
+                                      +{h.qty} {h.unit || liveItem.unit || 'kg'}
+                                    </span>
+                                    {h.rate ? (
+                                      <span style={{fontSize:12, fontWeight:700, color:'#64748b', background:'#e2e8f0', padding:'2px 6px', borderRadius:6}}>
+                                        @ ₹{h.rate}/{h.unit || liveItem.unit || 'kg'}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  {h.price ? (
+                                    <p style={{margin:'3px 0 0', fontSize:13, fontWeight:800, color:'#0891b2'}}>
+                                      ₹{Math.round(h.price).toLocaleString('en-IN')}
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <span style={{background:'#e2e8f0', color:'#475569', fontSize:11, fontWeight:700, padding:'3px 8px', borderRadius:6}}>
+                                  {h.date ? new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Logged'}
+                                </span>
+                              </div>
+
+                              <div style={{display:'flex', flexWrap:'wrap', justifyContent:'space-between', gap:8, fontSize:12, color:'#64748b', borderTop:'1px dashed #e2e8f0', paddingTop:8, marginTop:6}}>
+                                <div style={{display:'flex', alignItems:'center', gap:4}}>
+                                  <span className="material-symbols-outlined" style={{fontSize:15, color:'#94a3b8'}}>person</span>
+                                  <span>Purchased by: <strong>{h.purchasedBy || 'Admin / Cook'}</strong></span>
+                                </div>
+                                {h.vendorName && (
+                                  <div style={{display:'flex', alignItems:'center', gap:4}}>
+                                    <span className="material-symbols-outlined" style={{fontSize:15, color:'#94a3b8'}}>storefront</span>
+                                    <span>Vendor: <strong>{h.vendorName}</strong></span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{background:'#f8fafc', border:'1px dashed #cbd5e1', borderRadius:14, padding:'24px 16px', textAlign:'center', color:'#64748b'}}>
+                          <span className="material-symbols-outlined" style={{fontSize:32, color:'#94a3b8', display:'block', margin:'0 auto 6px'}}>receipt_long</span>
+                          <p style={{margin:0, fontSize:13, fontWeight:700, color:'#475569'}}>Direct Stock Entry</p>
+                          <p style={{margin:'4px 0 0', fontSize:12, color:'#94a3b8'}}>
+                            Any new purchases for this item will automatically be recorded with quantity, price, purchaser, and vendor.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Action Buttons Section */}
+                    <div style={{background:'#fff', borderRadius:16, border:`1px solid ${C.border}`, padding:14, display:'flex', flexDirection:'column', gap:10, boxShadow:'0 2px 8px rgba(15,23,42,0.02)'}}>
+                      {liveItem.isUsed ? (
+                        <div style={{display:'flex', gap:10}}>
                           <button
                             onClick={async () => {
                               try {
-                                await updateDoc(doc(db, 'pg_inventory_master', selectedKitchenDetailItem.docId), {
+                                await updateDoc(doc(db, 'pg_inventory_master', liveItem.docId), {
                                   isUsed: false,
                                   usedMonth: null,
                                   usedAt: null,
                                   lastUpdated: new Date().toISOString(),
                                   lastUpdatedBy: `${staffName} (${staffRole})`
                                 });
-                                showToast(`"${selectedKitchenDetailItem.name}" restored to Current stock`, 'success');
-                                setSelectedKitchenDetailItem(null);
+                                showToast(`"${liveItem.name}" restored to Current stock`, 'success');
+                                setSelectedKitchenDetailItem(prev => ({ ...prev, isUsed: false, usedMonth: null, usedAt: null }));
                               } catch (err) {
                                 console.error(err);
                                 showToast('Failed to restore item', 'error');
                               }
                             }}
-                            style={{flex:1, padding:'12px', background:'#ecfeff', color:'#0891b2', border:'1px solid #0891b2', borderRadius:12, fontWeight:800, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6}}
+                            style={{
+                              flex: 1, padding: '12px 14px', background: '#ecfeff',
+                              color: '#0891b2', border: '1px solid #0891b2', borderRadius: 12,
+                              fontWeight: 800, fontSize: 13, cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                            }}
                           >
                             <span className="material-symbols-outlined" style={{fontSize:18}}>settings_backup_restore</span>
-                            Restore to Current Stock
+                            <span>Restore to Current Stock</span>
                           </button>
-                        ) : (
+
                           <button
                             onClick={async () => {
-                              if (window.confirm(`Move "${selectedKitchenDetailItem.name}" to Used inventory?`)) {
+                              if (window.confirm(`Permanently delete "${liveItem.name}" from archive?`)) {
                                 try {
-                                  const currentMonthKey = new Date().toISOString().slice(0, 7);
-                                  await updateDoc(doc(db, 'pg_inventory_master', selectedKitchenDetailItem.docId), {
-                                    isUsed: true,
-                                    usedMonth: currentMonthKey,
-                                    usedAt: new Date().toISOString(),
-                                    usedBy: `${staffName} (${staffRole})`,
-                                    lastUpdated: new Date().toISOString(),
-                                    lastUpdatedBy: `${staffName} (${staffRole})`
-                                  });
-                                  showToast(`"${selectedKitchenDetailItem.name}" moved to Used inventory`, 'success');
+                                  await deleteDoc(doc(db, 'pg_inventory_master', liveItem.docId));
+                                  showToast('Item permanently deleted', 'success');
                                   setSelectedKitchenDetailItem(null);
                                 } catch (err) {
                                   console.error(err);
-                                  showToast('Failed to move item to used', 'error');
+                                  showToast('Failed to delete item', 'error');
                                 }
                               }
                             }}
-                            style={{flex:1, padding:'12px', background:'#fff1f2', color:'#ef4444', border:'1px solid #fecaca', borderRadius:12, fontWeight:800, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6}}
+                            style={{
+                              padding: '12px 14px', background: '#fee2e2',
+                              color: '#ef4444', border: '1px solid #fecaca', borderRadius: 12,
+                              fontWeight: 800, fontSize: 13, cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                            }}
                           >
-                            <span className="material-symbols-outlined" style={{fontSize:18}}>delete</span>
-                            Move to Used Inventory
+                            <span className="material-symbols-outlined" style={{fontSize:18}}>delete_forever</span>
                           </button>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`Move "${liveItem.name}" to Used inventory?`)) {
+                              try {
+                                const currentMonthKey = new Date().toISOString().slice(0, 7);
+                                await updateDoc(doc(db, 'pg_inventory_master', liveItem.docId), {
+                                  isUsed: true,
+                                  usedMonth: currentMonthKey,
+                                  usedAt: new Date().toISOString(),
+                                  usedBy: `${staffName} (${staffRole})`,
+                                  lastUpdated: new Date().toISOString(),
+                                  lastUpdatedBy: `${staffName} (${staffRole})`
+                                });
+                                showToast(`"${liveItem.name}" moved to Used inventory`, 'success');
+                                setSelectedKitchenDetailItem(prev => ({ ...prev, isUsed: true, usedMonth: currentMonthKey, usedAt: new Date().toISOString() }));
+                              } catch (err) {
+                                console.error(err);
+                                showToast('Failed to move item to used', 'error');
+                              }
+                            }
+                          }}
+                          style={{
+                            width: '100%', padding: '12px 14px', background: '#fff1f2',
+                            color: '#ef4444', border: '1px solid #fecaca', borderRadius: 12,
+                            fontWeight: 800, fontSize: 13, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                          }}
+                        >
+                          <span className="material-symbols-outlined" style={{fontSize:18}}>delete</span>
+                          <span>Move to Used Inventory</span>
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => setSelectedKitchenDetailItem(null)}
+                        style={{
+                          width: '100%', padding: '12px 14px', background: '#f1f5f9',
+                          color: '#475569', border: 'none', borderRadius: 12,
+                          fontWeight: 800, fontSize: 13, cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{fontSize:18}}>arrow_back</span>
+                        <span>Back to Stock List</span>
+                      </button>
                     </div>
                   </div>
-                )}
+                );
+              })()
+            ) : (
+              <div style={{display:'flex', flexDirection:'column', gap:12}}>
+                  
+                  {/* Header Card */}
+                  <div style={{background:'#fff', borderRadius:16, border:`1px solid ${C.border}`, padding:14, display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 2px 8px rgba(15,23,42,0.03)'}}>
+                    <div>
+                      <span style={{fontSize:10, fontWeight:800, color:'#0891b2', textTransform:'uppercase', letterSpacing:0.5}}>Kitchen Inventory</span>
+                      <h3 style={{margin:'2px 0 0', fontSize:18, fontWeight:900, color:'#0f172a'}}>
+                        {kitchenSubTab === 'current' ? `${currentKitchenItems.length} Items In Stock` : `${usedKitchenItems.length} Used / Archived Items`}
+                      </h3>
+                      <span style={{fontSize:11, color: kitchenSubTab === 'current' ? '#16a34a' : '#b45309', fontWeight:700}}>
+                        {kitchenSubTab === 'current' ? '✓ Synced with Cook, Manager & Admin' : '🗂️ Completed & Used Items History'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setShowAddKitchenItemModal(true)}
+                      style={{display:'flex', alignItems:'center', gap:4, background:'#0891b2', color:'#fff', border:'none', borderRadius:10, padding:'8px 12px', fontSize:12, fontWeight:800, cursor:'pointer'}}
+                    >
+                      <span className="material-symbols-outlined" style={{fontSize:16}}>add</span>
+                      <span>Add Item</span>
+                    </button>
+                  </div>
 
-              {/* Add Kitchen Item Modal */}
+                  {/* Sub-Tab Switcher: Current vs Used */}
+                  <div style={{display:'flex', background:'#e2e8f0', borderRadius:10, padding:3, gap:4}}>
+                    <button
+                      onClick={() => setKitchenSubTab('current')}
+                      style={{
+                        flex: 1, padding: '8px 10px', border: 'none', borderRadius: 8,
+                        fontWeight: 800, fontSize: 12, cursor: 'pointer', transition: 'all 0.15s',
+                        background: kitchenSubTab === 'current' ? '#fff' : 'transparent',
+                        color: kitchenSubTab === 'current' ? '#0891b2' : '#64748b',
+                        boxShadow: kitchenSubTab === 'current' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none'
+                      }}>
+                      📦 Current Stock ({currentKitchenItems.length})
+                    </button>
+                    <button
+                      onClick={() => setKitchenSubTab('used')}
+                      style={{
+                        flex: 1, padding: '8px 10px', border: 'none', borderRadius: 8,
+                        fontWeight: 800, fontSize: 12, cursor: 'pointer', transition: 'all 0.15s',
+                        background: kitchenSubTab === 'used' ? '#fff' : 'transparent',
+                        color: kitchenSubTab === 'used' ? '#0891b2' : '#64748b',
+                        boxShadow: kitchenSubTab === 'used' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none'
+                      }}>
+                      🗂️ Used Stock ({usedKitchenItems.length})
+                    </button>
+                  </div>
+
+                  {/* Search input */}
+                  <div style={{display:'flex', alignItems:'center', gap:8, background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 12px'}}>
+                    <span className="material-symbols-outlined" style={{fontSize:18, color:'#94a3b8'}}>search</span>
+                    <input
+                      type="text"
+                      value={stockSearchQuery}
+                      onChange={(e) => setStockSearchQuery(e.target.value)}
+                      placeholder={kitchenSubTab === 'current' ? "Search current kitchen supplies..." : "Search used items history..."}
+                      style={{border:'none', outline:'none', width:'100%', fontSize:13, fontFamily:'inherit'}}
+                    />
+                    {stockSearchQuery && (
+                      <button onClick={() => setStockSearchQuery('')} style={{background:'none', border:'none', cursor:'pointer', color:'#94a3b8', padding:0}}>
+                        <span className="material-symbols-outlined" style={{fontSize:16}}>close</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Items List */}
+                  {kitchenInventoryLoading ? (
+                    <div style={{textAlign:'center', padding:30, color:'#64748b'}}>
+                      <span className="material-symbols-outlined" style={{fontSize:30, color:'#0891b2', animation:'spin 1s linear infinite'}}>progress_activity</span>
+                      <p style={{margin:'6px 0 0', fontSize:12, fontWeight:700}}>Loading kitchen stock...</p>
+                    </div>
+                  ) : filteredKitchenItems.length === 0 ? (
+                    <div style={{background:'#fff', borderRadius:16, border:'1px dashed #cbd5e1', padding:32, textAlign:'center', color:'#94a3b8'}}>
+                      <span className="material-symbols-outlined" style={{fontSize:40, color:'#cbd5e1', marginBottom:6}}>
+                        {kitchenSubTab === 'current' ? 'kitchen' : 'history_toggle_off'}
+                      </span>
+                      <p style={{margin:0, fontSize:14, fontWeight:800, color:'#475569'}}>
+                        {kitchenSubTab === 'current' ? 'Current Kitchen Inventory is Empty' : 'No Used Items Yet'}
+                      </p>
+                      <p style={{margin:'4px 0 14px', fontSize:12}}>
+                        {kitchenSubTab === 'current'
+                          ? 'Any kitchen items requested by Cook or purchased will appear here automatically.'
+                          : 'When an item is deleted or completed, it moves here for audit & reporting.'}
+                      </p>
+                      {kitchenSubTab === 'current' && (
+                        <button
+                          onClick={() => setShowAddKitchenItemModal(true)}
+                          style={{background:'#0891b2', color:'#fff', border:'none', borderRadius:10, padding:'8px 16px', fontSize:12, fontWeight:800, cursor:'pointer'}}
+                        >
+                          + Add Item to Stock
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                      {filteredKitchenItems.map(item => (
+                        <div
+                          key={item.docId}
+                          onClick={() => setSelectedKitchenDetailItem(item)}
+                          style={{background:'#fff', borderRadius:14, border:`1px solid ${C.border}`, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 1px 4px rgba(15,23,42,0.02)', cursor:'pointer'}}
+                        >
+                          <div style={{display:'flex', alignItems:'center', gap:10, flex:1, minWidth:0}}>
+                            <div style={{width:36, height:36, borderRadius:10, background: item.isUsed ? '#fef3c7' : '#ecfeff', display:'flex', alignItems:'center', justifyContent:'center', color: item.isUsed ? '#b45309' : '#0891b2', flexShrink:0}}>
+                              <span className="material-symbols-outlined" style={{fontSize:20}}>
+                                {item.isUsed ? 'history_toggle_off' : (item.icon || 'kitchen')}
+                              </span>
+                            </div>
+                            <div style={{minWidth:0, flex:1}}>
+                              <div style={{display:'flex', alignItems:'center', gap:6}}>
+                                <p style={{margin:0, fontSize:14, fontWeight:800, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{item.name}</p>
+                                {item.isUsed && (
+                                  <span style={{fontSize:10, fontWeight:800, background:'#fef3c7', color:'#b45309', padding:'2px 6px', borderRadius:6}}>
+                                    USED
+                                  </span>
+                                )}
+                              </div>
+                              <span style={{fontSize:11, color: item.isUsed ? '#b45309' : '#64748b', fontWeight:600}}>
+                                {item.isUsed && item.usedAt ? (
+                                  `🗂️ Moved to used: ${new Date(item.usedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                                ) : item.lastPurchasedDate ? (
+                                  `🕒 Purchased: ${new Date(item.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                                ) : item.lastUpdatedBy ? (
+                                  `By: ${item.lastUpdatedBy}`
+                                ) : (
+                                  'Kitchen Stock'
+                                )}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{display:'flex', alignItems:'center', gap:8, flexShrink:0}} onClick={e => e.stopPropagation()}>
+                            {/* Clean Read-Only Quantity Display */}
+                            <div style={{background: item.isUsed ? '#fef3c7' : '#ecfeff', border: `1px solid ${item.isUsed ? '#fde68a' : '#cffafe'}`, padding: '6px 12px', borderRadius: 10, textAlign: 'right', display: 'flex', alignItems: 'baseline', gap: 4}}>
+                              <span style={{fontSize: 15, fontWeight: 900, color: item.isUsed ? '#b45309' : '#0891b2'}}>{item.totalQty}</span>
+                              <span style={{fontSize: 11, fontWeight: 700, color: item.isUsed ? '#92400e' : '#0e7490'}}>{item.unit || 'kg'}</span>
+                            </div>
+
+                            {/* If in Used tab: Restore button */}
+                            {item.isUsed && (
+                              <button
+                                title="Restore to Current inventory"
+                                onClick={async () => {
+                                  if (window.confirm(`Restore "${item.name}" back to Current inventory?`)) {
+                                    try {
+                                      await updateDoc(doc(db, 'pg_inventory_master', item.docId), {
+                                        isUsed: false,
+                                        usedMonth: null,
+                                        usedAt: null,
+                                        lastUpdated: new Date().toISOString(),
+                                        lastUpdatedBy: `${staffName} (${staffRole})`
+                                      });
+                                      showToast(`"${item.name}" restored to Current stock`, 'success');
+                                    } catch (err) {
+                                      console.error(err);
+                                      showToast('Failed to restore item', 'error');
+                                    }
+                                  }
+                                }}
+                                style={{background:'#ecfeff', border:'1px solid #cffafe', borderRadius:8, width:30, height:30, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#0891b2', padding:0}}
+                              >
+                                <span className="material-symbols-outlined" style={{fontSize:18}}>settings_backup_restore</span>
+                              </button>
+                            )}
+
+                            {/* Delete button: In Current, moves to Used; in Used, permanently deletes */}
+                            <button
+                              title={item.isUsed ? "Delete from archive" : "Move to Used inventory"}
+                              onClick={async () => {
+                                if (item.isUsed) {
+                                  if (window.confirm(`Permanently delete "${item.name}" from archive?`)) {
+                                    try {
+                                      await deleteDoc(doc(db, 'pg_inventory_master', item.docId));
+                                      showToast('Item deleted from archive', 'success');
+                                    } catch (err) { console.error(err); }
+                                  }
+                                } else {
+                                  if (window.confirm(`Move "${item.name}" to Used inventory?`)) {
+                                    try {
+                                      const currentMonthKey = new Date().toISOString().slice(0, 7);
+                                      await updateDoc(doc(db, 'pg_inventory_master', item.docId), {
+                                        isUsed: true,
+                                        usedMonth: currentMonthKey,
+                                        usedAt: new Date().toISOString(),
+                                        usedBy: `${staffName} (${staffRole})`,
+                                        lastUpdated: new Date().toISOString(),
+                                        lastUpdatedBy: `${staffName} (${staffRole})`
+                                      });
+                                      showToast(`"${item.name}" moved to Used inventory`, 'success');
+                                    } catch (err) {
+                                      console.error(err);
+                                      showToast('Failed to move item to used', 'error');
+                                    }
+                                  }
+                                }
+                              }}
+                              style={{background:'#fee2e2', border:'none', borderRadius:8, width:30, height:30, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#ef4444', padding:0}}
+                            >
+                              <span className="material-symbols-outlined" style={{fontSize:16}}>delete</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add Kitchen Item Modal */}
               {showAddKitchenItemModal && (
                 <div style={{position:'fixed', inset:0, background:'rgba(15,23,42,0.6)', zIndex:200, display:'flex', alignItems:'flex-end', justifyContent:'center', backdropFilter:'blur(3px)'}}
                   onClick={e => { if (e.target === e.currentTarget) setShowAddKitchenItemModal(false); }}>
@@ -9244,7 +9612,8 @@ export default function StaffApp(){
               )}
 
             </div>
-          )}
+          )
+        )}
 
           {/* ── TAB 2: PETTY CASH ───────────────────────────────── */}
           {inventoryTab === 'petty_cash' && (

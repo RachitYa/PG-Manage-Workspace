@@ -273,158 +273,215 @@ function AllocationView({ targetId, targetType, personData, title, onBack }) {
   );
 }
 
-// ─── ITEM DETAILS MODAL ────────────────────────────────────────────
-function ItemDetailModal({ item, onClose, onRestock, onRestore }) {
+// ─── DEDICATED ITEM DETAIL VIEW ────────────────────────────────────
+function ItemDetailView({ item, onBack, onRestock, onRestore, onMoveToUsed, onPermanentDelete }) {
   if (!item) return null;
   const history = Array.isArray(item.purchaseHistory) ? item.purchaseHistory : [];
   const totalSpent = history.reduce((sum, h) => sum + (parseFloat(h.price) || 0), 0);
   const totalPurchasedQty = history.reduce((sum, h) => sum + (parseFloat(h.qty) || 0), 0);
+  const avgRate = totalPurchasedQty > 0 ? (totalSpent / totalPurchasedQty) : 0;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(3px)' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: 'white', width: '100%', maxWidth: 480, borderRadius: '24px 24px 0 0', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
-        {/* Handle */}
-        <div style={{ width: 44, height: 4, background: '#cbd5e1', borderRadius: 99, margin: '12px auto 6px' }} />
-
-        {/* Modal Header */}
-        <div style={{ padding: '12px 20px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 12, background: item.isUsed ? '#fef3c7' : '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span className="material-symbols-outlined" style={{ color: item.isUsed ? '#b45309' : cyan, fontSize: 24 }}>
-                {item.isUsed ? 'history_toggle_off' : (item.icon || 'inventory_2')}
-              </span>
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <p style={{ fontWeight: 800, fontSize: 17, color: '#0f172a', margin: 0 }}>{item.itemName}</p>
-                {item.isUsed && (
-                  <span style={{ fontSize: 10, fontWeight: 800, background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 6 }}>
-                    USED
-                  </span>
-                )}
-              </div>
-              <p style={{ fontSize: 12, color: '#64748b', margin: 0, textTransform: 'capitalize' }}>{item.category || 'General'} Inventory</p>
-            </div>
-          </div>
-          <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: 10, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#64748b' }}>close</span>
-          </button>
-        </div>
-
-        {/* Scrollable Content */}
-        <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Used Status Banner if item is used */}
-          {item.isUsed && (
-            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 14, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, color: '#92400e' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#b45309', flexShrink: 0 }}>inventory_2</span>
-              <div style={{ fontSize: 12, lineHeight: 1.4 }}>
-                <strong>Archived in Used Inventory</strong>
-                <div>
-                  {item.usedAt ? `Moved to used on ${new Date(item.usedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Marked as used / completed stock.'}
-                  {item.usedBy ? ` by ${item.usedBy}` : ''}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Current Stock Banner */}
-          <div style={{ background: item.isUsed ? 'linear-gradient(135deg, #b45309, #78350f)' : 'linear-gradient(135deg, #0891b2, #0e7490)', borderRadius: 16, padding: '16px 18px', color: 'white' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.9 }}>
-                {item.isUsed ? 'Recorded Used Quantity' : 'Current Total Stock'}
-              </span>
-              <span style={{ background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700 }}>
-                {item.unit ? item.unit.toUpperCase() : 'UNITS'}
-              </span>
-            </div>
-            <p style={{ fontSize: 28, fontWeight: 900, margin: '0 0 6px' }}>
-              {item.qty} <span style={{ fontSize: 16, fontWeight: 600 }}>{item.unit || ''}</span>
-            </p>
-            <p style={{ fontSize: 12, opacity: 0.85, margin: 0 }}>
-              {item.lastPurchasedDate ? `Last purchased ${new Date(item.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Direct stock entry'}
-            </p>
-          </div>
-
-          {/* Quick Stats Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px', textAlign: 'center' }}>
-              <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, margin: '0 0 4px' }}>Total Spent</p>
-              <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>₹{Math.round(totalSpent).toLocaleString('en-IN')}</p>
-            </div>
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px', textAlign: 'center' }}>
-              <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, margin: '0 0 4px' }}>Total Qty</p>
-              <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>{totalPurchasedQty || item.qty} {item.unit || ''}</p>
-            </div>
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px', textAlign: 'center' }}>
-              <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, margin: '0 0 4px' }}>Refills</p>
-              <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>{history.length || 1}</p>
-            </div>
-          </div>
-
-          {/* Purchase History Ledger */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <p style={{ fontWeight: 800, fontSize: 14, color: '#0f172a', margin: 0 }}>Purchase & Refill History</p>
-              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{history.length} logged</span>
-            </div>
-
-            {history.length === 0 ? (
-              <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 12, padding: 20, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#94a3b8', display: 'block', margin: '0 auto 6px' }}>receipt_long</span>
-                No individual purchase log recorded yet for this item.<br />
-                <span style={{ fontSize: 11, color: '#94a3b8' }}>Future purchases will automatically log here!</span>
-              </div>
+    <div style={BASE}>
+      <Header
+        title={item.itemName}
+        onBack={onBack}
+        action={
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {item.isUsed ? (
+              <>
+                <button
+                  onClick={() => onRestore?.(item)}
+                  style={{ background: '#ecfeff', border: `1px solid ${cyan}`, borderRadius: 8, padding: '6px 12px', color: cyan, fontWeight: 800, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>settings_backup_restore</span>
+                  Restore
+                </button>
+                <button
+                  onClick={() => onPermanentDelete?.(item)}
+                  style={{ background: '#fee2e2', border: 'none', borderRadius: 8, padding: '6px 10px', color: '#ef4444', fontWeight: 800, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                </button>
+              </>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {history.map((h, i) => (
-                  <div key={h.id || i} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 14, padding: '12px 14px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                      <div>
-                        <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: 0 }}>
-                          +{h.qty} {h.unit || item.unit || ''}
-                          {h.rate ? <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginLeft: 6 }}>@ ₹{h.rate}/{h.unit || item.unit || 'unit'}</span> : null}
-                        </p>
-                        <p style={{ fontSize: 12, color: cyan, fontWeight: 700, margin: '2px 0 0' }}>
-                          ₹{Math.round(h.price || (h.qty * (h.rate || 0))).toLocaleString('en-IN')}
-                        </p>
-                      </div>
-                      <span style={{ background: '#f1f5f9', color: '#475569', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6 }}>
-                        {h.date ? new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Logged'}
-                      </span>
-                    </div>
-
-                    <div style={{ borderTop: '1px dashed #f1f5f9', paddingTop: 8, marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748b' }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#94a3b8' }}>person</span>
-                        {h.purchasedBy || 'Admin'}
-                      </span>
-                      {h.vendorName && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#94a3b8' }}>store</span>
-                          {h.vendorName}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <button
+                onClick={() => onMoveToUsed?.(item)}
+                style={{ background: '#fee2e2', border: 'none', borderRadius: 8, padding: '6px 12px', color: '#ef4444', fontWeight: 800, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                Move to Used
+              </button>
             )}
           </div>
+        }
+      />
+
+      <div style={{ padding: '16px 16px 80px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Used Status Banner if item is archived */}
+        {item.isUsed && (
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 16, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, color: '#92400e' }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 24, color: '#b45309' }}>history_toggle_off</span>
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.4 }}>
+              <strong style={{ fontSize: 14 }}>Archived in Used Inventory</strong>
+              <div style={{ color: '#78350f', marginTop: 2 }}>
+                {item.usedAt ? `Moved to used on ${new Date(item.usedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Marked as completed stock.'}
+                {item.usedBy ? ` by ${item.usedBy}` : ''}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Hero Stock Banner */}
+        <div style={{ background: item.isUsed ? 'linear-gradient(135deg, #b45309, #78350f)' : 'linear-gradient(135deg, #0891b2, #0e7490)', borderRadius: 20, padding: '20px 22px', color: 'white', boxShadow: '0 8px 24px rgba(8,145,178,0.15)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.8, opacity: 0.9 }}>
+              {item.isUsed ? 'Recorded Used Quantity' : 'Current Available Stock'}
+            </span>
+            <span style={{ background: 'rgba(255,255,255,0.22)', padding: '3px 10px', borderRadius: 10, fontSize: 11, fontWeight: 800, letterSpacing: 0.5 }}>
+              {(item.unit || 'units').toUpperCase()}
+            </span>
+          </div>
+          <p style={{ fontSize: 34, fontWeight: 900, margin: '0 0 6px', letterSpacing: -0.5 }}>
+            {item.qty} <span style={{ fontSize: 18, fontWeight: 600, opacity: 0.9 }}>{item.unit || ''}</span>
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, opacity: 0.88 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>schedule</span>
+            <span>
+              {item.lastPurchasedDate ? `Last purchased ${new Date(item.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Direct stock entry'}
+              {item.lastUpdatedBy ? ` · ${item.lastUpdatedBy}` : ''}
+            </span>
+          </div>
         </div>
 
-        {/* Footer Actions */}
-        <div style={{ padding: '14px 20px', borderTop: '1px solid #f1f5f9', background: 'white', borderRadius: '0 0 24px 24px', display: 'flex', gap: 10 }}>
-          {item.isUsed && onRestore && (
-            <button onClick={() => { onRestore(item); }}
-              style={{ flex: 1, padding: '12px', background: '#ecfeff', color: cyan, border: `1px solid ${cyan}`, borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        {/* Quick Stats Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+          <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.03)' }}>
+            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Total Spend</span>
+            <p style={{ fontSize: 20, fontWeight: 900, color: '#0f172a', margin: '6px 0 0' }}>₹{Math.round(totalSpent).toLocaleString('en-IN')}</p>
+          </div>
+          <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.03)' }}>
+            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Purchased Qty</span>
+            <p style={{ fontSize: 20, fontWeight: 900, color: '#0f172a', margin: '6px 0 0' }}>{totalPurchasedQty || item.qty} {item.unit || ''}</p>
+          </div>
+          <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.03)' }}>
+            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Refill Orders</span>
+            <p style={{ fontSize: 20, fontWeight: 900, color: '#0f172a', margin: '6px 0 0' }}>{history.length || 1} logged</p>
+          </div>
+          <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 16, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.03)' }}>
+            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Avg. Rate</span>
+            <p style={{ fontSize: 20, fontWeight: 900, color: cyan, margin: '6px 0 0' }}>
+              {avgRate > 0 ? `₹${Math.round(avgRate)}/${item.unit || 'unit'}` : 'N/A'}
+            </p>
+          </div>
+        </div>
+
+        {/* Item Specification Card */}
+        <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 16, padding: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.03)' }}>
+          <p style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', margin: '0 0 12px' }}>Item Details</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: '1px solid #f1f5f9', paddingBottom: 8 }}>
+              <span style={{ color: '#64748b', fontWeight: 600 }}>Item Name</span>
+              <span style={{ color: '#0f172a', fontWeight: 800 }}>{item.itemName}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: '1px solid #f1f5f9', paddingBottom: 8 }}>
+              <span style={{ color: '#64748b', fontWeight: 600 }}>Category</span>
+              <span style={{ color: '#0f172a', fontWeight: 800, textTransform: 'capitalize' }}>{item.category || 'General'}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: '1px solid #f1f5f9', paddingBottom: 8 }}>
+              <span style={{ color: '#64748b', fontWeight: 600 }}>Standard Unit</span>
+              <span style={{ color: '#0f172a', fontWeight: 800 }}>{item.unit || 'N/A'}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: '1px solid #f1f5f9', paddingBottom: 8 }}>
+              <span style={{ color: '#64748b', fontWeight: 600 }}>Last Vendor / Store</span>
+              <span style={{ color: '#0f172a', fontWeight: 800 }}>{item.lastVendorName || 'Local Store / Vendor'}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+              <span style={{ color: '#64748b', fontWeight: 600 }}>Status</span>
+              <span style={{ color: item.isUsed ? '#b45309' : '#16a34a', fontWeight: 800 }}>
+                {item.isUsed ? 'Archived / Used' : 'Active In Stock'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Purchase History Ledger */}
+        <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 16, padding: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.03)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div>
+              <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: 0 }}>Purchase & Refill Ledger</p>
+              <p style={{ fontSize: 12, color: '#64748b', margin: '2px 0 0' }}>Complete audit trail of all restocks</p>
+            </div>
+            <span style={{ background: '#f1f5f9', color: '#475569', fontSize: 11, fontWeight: 800, padding: '4px 8px', borderRadius: 8 }}>
+              {history.length} records
+            </span>
+          </div>
+
+          {history.length === 0 ? (
+            <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 14, padding: 24, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 36, color: '#94a3b8', display: 'block', margin: '0 auto 8px' }}>receipt_long</span>
+              No individual refill entry recorded yet for this item.<br />
+              <span style={{ fontSize: 11, color: '#94a3b8' }}>Future purchases logged via vendors or restock will appear here automatically!</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {history.map((h, i) => (
+                <div key={h.id || i} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14, padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                    <div>
+                      <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: 0 }}>
+                        +{h.qty} {h.unit || item.unit || ''}
+                        {h.rate ? <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginLeft: 6 }}>@ ₹{h.rate}/{h.unit || item.unit || 'unit'}</span> : null}
+                      </p>
+                      <p style={{ fontSize: 13, color: cyan, fontWeight: 800, margin: '2px 0 0' }}>
+                        ₹{Math.round(h.price || (h.qty * (h.rate || 0))).toLocaleString('en-IN')}
+                      </p>
+                    </div>
+                    <span style={{ background: 'white', border: '1px solid #e2e8f0', color: '#475569', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6 }}>
+                      {h.date ? new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Logged'}
+                    </span>
+                  </div>
+
+                  <div style={{ borderTop: '1px dashed #e2e8f0', paddingTop: 8, marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748b' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#94a3b8' }}>person</span>
+                      {h.purchasedBy || 'Admin'}
+                    </span>
+                    {h.vendorName && (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#94a3b8' }}>store</span>
+                        {h.vendorName}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Floating Bottom Quick Action Bar */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(12px)', borderTop: '1px solid #e2e8f0', padding: '12px 20px', zIndex: 40 }}>
+        <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', gap: 10 }}>
+          {item.isUsed ? (
+            <button
+              onClick={() => onRestore?.(item)}
+              style={{ flex: 1, padding: '14px', background: '#ecfeff', color: cyan, border: `1px solid ${cyan}`, borderRadius: 14, fontWeight: 800, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>settings_backup_restore</span>
               Restore to Current
             </button>
+          ) : (
+            <button
+              onClick={() => onMoveToUsed?.(item)}
+              style={{ padding: '14px 18px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: 14, fontWeight: 800, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>delete</span>
+              Move to Used
+            </button>
           )}
-          <button onClick={() => { onClose(); onRestock(item); }}
-            style={{ flex: item.isUsed ? 1 : undefined, width: item.isUsed ? 'auto' : '100%', padding: '12px', background: cyan, color: 'white', border: 'none', borderRadius: 12, fontWeight: 800, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>shopping_cart</span>
+          <button
+            onClick={() => onRestock?.(item)}
+            style={{ flex: 2, padding: '14px', background: cyan, color: 'white', border: 'none', borderRadius: 14, fontWeight: 800, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 12px rgba(8,145,178,0.25)' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>shopping_cart</span>
             Purchase / Restock
           </button>
         </div>
@@ -861,6 +918,41 @@ function MasterInventoryView({ category, title, onBack }) {
     return date.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
   };
 
+  // Full dedicated section for Item Detailings (instead of bottom slider popup)
+  if (detailItem) {
+    const liveDetailItem = enrichedItems.find(it => it.docId === detailItem.docId) || detailItem;
+    return (
+      <>
+        <ItemDetailView
+          item={liveDetailItem}
+          onBack={() => setDetailItem(null)}
+          onRestore={async (it) => {
+            await handleRestore(it);
+            setDetailItem(prev => ({ ...prev, isUsed: false, usedMonth: null, usedAt: null }));
+          }}
+          onMoveToUsed={async (it) => {
+            await handleRemove(it);
+            setDetailItem(prev => ({ ...prev, isUsed: true, usedMonth: currentMonthKey, usedAt: new Date().toISOString() }));
+          }}
+          onPermanentDelete={async (it) => {
+            await handleRemove(it);
+            setDetailItem(null);
+          }}
+          onRestock={(it) => setPurchaseModal({ open: true, defaultItemName: it.itemName, defaultUnit: it.unit || 'kg' })}
+        />
+        {purchaseModal.open && (
+          <PurchaseItemModal
+            defaultCategory={category}
+            defaultItemName={purchaseModal.defaultItemName}
+            defaultUnit={purchaseModal.defaultUnit}
+            onClose={() => setPurchaseModal({ open: false, defaultItemName: '', defaultUnit: 'kg' })}
+            onSaved={() => {}}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <div style={BASE}>
       <Header title={title} onBack={onBack} action={<span style={{ fontSize: 12, fontWeight: 800, color: cyan }}>✓ Live Synced</span>} />
@@ -985,16 +1077,6 @@ function MasterInventoryView({ category, title, onBack }) {
         {/* Floating Add Purchase Button */}
         <Fab onClick={() => setPurchaseModal({ open: true, defaultItemName: '', defaultUnit: 'kg' })} />
       </div>
-
-      {/* Item Detail Modal */}
-      {detailItem && (
-        <ItemDetailModal
-          item={detailItem}
-          onClose={() => setDetailItem(null)}
-          onRestore={(it) => { handleRestore(it); setDetailItem(null); }}
-          onRestock={(it) => setPurchaseModal({ open: true, defaultItemName: it.itemName, defaultUnit: it.unit || 'kg' })}
-        />
-      )}
 
       {/* Record Purchase Modal */}
       {purchaseModal.open && (

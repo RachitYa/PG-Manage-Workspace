@@ -4,7 +4,31 @@ import { db } from '../../firebase';
 
 const CATEGORIES = ['All', 'Plumbing', 'Electrical', 'Cleaning', 'Food', 'Internet / Wifi', 'Carpentry', 'Others'];
 
-export default function ManagerComplaintsView({ adminId, onBack, showToast }) {
+export default function ManagerComplaintsView({ adminId, activePgId, assignedProperties = [], onBack, showToast }) {
+  const [selectedPgId, setSelectedPgId] = useState(() => activePgId || assignedProperties[0]?.id || 'primary');
+
+  useEffect(() => {
+    if (activePgId) setSelectedPgId(activePgId);
+  }, [activePgId]);
+
+  const matchesPg = (itemPgId) => {
+    if (!selectedPgId || selectedPgId === 'primary') {
+      return !itemPgId || itemPgId === 'primary' || itemPgId === adminId;
+    }
+    return itemPgId === selectedPgId;
+  };
+
+  const matchesPgStaff = (s) => {
+    const cur = selectedPgId || 'primary';
+    const assigned = Array.isArray(s.assignedPgs) && s.assignedPgs.length > 0 
+      ? s.assignedPgs 
+      : [s.pgId || 'primary'];
+    if (cur === 'primary') {
+      return assigned.includes('primary') || assigned.includes(adminId) || (!s.pgId && (!s.assignedPgs || s.assignedPgs.length === 0));
+    }
+    return assigned.includes(cur);
+  };
+
   const [complaints, setComplaints] = useState([]);
   const [staffList, setStaffList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -24,7 +48,7 @@ export default function ManagerComplaintsView({ adminId, onBack, showToast }) {
 
     const qComplaints = query(collection(db, 'complaints'), where('adminId', '==', adminId));
     const unsubComplaints = onSnapshot(qComplaints, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(c => matchesPg(c.pgId));
       list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
       setComplaints(list);
       setLoading(false);
@@ -35,7 +59,7 @@ export default function ManagerComplaintsView({ adminId, onBack, showToast }) {
 
     const qStaff = query(collection(db, 'staff_tokens'), where('ownerUid', '==', adminId));
     const unsubStaff = onSnapshot(qStaff, (snap) => {
-      setStaffList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setStaffList(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(matchesPgStaff));
     }, (err) => {
       console.error('Staff fetch error:', err);
     });
@@ -44,7 +68,7 @@ export default function ManagerComplaintsView({ adminId, onBack, showToast }) {
       unsubComplaints();
       unsubStaff();
     };
-  }, [adminId]);
+  }, [adminId, selectedPgId]);
 
   // Tab counts
   const activeCount = useMemo(() => complaints.filter(c => c.status === 'Active' || c.status === 'Open' || !c.status).length, [complaints]);
@@ -91,13 +115,18 @@ export default function ManagerComplaintsView({ adminId, onBack, showToast }) {
       // Also create a staff_task for the assigned staff
       await addDoc(collection(db, 'staff_tasks'), {
         adminId,
+        ownerUid: adminId,
+        pgId: selectedPgId || assigningTicket.pgId || 'primary',
+        staffId: selectedStaffId,
         assignedTo: selectedStaffId,
         staffName,
+        staffRole,
         title: `Repair: ${assigningTicket.title || assigningTicket.category || 'Maintenance'} (Room ${assigningTicket.roomNumber || assigningTicket.roomNo || 'N/A'})`,
         description: assigningTicket.description || '',
         complaintId: assigningTicket.id,
         status: 'Pending',
         priority: assigningTicket.priority || 'Medium',
+        assignedDate: new Date().toISOString(),
         createdAt: new Date().toISOString()
       });
 
@@ -144,8 +173,7 @@ export default function ManagerComplaintsView({ adminId, onBack, showToast }) {
               <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0f172a' }}>arrow_back</span>
             </button>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Complaints & Maintenance</h2>
-              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Resolve issues & assign tasks</p>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Complaints</h2>
             </div>
           </div>
         </div>

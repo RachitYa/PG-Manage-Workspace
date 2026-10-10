@@ -2,7 +2,20 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
-export default function ManagerLeavesView({ adminId, onBack, showToast }) {
+export default function ManagerLeavesView({ adminId, activePgId, assignedProperties = [], onBack, showToast }) {
+  const [selectedPgId, setSelectedPgId] = useState(() => activePgId || assignedProperties[0]?.id || 'primary');
+
+  useEffect(() => {
+    if (activePgId) setSelectedPgId(activePgId);
+  }, [activePgId]);
+
+  const matchesPg = (itemPgId) => {
+    if (!selectedPgId || selectedPgId === 'primary') {
+      return !itemPgId || itemPgId === 'primary' || itemPgId === adminId;
+    }
+    return itemPgId === selectedPgId;
+  };
+
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('Pending'); // 'Pending' | 'Approved' | 'Rejected' | 'All'
@@ -15,7 +28,7 @@ export default function ManagerLeavesView({ adminId, onBack, showToast }) {
 
     const qLeaves = query(collection(db, 'leave_requests'), where('adminId', '==', adminId));
     const unsub = onSnapshot(qLeaves, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(l => matchesPg(l.pgId));
       list.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
       setLeaves(list);
       setLoading(false);
@@ -25,7 +38,7 @@ export default function ManagerLeavesView({ adminId, onBack, showToast }) {
     });
 
     return () => unsub();
-  }, [adminId]);
+  }, [adminId, selectedPgId]);
 
   // Tab counts
   const pendingCount = useMemo(() => leaves.filter(l => l.status === 'Pending' || !l.status).length, [leaves]);
@@ -70,8 +83,7 @@ export default function ManagerLeavesView({ adminId, onBack, showToast }) {
               <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0f172a' }}>arrow_back</span>
             </button>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Student Leaves</h2>
-              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Review & approve gate passes</p>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Leaves</h2>
             </div>
           </div>
         </div>

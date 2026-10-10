@@ -375,9 +375,13 @@ export function useStaffTasks(staffId) {
       await addDoc(collection(db, 'staff_tasks'), {
         ...newTask,
         staffId: staffId,
-        adminId: user.uid, pgId: activePgId, 
+        assignedTo: staffId,
+        adminId: user.uid,
+        ownerUid: user.uid,
+        pgId: activePgId || 'primary', 
         status: 'Pending',
-        assignedDate: new Date().toISOString()
+        assignedDate: new Date().toISOString(),
+        createdAt: new Date().toISOString()
       });
     } catch (e) {
       console.error(e);

@@ -31,13 +31,18 @@ export default function AddTenant() {
     const fetchRoomsAndTenants = async () => {
       if (!user) return;
       try {
+        const matchesPg = (itemPgId) => {
+          if (!activePgId || activePgId === 'primary') return !itemPgId || itemPgId === 'primary' || itemPgId === user.uid;
+          return itemPgId === activePgId;
+        };
+
         const [rSnap, tSnap] = await Promise.all([
-          getDocs(query(collection(db, 'rooms'), where('adminId', '==', user.uid), where('pgId', '==', activePgId))),
-          getDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)))
+          getDocs(query(collection(db, 'rooms'), where('adminId', '==', user.uid))),
+          getDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid)))
         ]);
         
-        const fetchedRooms = rSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const fetchedTenants = tSnap.docs.map(doc => doc.data());
+        const fetchedRooms = rSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(r => matchesPg(r.pgId));
+        const fetchedTenants = tSnap.docs.map(doc => doc.data()).filter(t => matchesPg(t.pgId));
         
         setRooms(fetchedRooms);
         setTenants(fetchedTenants);
@@ -48,7 +53,7 @@ export default function AddTenant() {
       }
     };
     fetchRoomsAndTenants();
-  }, [user]);
+  }, [user, activePgId]);
 
   const [formData, setFormData] = useState({
     name: '',

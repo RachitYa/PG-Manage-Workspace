@@ -79,11 +79,11 @@ export default function AdminDashboard() {
           safeGetDoc(activePgId === 'primary' ? doc(db, 'pg_owners', user.uid) : doc(db, 'pg_owners', activePgId), 'pg_owners'),
           safeGetDoc(doc(db, 'pg_profiles', user.uid), 'pg_profiles'),
           safeGetDocs(query(collection(db, 'rent_receipts'), where('adminId', '==', user.uid)), 'rent_receipts'),
-          safeGetDocs(query(collection(db, 'staff_tokens'), where('ownerUid', '==', user.uid), where('pgId', '==', activePgId)), 'staff_tokens'),
-          safeGetDocs(query(collection(db, 'staff_attendance'), where('ownerUid', '==', user.uid), where('pgId', '==', activePgId), where('date', '==', todayStr), where('status', '==', 'Present')), 'staff_attendance'),
-          safeGetDocs(query(collection(db, 'visitors'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('status', '==', 'Inside')), 'visitors (Inside)'),
-          safeGetDocs(query(collection(db, 'visitors'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('marked', '==', false)), 'visitors (marked=false)'),
-          safeGetDocs(query(collection(db, 'leave_requests'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('status', '==', 'Pending')), 'leave_requests'),
+          safeGetDocs(query(collection(db, 'staff_tokens'), where('ownerUid', '==', user.uid)), 'staff_tokens'),
+          safeGetDocs(query(collection(db, 'staff_attendance'), where('ownerUid', '==', user.uid)), 'staff_attendance'),
+          safeGetDocs(query(collection(db, 'visitors'), where('adminId', '==', user.uid), where('status', '==', 'Inside')), 'visitors (Inside)'),
+          safeGetDocs(query(collection(db, 'visitors'), where('adminId', '==', user.uid), where('marked', '==', false)), 'visitors (marked=false)'),
+          safeGetDocs(query(collection(db, 'leave_requests'), where('adminId', '==', user.uid), where('status', '==', 'Pending')), 'leave_requests'),
           safeGetDocs(query(collection(db, 'complaints'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)), 'complaints'),
           safeGetDocs(query(collection(db, 'enquiries'), where('adminId', '==', user.uid), where('pgId', '==', activePgId)), 'enquiries'),
           safeGetDocs(query(collection(db, 'pg_applications'), where('adminId', '==', user.uid), where('pgId', '==', activePgId), where('status', '==', 'Pending')), 'pg_applications'),
@@ -92,9 +92,12 @@ export default function AdminDashboard() {
         ]);
 
         const complaintsPendingCount = qComplaints.docs.filter(d => d.data().status === 'Pending' || d.data().status === 'Active').length;
+        const pendingVisitors = qVisitorsPending.docs.filter(d => matchesPg(d.data().pgId));
+        const insideVisitors = qVisitorsInside.docs.filter(d => matchesPg(d.data().pgId));
+        const pendingLeaves = qLeavePending.docs.filter(d => matchesPg(d.data().pgId));
         
-        setVisitorCount(qVisitorsPending.size);
-        setLeaveCount(qLeavePending.size);
+        setVisitorCount(pendingVisitors.length);
+        setLeaveCount(pendingLeaves.length);
         setComplainCount(complaintsPendingCount);
         setChatCount(0); // Chat unread counts require schema updates to be fully exact
 
@@ -165,11 +168,22 @@ export default function AdminDashboard() {
            dueValueStr = totalPendingAmount >= 1000 ? `₹${(totalPendingAmount/1000).toFixed(1).replace('.0', '')}K` : `₹${totalPendingAmount}`;
         }
 
+        const localTodayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        const staffListForPg = qStaff.docs.map(d => ({ id: d.id, ...d.data() })).filter(s => matchesPg(s.pgId));
+        const staffPresentCount = qAttendance.docs.filter(d => {
+          const a = d.data();
+          if (!matchesPg(a.pgId)) return false;
+          const aDate = a.date || '';
+          if (aDate !== todayStr && aDate !== localTodayStr && !String(a.createdAt || '').startsWith(todayStr)) return false;
+          const st = (a.status || '').toLowerCase();
+          return st === 'present' || st === 'working' || st === 'resting';
+        }).length;
+
         setStats([
           { label: 'Seats Occupied', value: `${occupiedCount}/${totalSeats}`, sub: 'Total Seats', icon: 'meeting_room', color: '#0891b2', bg: '#ecfeff' },
           { label: 'Pending Dues', value: dueValueStr, sub: `${uniqueTenantsCount} tenants`, icon: 'payments', color: '#e11d48', bg: '#fff1f2' },
-          { label: 'Staff Present', value: `${qAttendance.size}/${qStaff.size}`, sub: 'Today', icon: 'badge', color: '#059669', bg: '#ecfdf5' },
-          { label: 'Visitors in PG', value: String(qVisitorsInside.size), sub: 'Inside Now', icon: 'recent_actors', color: '#d97706', bg: '#fffbeb' },
+          { label: 'Staff Present', value: `${staffPresentCount}/${staffListForPg.length}`, sub: 'Today', icon: 'badge', color: '#059669', bg: '#ecfdf5' },
+          { label: 'Visitors in PG', value: String(insideVisitors.length), sub: 'Inside Now', icon: 'recent_actors', color: '#d97706', bg: '#fffbeb' },
         ]);
 
       } catch (e) { console.error(e); } finally { setLoadingDashboard(false); }

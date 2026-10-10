@@ -398,6 +398,36 @@ export default function ManageAccount() {
   const toggleBreakdown = (cat) => setExpandedBreakdown(prev => ({ ...prev, [cat]: !prev[cat] }));
   const [selectedBreakdownItem, setSelectedBreakdownItem] = useState(null);
 
+  // Safe formatting helpers for breakdown and financial logs
+  const safeDateStr = (d, options = { day: 'numeric', month: 'short' }, fallback = 'Recent') => {
+    if (!d) return fallback;
+    try {
+      let dateObj = null;
+      if (d instanceof Date) dateObj = d;
+      else if (typeof d?.toDate === 'function') dateObj = d.toDate();
+      else if (d?.seconds) dateObj = new Date(d.seconds * 1000);
+      else if (d?._seconds) dateObj = new Date(d._seconds * 1000);
+      else dateObj = new Date(d);
+
+      if (!dateObj || isNaN(dateObj.getTime())) return fallback;
+      return dateObj.toLocaleDateString('en-GB', options);
+    } catch {
+      return fallback;
+    }
+  };
+
+  const safeText = (val, fallback = '') => {
+    if (val === null || val === undefined) return fallback;
+    if (typeof val === 'string' || typeof val === 'number') return String(val);
+    if (Array.isArray(val)) {
+      return val.map(item => typeof item === 'string' ? item : (item?.name || item?.item || item?.title || '')).filter(Boolean).join(', ') || fallback;
+    }
+    if (typeof val === 'object') {
+      return val.name || val.title || val.desc || val.description || fallback;
+    }
+    return fallback;
+  };
+
   // Dynamic Rent Data State
   const [rentData, setRentData] = useState({ upcoming: [], pending: [], collected: [] });
   const [loadingRents, setLoadingRents] = useState(false);
@@ -1377,8 +1407,17 @@ export default function ManageAccount() {
         const amt = Number(m.totalAmount || m.amount || 0);
         if (amt <= 0 || isNaN(amt)) return;
 
-        const dateObj = m.paidDate ? new Date(m.paidDate) : (m.date ? new Date(m.date) : new Date());
-        const monthStr = m.billMonth || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
+        let dateObj = null;
+        if (m.paidDate?.toDate) dateObj = m.paidDate.toDate();
+        else if (m.paidDate?.seconds) dateObj = new Date(m.paidDate.seconds * 1000);
+        else if (m.paidDate) dateObj = new Date(m.paidDate);
+        else if (m.date?.toDate) dateObj = m.date.toDate();
+        else if (m.date?.seconds) dateObj = new Date(m.date.seconds * 1000);
+        else if (m.date) dateObj = new Date(m.date);
+        else dateObj = new Date();
+        if (!dateObj || isNaN(dateObj.getTime())) dateObj = new Date();
+
+        const monthStr = m.billMonth || dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
         initMonth(monthStr, dateObj);
 
         const key = `meter_${m.id}_${monthStr}`;
@@ -1387,14 +1426,14 @@ export default function ManageAccount() {
           monthlyData[monthStr].meter += amt;
           monthlyData[monthStr].meterItems.push({
             id: m.id,
-            tenantName: m.tenantName || m.name || `Room ${m.roomNo || '-'}`,
-            room: m.roomNo || '-',
+            tenantName: typeof m.tenantName === 'string' ? m.tenantName : (typeof m.name === 'string' ? m.name : `Room ${m.roomNo || '-'}`),
+            room: String(m.roomNo || '-'),
             amount: amt,
             date: dateObj,
             month: monthStr,
             units: m.unitsConsumed || m.units || 0,
             rate: m.ratePerUnit || 0,
-            paymentMode: m.paymentMode || 'Online',
+            paymentMode: typeof m.paymentMode === 'string' ? m.paymentMode : 'Online',
             raw: m
           });
         }
@@ -1406,18 +1445,27 @@ export default function ManageAccount() {
         const amt = Number(s.amountPaid || s.amount || 0);
         if (amt <= 0 || isNaN(amt)) return;
 
-        const dateObj = s.datePaid ? new Date(s.datePaid) : (s.date ? new Date(s.date) : new Date());
-        const monthStr = s.month || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
+        let dateObj = null;
+        if (s.datePaid?.toDate) dateObj = s.datePaid.toDate();
+        else if (s.datePaid?.seconds) dateObj = new Date(s.datePaid.seconds * 1000);
+        else if (s.datePaid) dateObj = new Date(s.datePaid);
+        else if (s.date?.toDate) dateObj = s.date.toDate();
+        else if (s.date?.seconds) dateObj = new Date(s.date.seconds * 1000);
+        else if (s.date) dateObj = new Date(s.date);
+        else dateObj = new Date();
+        if (!dateObj || isNaN(dateObj.getTime())) dateObj = new Date();
+
+        const monthStr = s.month || dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
         initMonth(monthStr, dateObj);
         monthlyData[monthStr].staff += amt;
         monthlyData[monthStr].staffItems.push({
           id: s.id,
-          name: s.staffName || s.name || 'Staff Member',
-          role: s.role || 'Staff',
+          name: typeof s.staffName === 'string' ? s.staffName : (typeof s.name === 'string' ? s.name : 'Staff Member'),
+          role: typeof s.role === 'string' ? s.role : 'Staff',
           amount: amt,
           date: dateObj,
           month: monthStr,
-          paymentMode: s.paymentMode || 'Online',
+          paymentMode: typeof s.paymentMode === 'string' ? s.paymentMode : 'Online',
           totalDays: s.totalDays,
           presentDays: s.presentDays,
           absentDays: s.absentDays,
@@ -1434,21 +1482,30 @@ export default function ManageAccount() {
           const amt = Number(pt.amount || 0);
           if (amt <= 0 || isNaN(amt)) return;
 
-          const dateObj = pt.date ? new Date(pt.date) : (pt.createdAt?.toDate ? pt.createdAt.toDate() : new Date());
-          const monthStr = dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General';
+          let dateObj = null;
+          if (pt.date?.toDate) dateObj = pt.date.toDate();
+          else if (pt.date?.seconds) dateObj = new Date(pt.date.seconds * 1000);
+          else if (pt.date) dateObj = new Date(pt.date);
+          else if (pt.createdAt?.toDate) dateObj = pt.createdAt.toDate();
+          else if (pt.createdAt?.seconds) dateObj = new Date(pt.createdAt.seconds * 1000);
+          else if (pt.createdAt) dateObj = new Date(pt.createdAt);
+          else dateObj = new Date();
+          if (!dateObj || isNaN(dateObj.getTime())) dateObj = new Date();
+
+          const monthStr = dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
           initMonth(monthStr, dateObj);
           monthlyData[monthStr].petty += amt;
           monthlyData[monthStr].pettyItems.push({
             id: pt.id,
-            staffName: pt.staffName || 'Staff Member',
-            purpose: pt.desc || pt.purpose || 'Petty Cash Allocation',
+            staffName: typeof pt.staffName === 'string' ? pt.staffName : 'Staff Member',
+            purpose: typeof pt.desc === 'string' ? pt.desc : (typeof pt.purpose === 'string' ? pt.purpose : 'Petty Cash Allocation'),
             amount: amt,
             date: dateObj,
             month: monthStr,
             raw: pt
           });
           monthlyData[monthStr].pettyDetails.push({
-            staffName: pt.staffName || 'Staff',
+            staffName: typeof pt.staffName === 'string' ? pt.staffName : 'Staff',
             amount: amt,
             date: dateObj
           });
@@ -1461,8 +1518,17 @@ export default function ManageAccount() {
         const amt = Number(l.amount || 0);
         if (amt <= 0 || isNaN(amt)) return;
 
-        const dateObj = l.datePaid ? new Date(l.datePaid) : (l.date ? new Date(l.date) : new Date());
-        const monthStr = l.month || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
+        let dateObj = null;
+        if (l.datePaid?.toDate) dateObj = l.datePaid.toDate();
+        else if (l.datePaid?.seconds) dateObj = new Date(l.datePaid.seconds * 1000);
+        else if (l.datePaid) dateObj = new Date(l.datePaid);
+        else if (l.date?.toDate) dateObj = l.date.toDate();
+        else if (l.date?.seconds) dateObj = new Date(l.date.seconds * 1000);
+        else if (l.date) dateObj = new Date(l.date);
+        else dateObj = new Date();
+        if (!dateObj || isNaN(dateObj.getTime())) dateObj = new Date();
+
+        const monthStr = l.month || dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
         initMonth(monthStr, dateObj);
         monthlyData[monthStr].lease += amt;
         monthlyData[monthStr].leaseItems.push({
@@ -1470,7 +1536,7 @@ export default function ManageAccount() {
           month: monthStr,
           amount: amt,
           date: dateObj,
-          paymentMode: l.paymentMode || 'Online',
+          paymentMode: typeof l.paymentMode === 'string' ? l.paymentMode : 'Online',
           raw: l
         });
       });
@@ -1491,19 +1557,42 @@ export default function ManageAccount() {
         }
         if (amt <= 0 || isNaN(amt)) return;
 
-        const dateObj = v.date ? new Date(v.date) : (v.createdAt?.toDate ? v.createdAt.toDate() : new Date());
-        const monthStr = dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General';
+        let dateObj = null;
+        if (v.date?.toDate) dateObj = v.date.toDate();
+        else if (v.date?.seconds) dateObj = new Date(v.date.seconds * 1000);
+        else if (v.date) dateObj = new Date(v.date);
+        else if (v.createdAt?.toDate) dateObj = v.createdAt.toDate();
+        else if (v.createdAt?.seconds) dateObj = new Date(v.createdAt.seconds * 1000);
+        else if (v.createdAt) dateObj = new Date(v.createdAt);
+        else dateObj = new Date();
+        if (!dateObj || isNaN(dateObj.getTime())) dateObj = new Date();
+
+        const monthStr = dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
         initMonth(monthStr, dateObj);
         monthlyData[monthStr].vendor += amt;
+
+        let vendorDescription = 'General Purchase / Service';
+        if (typeof v.note === 'string' && v.note.trim()) {
+          vendorDescription = v.note.trim();
+        } else if (typeof v.desc === 'string' && v.desc.trim()) {
+          vendorDescription = v.desc.trim();
+        } else if (typeof v.description === 'string' && v.description.trim()) {
+          vendorDescription = v.description.trim();
+        } else if (Array.isArray(v.items) && v.items.length > 0) {
+          vendorDescription = v.items.map(it => (typeof it === 'string' ? it : (it?.name || it?.item || it?.title || 'Item'))).filter(Boolean).join(', ') || 'Kitchen Supplies';
+        } else if (typeof v.items === 'string' && v.items.trim()) {
+          vendorDescription = v.items.trim();
+        }
+
         monthlyData[monthStr].vendorItems.push({
           id: v.id,
-          name: v.vendorName || v.name || v.supplier || 'Vendor / Maintenance',
-          category: v.category || v.type || 'Maintenance',
-          description: v.note || v.desc || v.description || v.items || 'General Purchase / Service',
+          name: typeof v.vendorName === 'string' ? v.vendorName : (typeof v.name === 'string' ? v.name : (typeof v.supplier === 'string' ? v.supplier : 'Vendor / Maintenance')),
+          category: typeof v.category === 'string' ? v.category : (typeof v.type === 'string' ? v.type : 'Maintenance'),
+          description: vendorDescription,
           amount: amt,
           date: dateObj,
           month: monthStr,
-          paymentMode: v.paymentMode || v.payInfo?.method || 'Cash / Online',
+          paymentMode: typeof v.paymentMode === 'string' ? v.paymentMode : (typeof v.payInfo?.method === 'string' ? v.payInfo.method : 'Cash / Online'),
           raw: v
         });
       });
@@ -2662,10 +2751,10 @@ export default function ManageAccount() {
                     </span>
                   </div>
                   <p style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 2 }}>
-                    {selectedMonth.month}
+                    {safeText(selectedMonth.month, 'Monthly Breakdown')}
                   </p>
                   <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 34, fontWeight: 900, color: selectedMonth.type === 'profit' ? '#059669' : '#e11d48', margin: '0 0 10px' }}>
-                    {selectedMonth.type === 'profit' ? '+' : '-'} ₹{Math.abs(selectedMonth.net).toLocaleString('en-IN')}
+                    {selectedMonth.type === 'profit' ? '+' : '-'} ₹{Math.abs(Number(selectedMonth.net) || 0).toLocaleString('en-IN')}
                   </p>
 
                   {/* Mathematical Formula Explanation Box */}
@@ -2675,12 +2764,12 @@ export default function ManageAccount() {
                       <span style={{ color: '#0f172a' }}>Collections − Expenses = Net</span>
                     </div>
                     <div style={{ textAlign: 'right', fontFamily: "'Bricolage Grotesque',sans-serif" }}>
-                      <span style={{ color: '#059669' }}>₹{selectedMonth.totalIncome.toLocaleString('en-IN')}</span>
+                      <span style={{ color: '#059669' }}>₹{Number(selectedMonth.totalIncome || 0).toLocaleString('en-IN')}</span>
                       <span style={{ color: '#94a3b8', margin: '0 4px' }}>−</span>
-                      <span style={{ color: '#e11d48' }}>₹{selectedMonth.expenses.toLocaleString('en-IN')}</span>
+                      <span style={{ color: '#e11d48' }}>₹{Number(selectedMonth.expenses || 0).toLocaleString('en-IN')}</span>
                       <span style={{ color: '#94a3b8', margin: '0 4px' }}>=</span>
                       <span style={{ color: selectedMonth.type === 'profit' ? '#059669' : '#e11d48' }}>
-                        {selectedMonth.type === 'profit' ? '+' : '-'}₹{Math.abs(selectedMonth.net).toLocaleString('en-IN')}
+                        {selectedMonth.type === 'profit' ? '+' : '-'}₹{Math.abs(Number(selectedMonth.net) || 0).toLocaleString('en-IN')}
                       </span>
                     </div>
                   </div>
@@ -2690,10 +2779,10 @@ export default function ManageAccount() {
                   {/* Total Income Banner */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <p style={{ fontSize: 13, fontWeight: 800, color: '#059669', margin: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Income Collections (+ ₹{selectedMonth.totalIncome.toLocaleString('en-IN')})
+                      Income Collections (+ ₹{Number(selectedMonth.totalIncome || 0).toLocaleString('en-IN')})
                     </p>
                     <span style={{ fontSize: 11, color: '#64748b' }}>
-                      {(selectedMonth.details.rentItems?.length || 0) + (selectedMonth.details.meterItems?.length || 0)} transactions
+                      {(selectedMonth.details?.rentItems?.length || 0) + (selectedMonth.details?.meterItems?.length || 0)} transactions
                     </span>
                   </div>
 
@@ -2707,11 +2796,11 @@ export default function ManageAccount() {
                         <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#059669' }}>account_balance_wallet</span>
                         <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Rent & Admission Collections</span>
                         <span style={{ fontSize: 11, background: '#ecfdf5', color: '#059669', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
-                          {selectedMonth.details.rentItems?.length || 0}
+                          {selectedMonth.details?.rentItems?.length || 0}
                         </span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 14, fontWeight: 800, color: '#059669' }}>+ ₹{selectedMonth.details.rent.toLocaleString('en-IN')}</span>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: '#059669' }}>+ ₹{Number(selectedMonth.details?.rent || 0).toLocaleString('en-IN')}</span>
                         <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
                           {expandedBreakdown.rent ? 'expand_less' : 'expand_more'}
                         </span>
@@ -2720,7 +2809,7 @@ export default function ManageAccount() {
 
                     {expandedBreakdown.rent && (
                       <div style={{ padding: '8px 12px', background: 'white' }}>
-                        {(!selectedMonth.details.rentItems || selectedMonth.details.rentItems.length === 0) ? (
+                        {(!selectedMonth.details?.rentItems || selectedMonth.details.rentItems.length === 0) ? (
                           <p style={{ margin: '8px 0', fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>No rent collections recorded for this month.</p>
                         ) : (
                           selectedMonth.details.rentItems.map((item, idx) => (
@@ -2744,22 +2833,22 @@ export default function ManageAccount() {
                             >
                               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                 <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#0891b2', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
-                                  {(item.name || 'T').charAt(0).toUpperCase()}
+                                  {safeText(item.name, 'T').charAt(0).toUpperCase()}
                                 </div>
                                 <div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{item.name}</span>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{safeText(item.name, 'Resident')}</span>
                                     <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>
-                                      Room {item.room}
+                                      Room {safeText(item.room, '-')}
                                     </span>
                                   </div>
                                   <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-                                    {item.paymentMode || 'Online'} · {item.dateObj ? new Date(item.dateObj).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'Paid'}
+                                    {safeText(item.paymentMode, 'Online')} · {safeDateStr(item.dateObj || item.date, { day: 'numeric', month: 'short' }, 'Paid')}
                                   </p>
                                 </div>
                               </div>
                               <div style={{ textAlign: 'right' }}>
-                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#059669', display: 'block' }}>+ ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#059669', display: 'block' }}>+ ₹{Number(item.amount || 0).toLocaleString('en-IN')}</span>
                                 <span style={{ fontSize: 10, color: '#0891b2', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                                   Receipt <span className="material-symbols-outlined" style={{ fontSize: 11 }}>chevron_right</span>
                                 </span>
@@ -2772,7 +2861,7 @@ export default function ManageAccount() {
                   </div>
 
                   {/* Category 2: Electricity Bills Collected */}
-                  {(selectedMonth.details.meter > 0 || (selectedMonth.details.meterItems?.length > 0)) && (
+                  {((Number(selectedMonth.details?.meter) || 0) > 0 || (selectedMonth.details?.meterItems?.length > 0)) && (
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 16, overflow: 'hidden' }}>
                       <div 
                         onClick={() => toggleBreakdown('meter')}
@@ -2782,11 +2871,11 @@ export default function ManageAccount() {
                           <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#059669' }}>electric_meter</span>
                           <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Electricity Bills Collected</span>
                           <span style={{ fontSize: 11, background: '#ecfdf5', color: '#059669', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
-                            {selectedMonth.details.meterItems?.length || 0}
+                            {selectedMonth.details?.meterItems?.length || 0}
                           </span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 14, fontWeight: 800, color: '#059669' }}>+ ₹{selectedMonth.details.meter.toLocaleString('en-IN')}</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#059669' }}>+ ₹{Number(selectedMonth.details?.meter || 0).toLocaleString('en-IN')}</span>
                           <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
                             {expandedBreakdown.meter ? 'expand_less' : 'expand_more'}
                           </span>
@@ -2795,20 +2884,20 @@ export default function ManageAccount() {
 
                       {expandedBreakdown.meter && (
                         <div style={{ padding: '8px 12px', background: 'white' }}>
-                          {selectedMonth.details.meterItems?.map((item, idx) => (
+                          {selectedMonth.details?.meterItems?.map((item, idx) => (
                             <div 
                               key={item.id || idx}
                               onClick={() => setSelectedBreakdownItem({ type: 'meter', data: item })}
                               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: idx < selectedMonth.details.meterItems.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
                             >
                               <div>
-                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{item.tenantName} (Room {item.room})</span>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{safeText(item.tenantName, 'Resident')} (Room {safeText(item.room, '-')})</span>
                                 <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-                                  {item.units ? `${item.units} Units · ` : ''}{new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                  {item.units ? `${item.units} Units · ` : ''}{safeDateStr(item.date, { day: 'numeric', month: 'short' })}
                                 </p>
                               </div>
                               <div style={{ textAlign: 'right' }}>
-                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#059669', display: 'block' }}>+ ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#059669', display: 'block' }}>+ ₹{Number(item.amount || 0).toLocaleString('en-IN')}</span>
                                 <span style={{ fontSize: 10, color: '#0891b2', fontWeight: 700 }}>Details ➔</span>
                               </div>
                             </div>
@@ -2821,15 +2910,15 @@ export default function ManageAccount() {
                   {/* Total Expenses Banner */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '20px 0 12px' }}>
                     <p style={{ fontSize: 13, fontWeight: 800, color: '#e11d48', margin: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Expenses Outflow (- ₹{selectedMonth.expenses.toLocaleString('en-IN')})
+                      Expenses Outflow (- ₹{Number(selectedMonth.expenses || 0).toLocaleString('en-IN')})
                     </p>
                     <span style={{ fontSize: 11, color: '#64748b' }}>
-                      {(selectedMonth.details.vendorItems?.length || 0) + (selectedMonth.details.staffItems?.length || 0) + (selectedMonth.details.leaseItems?.length || 0) + (selectedMonth.details.pettyItems?.length || 0)} transactions
+                      {(selectedMonth.details?.vendorItems?.length || 0) + (selectedMonth.details?.staffItems?.length || 0) + (selectedMonth.details?.leaseItems?.length || 0) + (selectedMonth.details?.pettyItems?.length || 0)} transactions
                     </span>
                   </div>
 
                   {/* Category 3: Vendor & Maintenance Expenses */}
-                  {(selectedMonth.details.vendor > 0 || (selectedMonth.details.vendorItems?.length > 0)) && (
+                  {((Number(selectedMonth.details?.vendor) || 0) > 0 || (selectedMonth.details?.vendorItems?.length > 0)) && (
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
                       <div 
                         onClick={() => toggleBreakdown('vendor')}
@@ -2839,11 +2928,11 @@ export default function ManageAccount() {
                           <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#e11d48' }}>local_shipping</span>
                           <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Vendor & Maintenance</span>
                           <span style={{ fontSize: 11, background: '#fff1f2', color: '#e11d48', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
-                            {selectedMonth.details.vendorItems?.length || 0}
+                            {selectedMonth.details?.vendorItems?.length || 0}
                           </span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{selectedMonth.details.vendor.toLocaleString('en-IN')}</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{Number(selectedMonth.details?.vendor || 0).toLocaleString('en-IN')}</span>
                           <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
                             {expandedBreakdown.vendor ? 'expand_less' : 'expand_more'}
                           </span>
@@ -2852,7 +2941,7 @@ export default function ManageAccount() {
 
                       {expandedBreakdown.vendor && (
                         <div style={{ padding: '8px 12px', background: 'white' }}>
-                          {selectedMonth.details.vendorItems?.map((item, idx) => (
+                          {selectedMonth.details?.vendorItems?.map((item, idx) => (
                             <div 
                               key={item.id || idx}
                               onClick={() => setSelectedBreakdownItem({ type: 'vendor', data: item })}
@@ -2868,17 +2957,17 @@ export default function ManageAccount() {
                             >
                               <div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{item.name}</span>
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{safeText(item.name, 'Vendor / Maintenance')}</span>
                                   <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>
-                                    {item.category}
+                                    {safeText(item.category, 'Maintenance')}
                                   </span>
                                 </div>
                                 <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-                                  {item.description} · {new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                  {safeText(item.description, 'Purchase')} · {safeDateStr(item.date, { day: 'numeric', month: 'short' })}
                                 </p>
                               </div>
                               <div style={{ textAlign: 'right' }}>
-                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount || 0).toLocaleString('en-IN')}</span>
                                 <span style={{ fontSize: 10, color: '#8b5cf6', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
                                   Details <span className="material-symbols-outlined" style={{ fontSize: 11 }}>chevron_right</span>
                                 </span>
@@ -2891,7 +2980,7 @@ export default function ManageAccount() {
                   )}
 
                   {/* Category 4: Staff Salaries Paid */}
-                  {(selectedMonth.details.staff > 0 || (selectedMonth.details.staffItems?.length > 0)) && (
+                  {((Number(selectedMonth.details?.staff) || 0) > 0 || (selectedMonth.details?.staffItems?.length > 0)) && (
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
                       <div 
                         onClick={() => toggleBreakdown('staff')}
@@ -2901,11 +2990,11 @@ export default function ManageAccount() {
                           <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#e11d48' }}>badge</span>
                           <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Staff Salaries Paid</span>
                           <span style={{ fontSize: 11, background: '#fff1f2', color: '#e11d48', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
-                            {selectedMonth.details.staffItems?.length || 0}
+                            {selectedMonth.details?.staffItems?.length || 0}
                           </span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{selectedMonth.details.staff.toLocaleString('en-IN')}</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{Number(selectedMonth.details?.staff || 0).toLocaleString('en-IN')}</span>
                           <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
                             {expandedBreakdown.staff ? 'expand_less' : 'expand_more'}
                           </span>
@@ -2914,20 +3003,20 @@ export default function ManageAccount() {
 
                       {expandedBreakdown.staff && (
                         <div style={{ padding: '8px 12px', background: 'white' }}>
-                          {selectedMonth.details.staffItems?.map((item, idx) => (
+                          {selectedMonth.details?.staffItems?.map((item, idx) => (
                             <div 
                               key={item.id || idx}
                               onClick={() => setSelectedBreakdownItem({ type: 'staff', data: item })}
                               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: idx < selectedMonth.details.staffItems.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
                             >
                               <div>
-                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{item.name} ({item.role})</span>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{safeText(item.name, 'Staff Member')} ({safeText(item.role, 'Staff')})</span>
                                 <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-                                  Paid: {new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {item.paymentMode || 'Online'}
+                                  Paid: {safeDateStr(item.date, { day: 'numeric', month: 'short' })} · {safeText(item.paymentMode, 'Online')}
                                 </p>
                               </div>
                               <div style={{ textAlign: 'right' }}>
-                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount || 0).toLocaleString('en-IN')}</span>
                                 <span style={{ fontSize: 10, color: '#e11d48', fontWeight: 700 }}>Slip ➔</span>
                               </div>
                             </div>
@@ -2938,7 +3027,7 @@ export default function ManageAccount() {
                   )}
 
                   {/* Category 5: PG Property Lease */}
-                  {(selectedMonth.details.lease > 0 || (selectedMonth.details.leaseItems?.length > 0)) && (
+                  {((Number(selectedMonth.details?.lease) || 0) > 0 || (selectedMonth.details?.leaseItems?.length > 0)) && (
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
                       <div 
                         onClick={() => toggleBreakdown('lease')}
@@ -2948,11 +3037,11 @@ export default function ManageAccount() {
                           <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#e11d48' }}>receipt_long</span>
                           <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>PG Property Lease</span>
                           <span style={{ fontSize: 11, background: '#fff1f2', color: '#e11d48', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
-                            {selectedMonth.details.leaseItems?.length || 0}
+                            {selectedMonth.details?.leaseItems?.length || 0}
                           </span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{selectedMonth.details.lease.toLocaleString('en-IN')}</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{Number(selectedMonth.details?.lease || 0).toLocaleString('en-IN')}</span>
                           <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
                             {expandedBreakdown.lease ? 'expand_less' : 'expand_more'}
                           </span>
@@ -2961,7 +3050,7 @@ export default function ManageAccount() {
 
                       {expandedBreakdown.lease && (
                         <div style={{ padding: '8px 12px', background: 'white' }}>
-                          {selectedMonth.details.leaseItems?.map((item, idx) => (
+                          {selectedMonth.details?.leaseItems?.map((item, idx) => (
                             <div 
                               key={item.id || idx}
                               onClick={() => setSelectedBreakdownItem({ type: 'lease', data: item })}
@@ -2970,11 +3059,11 @@ export default function ManageAccount() {
                               <div>
                                 <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>PG Lease Rent</span>
                                 <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-                                  Paid: {new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                  Paid: {safeDateStr(item.date, { day: 'numeric', month: 'short' })}
                                 </p>
                               </div>
                               <div style={{ textAlign: 'right' }}>
-                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount || 0).toLocaleString('en-IN')}</span>
                                 <span style={{ fontSize: 10, color: '#64748b', fontWeight: 700 }}>Details ➔</span>
                               </div>
                             </div>
@@ -2985,7 +3074,7 @@ export default function ManageAccount() {
                   )}
 
                   {/* Category 6: Petty Cash Allocations */}
-                  {(selectedMonth.details.petty > 0 || (selectedMonth.details.pettyItems?.length > 0)) && (
+                  {((Number(selectedMonth.details?.petty) || 0) > 0 || (selectedMonth.details?.pettyItems?.length > 0)) && (
                     <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
                       <div 
                         onClick={() => toggleBreakdown('petty')}
@@ -2995,11 +3084,11 @@ export default function ManageAccount() {
                           <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#e11d48' }}>payments</span>
                           <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Petty Cash Allocations</span>
                           <span style={{ fontSize: 11, background: '#fff1f2', color: '#e11d48', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
-                            {selectedMonth.details.pettyItems?.length || 0}
+                            {selectedMonth.details?.pettyItems?.length || 0}
                           </span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{selectedMonth.details.petty.toLocaleString('en-IN')}</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{Number(selectedMonth.details?.petty || 0).toLocaleString('en-IN')}</span>
                           <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
                             {expandedBreakdown.petty ? 'expand_less' : 'expand_more'}
                           </span>
@@ -3008,20 +3097,20 @@ export default function ManageAccount() {
 
                       {expandedBreakdown.petty && (
                         <div style={{ padding: '8px 12px', background: 'white' }}>
-                          {selectedMonth.details.pettyItems?.map((item, idx) => (
+                          {selectedMonth.details?.pettyItems?.map((item, idx) => (
                             <div 
                               key={item.id || idx}
                               onClick={() => setSelectedBreakdownItem({ type: 'petty', data: item })}
                               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: idx < selectedMonth.details.pettyItems.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
                             >
                               <div>
-                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{item.staffName}</span>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{safeText(item.staffName, 'Staff Member')}</span>
                                 <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-                                  {item.purpose} · {new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                  {safeText(item.purpose, 'Petty Cash')} · {safeDateStr(item.date, { day: 'numeric', month: 'short' })}
                                 </p>
                               </div>
                               <div style={{ textAlign: 'right' }}>
-                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount || 0).toLocaleString('en-IN')}</span>
                                 <span style={{ fontSize: 10, color: '#d97706', fontWeight: 700 }}>Details ➔</span>
                               </div>
                             </div>
@@ -3034,11 +3123,11 @@ export default function ManageAccount() {
                   {/* Summary Totals */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, paddingTop: 14, borderTop: '1.5px solid #e2e8f0' }}>
                     <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Total Month Collections</span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: '#059669' }}>+ ₹{selectedMonth.totalIncome.toLocaleString('en-IN')}</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: '#059669' }}>+ ₹{Number(selectedMonth.totalIncome || 0).toLocaleString('en-IN')}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, paddingBottom: 8 }}>
                     <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Total Month Expenses</span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: '#e11d48' }}>- ₹{selectedMonth.expenses.toLocaleString('en-IN')}</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: '#e11d48' }}>- ₹{Number(selectedMonth.expenses || 0).toLocaleString('en-IN')}</span>
                   </div>
                 </div>
 
@@ -3319,69 +3408,69 @@ export default function ManageAccount() {
               {selectedBreakdownItem.data.name && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Entity Name</span>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.name}</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{safeText(selectedBreakdownItem.data.name)}</span>
                 </div>
               )}
               {selectedBreakdownItem.data.staffName && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Staff Member</span>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.staffName}</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{safeText(selectedBreakdownItem.data.staffName)}</span>
                 </div>
               )}
               {selectedBreakdownItem.data.tenantName && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Tenant</span>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.tenantName}</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{safeText(selectedBreakdownItem.data.tenantName)}</span>
                 </div>
               )}
               {selectedBreakdownItem.data.room && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Room</span>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.room}</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{safeText(selectedBreakdownItem.data.room)}</span>
                 </div>
               )}
               {selectedBreakdownItem.data.category && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Category</span>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.category}</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{safeText(selectedBreakdownItem.data.category)}</span>
                 </div>
               )}
               {selectedBreakdownItem.data.role && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Role</span>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.role}</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{safeText(selectedBreakdownItem.data.role)}</span>
                 </div>
               )}
               {selectedBreakdownItem.data.description && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Description</span>
-                  <span style={{ fontWeight: 700, color: '#0f172a', textAlign: 'right', maxWidth: '60%' }}>{selectedBreakdownItem.data.description}</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a', textAlign: 'right', maxWidth: '60%' }}>{safeText(selectedBreakdownItem.data.description)}</span>
                 </div>
               )}
               {selectedBreakdownItem.data.purpose && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Purpose</span>
-                  <span style={{ fontWeight: 700, color: '#0f172a', textAlign: 'right', maxWidth: '60%' }}>{selectedBreakdownItem.data.purpose}</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a', textAlign: 'right', maxWidth: '60%' }}>{safeText(selectedBreakdownItem.data.purpose)}</span>
                 </div>
               )}
               {selectedBreakdownItem.data.month && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Billing Month</span>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.month}</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{safeText(selectedBreakdownItem.data.month)}</span>
                 </div>
               )}
               {selectedBreakdownItem.data.date && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Date Recorded</span>
                   <span style={{ fontWeight: 700, color: '#0f172a' }}>
-                    {new Date(selectedBreakdownItem.data.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {safeDateStr(selectedBreakdownItem.data.date, { day: 'numeric', month: 'short', year: 'numeric' })}
                   </span>
                 </div>
               )}
               {selectedBreakdownItem.data.paymentMode && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
                   <span style={{ color: '#64748b' }}>Payment Mode</span>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.paymentMode}</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{safeText(selectedBreakdownItem.data.paymentMode)}</span>
                 </div>
               )}
             </div>

@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 $desktop = "C:\Users\RACHIT\OneDrive\Desktop"
 $workspace = "C:\Users\RACHIT\OneDrive\Desktop\Febeboo"
 $jdkPath = "C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot"
+$env:JAVA_HOME = $jdkPath
 
 Write-Host "=== STARTING FRESH APK GENERATION ===" -ForegroundColor Cyan
 

@@ -2,7 +2,20 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, doc, updateDoc, addDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
-export default function ManagerVisitorsView({ adminId, onBack, showToast }) {
+export default function ManagerVisitorsView({ adminId, activePgId, assignedProperties = [], onBack, showToast }) {
+  const [selectedPgId, setSelectedPgId] = useState(() => activePgId || assignedProperties[0]?.id || 'primary');
+
+  useEffect(() => {
+    if (activePgId) setSelectedPgId(activePgId);
+  }, [activePgId]);
+
+  const matchesPg = (itemPgId) => {
+    if (!selectedPgId || selectedPgId === 'primary') {
+      return !itemPgId || itemPgId === 'primary' || itemPgId === adminId;
+    }
+    return itemPgId === selectedPgId;
+  };
+
   const [visitors, setVisitors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('Inside'); // 'Inside' | 'History'
@@ -23,7 +36,7 @@ export default function ManagerVisitorsView({ adminId, onBack, showToast }) {
 
     const qVis = query(collection(db, 'visitors'), where('adminId', '==', adminId));
     const unsub = onSnapshot(qVis, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(v => matchesPg(v.pgId));
       list.sort((a, b) => new Date(b.createdAt || b.checkInTime || 0) - new Date(a.createdAt || a.checkInTime || 0));
       setVisitors(list);
       setLoading(false);
@@ -33,7 +46,7 @@ export default function ManagerVisitorsView({ adminId, onBack, showToast }) {
     });
 
     return () => unsub();
-  }, [adminId]);
+  }, [adminId, selectedPgId]);
 
   // Counts
   const insideCount = useMemo(() => visitors.filter(v => v.status === 'Inside').length, [visitors]);
@@ -60,6 +73,7 @@ export default function ManagerVisitorsView({ adminId, onBack, showToast }) {
       const nowIso = new Date().toISOString();
       await addDoc(collection(db, 'visitors'), {
         adminId,
+        pgId: selectedPgId || 'primary',
         name: visName.trim(),
         phone: visPhone.trim(),
         roomNo: visRoom.trim(),
@@ -108,8 +122,7 @@ export default function ManagerVisitorsView({ adminId, onBack, showToast }) {
               <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0f172a' }}>arrow_back</span>
             </button>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Gate Visitor Log</h2>
-              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Entry, Exit & Security</p>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Visitors</h2>
             </div>
           </div>
           <button

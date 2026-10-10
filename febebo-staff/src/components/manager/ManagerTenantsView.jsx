@@ -2,8 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
-export default function ManagerTenantsView({ adminId, activePgId, assignedProperties = [], onBack, onAddTenant, showToast }) {
+export default function ManagerTenantsView({ adminId, activePgId, assignedProperties = [], onBack, onAddTenant, onOpenChat, showToast }) {
   const [selectedPgId, setSelectedPgId] = useState(() => activePgId || assignedProperties[0]?.id || 'primary');
+
+  useEffect(() => {
+    if (activePgId) setSelectedPgId(activePgId);
+  }, [activePgId]);
   const [showAddOptionsModal, setShowAddOptionsModal] = useState(false);
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -215,8 +219,7 @@ export default function ManagerTenantsView({ adminId, activePgId, assignedProper
               <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0f172a' }}>arrow_back</span>
             </button>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Manage Tenants</h2>
-              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Directory · {assignedProperties.find(p => p.id === selectedPgId)?.name || 'Primary PG'}</p>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Tenants</h2>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -249,7 +252,7 @@ export default function ManagerTenantsView({ adminId, activePgId, assignedProper
             )}
             {onAddTenant && (
               <button
-                onClick={() => setShowAddOptionsModal(true)}
+                onClick={() => onAddTenant('new')}
                 style={{
                   background: '#0891b2',
                   color: '#fff',
@@ -437,30 +440,28 @@ export default function ManagerTenantsView({ adminId, activePgId, assignedProper
                       <span className="material-symbols-outlined" style={{ fontSize: 15 }}>call</span> Call
                     </a>
                   )}
-                  {t.phone && (
-                    <a
-                      href={`https://wa.me/${t.phone.replace(/[^0-9]/g, '')}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        flex: 1,
-                        padding: '7px 0',
-                        borderRadius: 8,
-                        background: '#f0fdf4',
-                        color: '#16a34a',
-                        border: '1px solid #bbf7d0',
-                        fontSize: 12,
-                        fontWeight: 800,
-                        textDecoration: 'none',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 4
-                      }}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>chat</span> WhatsApp
-                    </a>
-                  )}
+                  <button
+                    onClick={() => {
+                      if (onOpenChat) onOpenChat(t);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '7px 0',
+                      borderRadius: 8,
+                      background: '#ecfeff',
+                      color: '#0891b2',
+                      border: '1px solid #cffafe',
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>chat</span> Chat
+                  </button>
 
                   <button
                     onClick={() => setSelectedTenant(t)}
@@ -575,6 +576,18 @@ export default function ManagerTenantsView({ adminId, activePgId, assignedProper
 
             {/* Operational Actions */}
             <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+              <button
+                onClick={() => {
+                  if (onOpenChat) {
+                    onOpenChat(selectedTenant);
+                    setSelectedTenant(null);
+                  }
+                }}
+                style={{ flex: 1, padding: '12px', background: '#ecfeff', color: '#0891b2', border: '1px solid #cffafe', borderRadius: 12, fontSize: 13, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>chat</span>
+                Chat
+              </button>
               {selectedTenant.status !== 'Moved Out' && selectedTenant.status !== 'Exited' && (
                 <>
                   <button

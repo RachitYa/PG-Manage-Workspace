@@ -2,7 +2,20 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 
-export default function ManagerApprovalsView({ adminId, onBack, showToast }) {
+export default function ManagerApprovalsView({ adminId, activePgId, assignedProperties = [], onBack, showToast }) {
+  const [selectedPgId, setSelectedPgId] = useState(() => activePgId || assignedProperties[0]?.id || 'primary');
+
+  useEffect(() => {
+    if (activePgId) setSelectedPgId(activePgId);
+  }, [activePgId]);
+
+  const matchesPg = (itemPgId) => {
+    if (!selectedPgId || selectedPgId === 'primary') {
+      return !itemPgId || itemPgId === 'primary' || itemPgId === adminId;
+    }
+    return itemPgId === selectedPgId;
+  };
+
   const [roomChanges, setRoomChanges] = useState([]);
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -16,7 +29,7 @@ export default function ManagerApprovalsView({ adminId, onBack, showToast }) {
 
     const qRoom = query(collection(db, 'room_change_requests'), where('adminId', '==', adminId));
     const unsubRoom = onSnapshot(qRoom, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => matchesPg(r.pgId));
       list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
       setRoomChanges(list);
       setLoading(false);
@@ -27,7 +40,7 @@ export default function ManagerApprovalsView({ adminId, onBack, showToast }) {
 
     const qApps = query(collection(db, 'pg_applications'), where('adminId', '==', adminId));
     const unsubApps = onSnapshot(qApps, (snap) => {
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(a => matchesPg(a.pgId));
       list.sort((a, b) => new Date(b.createdAt || b.date || 0) - new Date(a.createdAt || a.date || 0));
       setApplications(list);
     }, (err) => {
@@ -38,7 +51,7 @@ export default function ManagerApprovalsView({ adminId, onBack, showToast }) {
       unsubRoom();
       unsubApps();
     };
-  }, [adminId]);
+  }, [adminId, selectedPgId]);
 
   // Handle Approve Room Change
   const handleApproveRoomChange = async (req) => {
@@ -122,8 +135,7 @@ export default function ManagerApprovalsView({ adminId, onBack, showToast }) {
               <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0f172a' }}>arrow_back</span>
             </button>
             <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>Approvals</h2>
-              <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Room shifts & applications</p>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0f172a' }}>Approvals</h2>
             </div>
           </div>
         </div>
