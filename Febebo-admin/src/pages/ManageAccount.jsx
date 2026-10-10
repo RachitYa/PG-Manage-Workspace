@@ -394,6 +394,9 @@ export default function ManageAccount() {
   const [activeReceipt, setActiveReceipt] = useState(null);
   const [collectModalData, setCollectModalData] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(null);
+  const [expandedBreakdown, setExpandedBreakdown] = useState({ rent: true, vendor: true, staff: false, meter: false, lease: false, petty: false });
+  const toggleBreakdown = (cat) => setExpandedBreakdown(prev => ({ ...prev, [cat]: !prev[cat] }));
+  const [selectedBreakdownItem, setSelectedBreakdownItem] = useState(null);
 
   // Dynamic Rent Data State
   const [rentData, setRentData] = useState({ upcoming: [], pending: [], collected: [] });
@@ -1141,24 +1144,28 @@ export default function ManageAccount() {
     let tenantMap = new Map();
 
     const recalculateProfitLoss = () => {
-      const monthlyData = {}; // Format: { "June 2026": { rent: 0, meter: 0, staff: 0, petty: 0, pettyDetails: [], lease: 0, vendor: 0, timestamp: 0 } }
+      const monthlyData = {};
 
       const initMonth = (monthStr, dateObj) => {
         if (!monthlyData[monthStr]) {
           monthlyData[monthStr] = {
             rent: 0,
+            rentItems: [],
             meter: 0,
+            meterItems: [],
             staff: 0,
+            staffItems: [],
             petty: 0,
+            pettyItems: [],
             pettyDetails: [],
             lease: 0,
+            leaseItems: [],
             vendor: 0,
+            vendorItems: [],
             timestamp: dateObj ? dateObj.getTime() : Date.now()
           };
         }
       };
-
-      const seenKeys = new Set();
 
       const matchTenant = (item) => {
         const tid = String(item.tenantId || item.userId || item.uid || '').trim();
@@ -1178,7 +1185,10 @@ export default function ManageAccount() {
         return null;
       };
 
-      // 1. Rent Receipts (Income)
+      // ── 1. RENT COLLECTIONS CANDIDATES (Same 3 sources as Total Rents) ────────
+      const candidateRentPayments = [];
+
+      // [Source 1]: Rent Receipts
       rentDocs.forEach(r => {
         if (!matchesPgItem(r.pgId)) return;
         const amt = Number(r.totalAmount || r.amountPaid || r.amount || 0);
@@ -1188,27 +1198,28 @@ export default function ManageAccount() {
         if (registeredTenants.length > 0 && !matched) return;
 
         const effectiveTenantId = matched ? (matched.tenantId || matched.id) : (r.tenantId || r.userId || r.id);
-
         const dateObj = r.datePaid ? new Date(r.datePaid) : (r.date ? new Date(r.date) : new Date(r.createdAt?.toDate ? r.createdAt.toDate() : (r.createdAt || Date.now())));
         const monthStr = r.rentMonth || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
-        initMonth(monthStr, dateObj);
 
-        const dayStr = (dateObj && !isNaN(dateObj.getTime())) ? dateObj.toISOString().split('T')[0] : '';
-        const txnId = (r.transactionId && r.transactionId !== '-' && r.transactionId !== 'Paid during admission' && r.transactionId !== 'N/A') ? String(r.transactionId).trim() : '';
-
-        // Unified deduplication checks
-        if (txnId && seenKeys.has(`txn_${txnId}`)) return;
-        if (monthStr && effectiveTenantId && seenKeys.has(`m_${effectiveTenantId}_${monthStr.toLowerCase().trim()}_${amt}`)) return;
-        if (dayStr && effectiveTenantId && seenKeys.has(`d_${effectiveTenantId}_${dayStr}_${amt}`)) return;
-
-        if (txnId) seenKeys.add(`txn_${txnId}`);
-        if (monthStr && effectiveTenantId) seenKeys.add(`m_${effectiveTenantId}_${monthStr.toLowerCase().trim()}_${amt}`);
-        if (dayStr && effectiveTenantId) seenKeys.add(`d_${effectiveTenantId}_${dayStr}_${amt}`);
-
-        monthlyData[monthStr].rent += amt;
+        candidateRentPayments.push({
+          id: r.id,
+          priority: 1,
+          tenant: matched,
+          tenantId: effectiveTenantId,
+          name: matched?.name || r.tenantName || r.name || 'Resident',
+          room: matched?.roomNo || r.roomNo || r.room || '-',
+          amount: amt,
+          monthStr,
+          dateObj,
+          timestamp: dateObj && !isNaN(dateObj.getTime()) ? dateObj.getTime() : Date.now(),
+          transactionId: (r.transactionId && r.transactionId !== '-' && r.transactionId !== 'Paid during admission' && r.transactionId !== 'N/A') ? String(r.transactionId).trim() : '',
+          paymentMode: r.paymentMode || 'Online',
+          source: 'receipt',
+          rawReceipt: r
+        });
       });
 
-      // 2. Student app chat payments (Income)
+      // [Source 2]: Student App Payments
       studentPaymentDocs.forEach(p => {
         if (!matchesPgItem(p.pgId)) return;
         const amt = Number(p.amount || p.amountPaid || p.totalAmount || 0);
@@ -1218,31 +1229,148 @@ export default function ManageAccount() {
         if (registeredTenants.length > 0 && !matched) return;
 
         const effectiveTenantId = matched ? (matched.tenantId || matched.id) : (p.tenantId || p.userId || p.id);
-
         const dateObj = p.datePaid ? new Date(p.datePaid) : (p.date ? new Date(p.date) : new Date(p.createdAt?.toDate ? p.createdAt.toDate() : (p.createdAt || Date.now())));
         const monthStr = p.rentMonth || p.month || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
-        initMonth(monthStr, dateObj);
-
-        const dayStr = (dateObj && !isNaN(dateObj.getTime())) ? dateObj.toISOString().split('T')[0] : '';
-        const txnId = (p.transactionId && p.transactionId !== '-' && p.transactionId !== 'Paid during admission' && p.transactionId !== 'N/A') ? String(p.transactionId).trim() : '';
-
-        // Unified deduplication checks
-        if (txnId && seenKeys.has(`txn_${txnId}`)) return;
-        if (monthStr && effectiveTenantId && seenKeys.has(`m_${effectiveTenantId}_${monthStr.toLowerCase().trim()}_${amt}`)) return;
-        if (dayStr && effectiveTenantId && seenKeys.has(`d_${effectiveTenantId}_${dayStr}_${amt}`)) return;
-
-        if (txnId) seenKeys.add(`txn_${txnId}`);
-        if (monthStr && effectiveTenantId) seenKeys.add(`m_${effectiveTenantId}_${monthStr.toLowerCase().trim()}_${amt}`);
-        if (dayStr && effectiveTenantId) seenKeys.add(`d_${effectiveTenantId}_${dayStr}_${amt}`);
 
         if (p.paymentType === 'meter' || (p.name && p.name.toLowerCase().includes('electricity'))) {
+          initMonth(monthStr, dateObj);
           monthlyData[monthStr].meter += amt;
-        } else {
-          monthlyData[monthStr].rent += amt;
+          monthlyData[monthStr].meterItems.push({
+            id: p.id,
+            tenantName: matched?.name || p.name || 'Resident',
+            room: matched?.roomNo || p.roomNo || '-',
+            amount: amt,
+            date: dateObj,
+            month: monthStr,
+            source: 'student_app',
+            paymentMode: p.paymentMode || 'UPI',
+            raw: p
+          });
+          return;
+        }
+
+        candidateRentPayments.push({
+          id: p.id,
+          priority: 2,
+          tenant: matched,
+          tenantId: effectiveTenantId,
+          name: matched?.name || p.name || 'Resident',
+          room: matched?.roomNo || p.roomNo || '-',
+          amount: amt,
+          monthStr,
+          dateObj,
+          timestamp: dateObj && !isNaN(dateObj.getTime()) ? dateObj.getTime() : Date.now(),
+          transactionId: (p.transactionId && p.transactionId !== '-' && p.transactionId !== 'Paid during admission' && p.transactionId !== 'N/A') ? String(p.transactionId).trim() : '',
+          paymentMode: p.paymentMode || 'UPI',
+          source: 'student_payment',
+          rawReceipt: {
+            id: p.id,
+            tenantId: effectiveTenantId,
+            tenantName: matched?.name || p.name || 'Resident',
+            roomNo: matched?.roomNo || p.roomNo || '-',
+            rentMonth: monthStr,
+            datePaid: p.datePaid || p.date || (dateObj ? dateObj.toISOString() : new Date().toISOString()),
+            paymentMode: p.paymentMode || 'UPI',
+            receivedBy: 'Admin',
+            transactionId: p.transactionId || '',
+            items: [{ label: p.name || 'Room Rent', amount: amt }],
+            totalAmount: amt,
+            amountPaid: amt,
+            pendingAmount: 0
+          }
+        });
+      });
+
+      // [Source 3]: Registration / Already Resident paid records
+      const now = new Date();
+      const currentMonthName = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      const currentMonthVal = now.toISOString().slice(0, 7);
+
+      registeredTenants.forEach(t => {
+        const amt = Number(t.rentAmount || t.rent || 0);
+        if (amt <= 0 || isNaN(amt)) return;
+
+        let dojTs = 0;
+        let dojMonth = '';
+        let dojDate = null;
+        if (t.dateOfJoining) {
+          const d = new Date(t.dateOfJoining);
+          if (!isNaN(d.getTime())) {
+            dojTs = d.getTime();
+            dojDate = d;
+            dojMonth = d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+          }
+        }
+
+        const paidTill = t.paidTillMonth || t.subscribedPG?.paidTillMonth;
+        const isCoveredByPaidTill = Boolean(paidTill && paidTill >= (t.dateOfJoining || currentMonthVal).slice(0, 7));
+
+        if (isCoveredByPaidTill || (t.isAlreadyResident && !t.paymentVerificationPending && Number(t.remainingAmount || 0) <= 0)) {
+          const targetMonth = dojMonth || currentMonthName;
+          const targetDate = dojDate || now;
+          candidateRentPayments.push({
+            id: `adm_${t.id || t.tenantId}`,
+            priority: 3,
+            tenant: t,
+            tenantId: t.tenantId || t.id,
+            name: t.name || 'Resident',
+            room: t.roomNo || '-',
+            amount: amt,
+            monthStr: targetMonth,
+            dateObj: targetDate,
+            timestamp: dojTs || Date.now(),
+            transactionId: '',
+            paymentMode: 'Cash / Registration',
+            source: 'registration',
+            rawReceipt: {
+              tenantId: t.tenantId || t.id,
+              tenantName: t.name,
+              roomNo: t.roomNo,
+              rentMonth: targetMonth,
+              datePaid: t.dateOfJoining || new Date().toISOString(),
+              paymentMode: 'Cash / Registration',
+              receivedBy: 'Admin (Registration)',
+              senderUPI: 'Paid during admission',
+              receiverUPI: '-',
+              items: [
+                { label: 'Room Rent', amount: amt },
+                ...(Number(t.securityDeposit || 0) > 0 ? [{ label: 'Security Deposit', amount: Number(t.securityDeposit) }] : [])
+              ],
+              totalAmount: amt,
+              amountPaid: amt,
+              pendingAmount: 0
+            }
+          });
         }
       });
 
-      // 3. Paid Meter Bills (Income)
+      // Sort and deduplicate candidate rent payments
+      candidateRentPayments.sort((a, b) => {
+        if (a.priority !== b.priority) return a.priority - b.priority;
+        return b.timestamp - a.timestamp;
+      });
+
+      const seenKeys = new Set();
+      candidateRentPayments.forEach(p => {
+        const dayStr = (p.dateObj && !isNaN(p.dateObj.getTime())) ? p.dateObj.toISOString().split('T')[0] : '';
+        if (p.transactionId && seenKeys.has(`txn_${p.transactionId}`)) return;
+        if (p.monthStr && p.tenantId && seenKeys.has(`m_${p.tenantId}_${p.monthStr.toLowerCase().trim()}_${p.amount}`)) return;
+        if (dayStr && p.tenantId && seenKeys.has(`d_${p.tenantId}_${dayStr}_${p.amount}`)) return;
+        if (p.source === 'registration' && p.monthStr && p.tenantId && seenKeys.has(`tm_${p.tenantId}_${p.monthStr.toLowerCase().trim()}`)) return;
+
+        if (p.transactionId) seenKeys.add(`txn_${p.transactionId}`);
+        if (p.monthStr && p.tenantId) {
+          seenKeys.add(`m_${p.tenantId}_${p.monthStr.toLowerCase().trim()}_${p.amount}`);
+          seenKeys.add(`tm_${p.tenantId}_${p.monthStr.toLowerCase().trim()}`);
+        }
+        if (dayStr && p.tenantId) seenKeys.add(`d_${p.tenantId}_${dayStr}_${p.amount}`);
+
+        initMonth(p.monthStr, p.dateObj);
+        monthlyData[p.monthStr].rent += p.amount;
+        monthlyData[p.monthStr].rentItems.push(p);
+      });
+
+      // ── 2. PAID METER BILLS (Income) ──────────────────────────────────────────
       meterDocs.forEach(m => {
         if (!matchesPgItem(m.pgId)) return;
         if (m.status !== 'Paid') return;
@@ -1257,10 +1385,22 @@ export default function ManageAccount() {
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
           monthlyData[monthStr].meter += amt;
+          monthlyData[monthStr].meterItems.push({
+            id: m.id,
+            tenantName: m.tenantName || m.name || `Room ${m.roomNo || '-'}`,
+            room: m.roomNo || '-',
+            amount: amt,
+            date: dateObj,
+            month: monthStr,
+            units: m.unitsConsumed || m.units || 0,
+            rate: m.ratePerUnit || 0,
+            paymentMode: m.paymentMode || 'Online',
+            raw: m
+          });
         }
       });
 
-      // 4. Staff Salaries (Expense)
+      // ── 3. STAFF SALARIES (Expense) ───────────────────────────────────────────
       staffDocs.forEach(s => {
         if (!matchesPgItem(s.pgId)) return;
         const amt = Number(s.amountPaid || s.amount || 0);
@@ -1270,9 +1410,23 @@ export default function ManageAccount() {
         const monthStr = s.month || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
         initMonth(monthStr, dateObj);
         monthlyData[monthStr].staff += amt;
+        monthlyData[monthStr].staffItems.push({
+          id: s.id,
+          name: s.staffName || s.name || 'Staff Member',
+          role: s.role || 'Staff',
+          amount: amt,
+          date: dateObj,
+          month: monthStr,
+          paymentMode: s.paymentMode || 'Online',
+          totalDays: s.totalDays,
+          presentDays: s.presentDays,
+          absentDays: s.absentDays,
+          advancesDeducted: s.advancesDeducted,
+          raw: s
+        });
       });
 
-      // 5. Petty Cash (Expense)
+      // ── 4. PETTY CASH (Expense) ───────────────────────────────────────────────
       pettyDocs.forEach(pt => {
         if (!matchesPgItem(pt.pgId)) return;
         if (pt.type === 'debit') return; // Debit is staff spending from already-allocated cash
@@ -1284,6 +1438,15 @@ export default function ManageAccount() {
           const monthStr = dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General';
           initMonth(monthStr, dateObj);
           monthlyData[monthStr].petty += amt;
+          monthlyData[monthStr].pettyItems.push({
+            id: pt.id,
+            staffName: pt.staffName || 'Staff Member',
+            purpose: pt.desc || pt.purpose || 'Petty Cash Allocation',
+            amount: amt,
+            date: dateObj,
+            month: monthStr,
+            raw: pt
+          });
           monthlyData[monthStr].pettyDetails.push({
             staffName: pt.staffName || 'Staff',
             amount: amt,
@@ -1292,7 +1455,7 @@ export default function ManageAccount() {
         }
       });
 
-      // 6. PG Property Lease (Expense)
+      // ── 5. PG PROPERTY LEASE (Expense) ────────────────────────────────────────
       leaseDocs.forEach(l => {
         if (!matchesPgItem(l.pgId)) return;
         const amt = Number(l.amount || 0);
@@ -1302,9 +1465,17 @@ export default function ManageAccount() {
         const monthStr = l.month || (dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General');
         initMonth(monthStr, dateObj);
         monthlyData[monthStr].lease += amt;
+        monthlyData[monthStr].leaseItems.push({
+          id: l.id,
+          month: monthStr,
+          amount: amt,
+          date: dateObj,
+          paymentMode: l.paymentMode || 'Online',
+          raw: l
+        });
       });
 
-      // 7. Vendor Transactions & PG Maintenance (Expense)
+      // ── 6. VENDOR TRANSACTIONS & MAINTENANCE (Expense) ────────────────────────
       vendorDocs.forEach(v => {
         if (!matchesPgItem(v.pgId)) return;
         if (v.paymentSource === 'petty_cash' || v.isPettyCashPaid || v.payInfo?.method === 'Petty Cash') return;
@@ -1324,6 +1495,17 @@ export default function ManageAccount() {
         const monthStr = dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' }) : 'General';
         initMonth(monthStr, dateObj);
         monthlyData[monthStr].vendor += amt;
+        monthlyData[monthStr].vendorItems.push({
+          id: v.id,
+          name: v.vendorName || v.name || v.supplier || 'Vendor / Maintenance',
+          category: v.category || v.type || 'Maintenance',
+          description: v.note || v.desc || v.description || v.items || 'General Purchase / Service',
+          amount: amt,
+          date: dateObj,
+          month: monthStr,
+          paymentMode: v.paymentMode || v.payInfo?.method || 'Cash / Online',
+          raw: v
+        });
       });
 
       // Convert to array and calculate Live Net Profit / Loss
@@ -1349,6 +1531,7 @@ export default function ManageAccount() {
 
       processedData.sort((a, b) => b.timestamp - a.timestamp);
       setProfitLossData(processedData);
+      setSelectedMonth(prev => prev ? (processedData.find(m => m.id === prev.id) || prev) : null);
       setLoadingProfitLoss(false);
     };
 
@@ -1383,8 +1566,8 @@ export default function ManageAccount() {
       recalculateProfitLoss();
     }, () => setLoadingProfitLoss(false));
 
-    // Also fetch registered tenants and student app payments for the active PG
-    getDocs(query(collection(db, 'tenants'), where('adminId', '==', user.uid))).then(tSnap => {
+    // Real-time listener for tenants (Admission records & user payments)
+    const unsubTenants = onSnapshot(query(collection(db, 'tenants'), where('adminId', '==', user.uid)), (tSnap) => {
       const validTenants = tSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(t => matchesPgItem(t.pgId));
@@ -1430,7 +1613,7 @@ export default function ManageAccount() {
       }).catch(() => {
         recalculateProfitLoss();
       });
-    }).catch(() => {});
+    }, () => setLoadingProfitLoss(false));
 
     return () => {
       unsubRent();
@@ -1439,6 +1622,7 @@ export default function ManageAccount() {
       unsubLease();
       unsubVendor();
       unsubMeter();
+      unsubTenants();
     };
   }, [activeModule, user, activePgId]);
 
@@ -2467,79 +2651,397 @@ export default function ManageAccount() {
           <div style={{ padding: '16px' }}>
             {selectedMonth ? (
               <div style={{ background: 'white', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                {/* Header Summary Card */}
                 <div style={{ padding: '20px', textAlign: 'center', borderBottom: '1px solid #e2e8f0', background: selectedMonth.type === 'profit' ? '#f0fdf4' : '#fff1f2' }}>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: selectedMonth.type === 'profit' ? '#059669' : '#e11d48', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    {selectedMonth.month} · Net {selectedMonth.type === 'profit' ? 'Profit' : 'Loss'}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <button onClick={() => setSelectedMonth(null)} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, padding: '4px 10px', fontSize: 12, fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>arrow_back</span> All Months
+                    </button>
+                    <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 8px', borderRadius: 12, background: selectedMonth.type === 'profit' ? '#dcfce7' : '#fee2e2', color: selectedMonth.type === 'profit' ? '#16a34a' : '#dc2626', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Live {selectedMonth.type === 'profit' ? 'Profit' : 'Loss'}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 2 }}>
+                    {selectedMonth.month}
                   </p>
-                  <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 32, fontWeight: 800, color: selectedMonth.type === 'profit' ? '#059669' : '#e11d48', margin: 0 }}>
+                  <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 34, fontWeight: 900, color: selectedMonth.type === 'profit' ? '#059669' : '#e11d48', margin: '0 0 10px' }}>
                     {selectedMonth.type === 'profit' ? '+' : '-'} ₹{Math.abs(selectedMonth.net).toLocaleString('en-IN')}
                   </p>
+
+                  {/* Mathematical Formula Explanation Box */}
+                  <div style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
+                    <div style={{ textAlign: 'left' }}>
+                      <span style={{ color: '#64748b', fontSize: 10, display: 'block', textTransform: 'uppercase' }}>Formula</span>
+                      <span style={{ color: '#0f172a' }}>Collections − Expenses = Net</span>
+                    </div>
+                    <div style={{ textAlign: 'right', fontFamily: "'Bricolage Grotesque',sans-serif" }}>
+                      <span style={{ color: '#059669' }}>₹{selectedMonth.totalIncome.toLocaleString('en-IN')}</span>
+                      <span style={{ color: '#94a3b8', margin: '0 4px' }}>−</span>
+                      <span style={{ color: '#e11d48' }}>₹{selectedMonth.expenses.toLocaleString('en-IN')}</span>
+                      <span style={{ color: '#94a3b8', margin: '0 4px' }}>=</span>
+                      <span style={{ color: selectedMonth.type === 'profit' ? '#059669' : '#e11d48' }}>
+                        {selectedMonth.type === 'profit' ? '+' : '-'}₹{Math.abs(selectedMonth.net).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  </div>
                 </div>
+
                 <div style={{ padding: '16px' }}>
-                  <p style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 12 }}>Income Breakdown</p>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #f1f5f9' }}>
-                    <span style={{ fontSize: 13.5, color: '#64748b' }}>Rent & Token Collections</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>+ ₹{selectedMonth.details.rent.toLocaleString('en-IN')}</span>
+                  {/* Total Income Banner */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <p style={{ fontSize: 13, fontWeight: 800, color: '#059669', margin: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Income Collections (+ ₹{selectedMonth.totalIncome.toLocaleString('en-IN')})
+                    </p>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>
+                      {(selectedMonth.details.rentItems?.length || 0) + (selectedMonth.details.meterItems?.length || 0)} transactions
+                    </span>
                   </div>
 
-                  {selectedMonth.details.meter > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid #f1f5f9' }}>
-                      <span style={{ fontSize: 13.5, color: '#64748b' }}>Electricity Bills Collected</span>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: '#059669' }}>+ ₹{selectedMonth.details.meter.toLocaleString('en-IN')}</span>
+                  {/* Category 1: Rent & Admission Collections */}
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+                    <div 
+                      onClick={() => toggleBreakdown('rent')}
+                      style={{ padding: '12px 14px', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: expandedBreakdown.rent ? '1px solid #e2e8f0' : 'none' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#059669' }}>account_balance_wallet</span>
+                        <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Rent & Admission Collections</span>
+                        <span style={{ fontSize: 11, background: '#ecfdf5', color: '#059669', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
+                          {selectedMonth.details.rentItems?.length || 0}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: '#059669' }}>+ ₹{selectedMonth.details.rent.toLocaleString('en-IN')}</span>
+                        <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
+                          {expandedBreakdown.rent ? 'expand_less' : 'expand_more'}
+                        </span>
+                      </div>
                     </div>
-                  )}
 
-                  <p style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', margin: '20px 0 12px' }}>Expenses Breakdown</p>
-                  
-                  {selectedMonth.details.staff > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <span style={{ fontSize: 13.5, color: '#64748b' }}>Staff Salaries Paid</span>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: '#e11d48' }}>- ₹{selectedMonth.details.staff.toLocaleString('en-IN')}</span>
-                    </div>
-                  )}
+                    {expandedBreakdown.rent && (
+                      <div style={{ padding: '8px 12px', background: 'white' }}>
+                        {(!selectedMonth.details.rentItems || selectedMonth.details.rentItems.length === 0) ? (
+                          <p style={{ margin: '8px 0', fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>No rent collections recorded for this month.</p>
+                        ) : (
+                          selectedMonth.details.rentItems.map((item, idx) => (
+                            <div 
+                              key={item.id || idx}
+                              onClick={() => {
+                                if (item.rawReceipt) {
+                                  setActiveReceipt(item.rawReceipt);
+                                }
+                              }}
+                              style={{ 
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                                padding: '10px 8px', 
+                                borderBottom: idx < selectedMonth.details.rentItems.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                cursor: 'pointer',
+                                borderRadius: 8,
+                                transition: 'background 0.15s'
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{ width: 34, height: 34, borderRadius: '50%', background: '#0891b2', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 13, flexShrink: 0 }}>
+                                  {(item.name || 'T').charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{item.name}</span>
+                                    <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>
+                                      Room {item.room}
+                                    </span>
+                                  </div>
+                                  <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                                    {item.paymentMode || 'Online'} · {item.dateObj ? new Date(item.dateObj).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'Paid'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#059669', display: 'block' }}>+ ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 10, color: '#0891b2', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                  Receipt <span className="material-symbols-outlined" style={{ fontSize: 11 }}>chevron_right</span>
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
 
-                  {selectedMonth.details.lease > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <span style={{ fontSize: 13.5, color: '#64748b' }}>PG Property Lease</span>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: '#e11d48' }}>- ₹{selectedMonth.details.lease.toLocaleString('en-IN')}</span>
-                    </div>
-                  )}
-
-                  {selectedMonth.details.vendor > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <span style={{ fontSize: 13.5, color: '#64748b' }}>Vendor & Maintenance</span>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: '#e11d48' }}>- ₹{selectedMonth.details.vendor.toLocaleString('en-IN')}</span>
-                    </div>
-                  )}
-
-                  {selectedMonth.details.petty > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                      <span style={{ fontSize: 13.5, color: '#64748b' }}>Petty Cash Allocations</span>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: '#e11d48' }}>- ₹{selectedMonth.details.petty.toLocaleString('en-IN')}</span>
-                    </div>
-                  )}
-                  
-                  {selectedMonth.details.pettyDetails?.length > 0 && (
-                    <div style={{ background: '#f8fafc', padding: 12, borderRadius: 10, marginTop: 6, marginBottom: 14, border: '1px solid #e2e8f0' }}>
-                      <p style={{ fontSize: 11.5, fontWeight: 700, color: '#475569', margin: '0 0 6px', textTransform: 'uppercase' }}>Petty Cash Breakdown:</p>
-                      {selectedMonth.details.pettyDetails.map((pd, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <span style={{ fontSize: 12, color: '#64748b' }}>{pd.staffName}</span>
-                          <span style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>₹{pd.amount.toLocaleString('en-IN')}</span>
+                  {/* Category 2: Electricity Bills Collected */}
+                  {(selectedMonth.details.meter > 0 || (selectedMonth.details.meterItems?.length > 0)) && (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 16, overflow: 'hidden' }}>
+                      <div 
+                        onClick={() => toggleBreakdown('meter')}
+                        style={{ padding: '12px 14px', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: expandedBreakdown.meter ? '1px solid #e2e8f0' : 'none' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#059669' }}>electric_meter</span>
+                          <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Electricity Bills Collected</span>
+                          <span style={{ fontSize: 11, background: '#ecfdf5', color: '#059669', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
+                            {selectedMonth.details.meterItems?.length || 0}
+                          </span>
                         </div>
-                      ))}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#059669' }}>+ ₹{selectedMonth.details.meter.toLocaleString('en-IN')}</span>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
+                            {expandedBreakdown.meter ? 'expand_less' : 'expand_more'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {expandedBreakdown.meter && (
+                        <div style={{ padding: '8px 12px', background: 'white' }}>
+                          {selectedMonth.details.meterItems?.map((item, idx) => (
+                            <div 
+                              key={item.id || idx}
+                              onClick={() => setSelectedBreakdownItem({ type: 'meter', data: item })}
+                              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: idx < selectedMonth.details.meterItems.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
+                            >
+                              <div>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{item.tenantName} (Room {item.room})</span>
+                                <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                                  {item.units ? `${item.units} Units · ` : ''}{new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                </p>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#059669', display: 'block' }}>+ ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 10, color: '#0891b2', fontWeight: 700 }}>Details ➔</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
-                  
+
+                  {/* Total Expenses Banner */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '20px 0 12px' }}>
+                    <p style={{ fontSize: 13, fontWeight: 800, color: '#e11d48', margin: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      Expenses Outflow (- ₹{selectedMonth.expenses.toLocaleString('en-IN')})
+                    </p>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>
+                      {(selectedMonth.details.vendorItems?.length || 0) + (selectedMonth.details.staffItems?.length || 0) + (selectedMonth.details.leaseItems?.length || 0) + (selectedMonth.details.pettyItems?.length || 0)} transactions
+                    </span>
+                  </div>
+
+                  {/* Category 3: Vendor & Maintenance Expenses */}
+                  {(selectedMonth.details.vendor > 0 || (selectedMonth.details.vendorItems?.length > 0)) && (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+                      <div 
+                        onClick={() => toggleBreakdown('vendor')}
+                        style={{ padding: '12px 14px', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: expandedBreakdown.vendor ? '1px solid #e2e8f0' : 'none' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#e11d48' }}>local_shipping</span>
+                          <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Vendor & Maintenance</span>
+                          <span style={{ fontSize: 11, background: '#fff1f2', color: '#e11d48', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
+                            {selectedMonth.details.vendorItems?.length || 0}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{selectedMonth.details.vendor.toLocaleString('en-IN')}</span>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
+                            {expandedBreakdown.vendor ? 'expand_less' : 'expand_more'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {expandedBreakdown.vendor && (
+                        <div style={{ padding: '8px 12px', background: 'white' }}>
+                          {selectedMonth.details.vendorItems?.map((item, idx) => (
+                            <div 
+                              key={item.id || idx}
+                              onClick={() => setSelectedBreakdownItem({ type: 'vendor', data: item })}
+                              style={{ 
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                                padding: '10px 8px', 
+                                borderBottom: idx < selectedMonth.details.vendorItems.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                cursor: 'pointer',
+                                borderRadius: 8
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                            >
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{item.name}</span>
+                                  <span style={{ fontSize: 10, background: '#f1f5f9', color: '#475569', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>
+                                    {item.category}
+                                  </span>
+                                </div>
+                                <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                                  {item.description} · {new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                </p>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 10, color: '#8b5cf6', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                  Details <span className="material-symbols-outlined" style={{ fontSize: 11 }}>chevron_right</span>
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Category 4: Staff Salaries Paid */}
+                  {(selectedMonth.details.staff > 0 || (selectedMonth.details.staffItems?.length > 0)) && (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+                      <div 
+                        onClick={() => toggleBreakdown('staff')}
+                        style={{ padding: '12px 14px', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: expandedBreakdown.staff ? '1px solid #e2e8f0' : 'none' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#e11d48' }}>badge</span>
+                          <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Staff Salaries Paid</span>
+                          <span style={{ fontSize: 11, background: '#fff1f2', color: '#e11d48', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
+                            {selectedMonth.details.staffItems?.length || 0}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{selectedMonth.details.staff.toLocaleString('en-IN')}</span>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
+                            {expandedBreakdown.staff ? 'expand_less' : 'expand_more'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {expandedBreakdown.staff && (
+                        <div style={{ padding: '8px 12px', background: 'white' }}>
+                          {selectedMonth.details.staffItems?.map((item, idx) => (
+                            <div 
+                              key={item.id || idx}
+                              onClick={() => setSelectedBreakdownItem({ type: 'staff', data: item })}
+                              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: idx < selectedMonth.details.staffItems.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
+                            >
+                              <div>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{item.name} ({item.role})</span>
+                                <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                                  Paid: {new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} · {item.paymentMode || 'Online'}
+                                </p>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 10, color: '#e11d48', fontWeight: 700 }}>Slip ➔</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Category 5: PG Property Lease */}
+                  {(selectedMonth.details.lease > 0 || (selectedMonth.details.leaseItems?.length > 0)) && (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+                      <div 
+                        onClick={() => toggleBreakdown('lease')}
+                        style={{ padding: '12px 14px', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: expandedBreakdown.lease ? '1px solid #e2e8f0' : 'none' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#e11d48' }}>receipt_long</span>
+                          <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>PG Property Lease</span>
+                          <span style={{ fontSize: 11, background: '#fff1f2', color: '#e11d48', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
+                            {selectedMonth.details.leaseItems?.length || 0}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{selectedMonth.details.lease.toLocaleString('en-IN')}</span>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
+                            {expandedBreakdown.lease ? 'expand_less' : 'expand_more'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {expandedBreakdown.lease && (
+                        <div style={{ padding: '8px 12px', background: 'white' }}>
+                          {selectedMonth.details.leaseItems?.map((item, idx) => (
+                            <div 
+                              key={item.id || idx}
+                              onClick={() => setSelectedBreakdownItem({ type: 'lease', data: item })}
+                              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: idx < selectedMonth.details.leaseItems.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
+                            >
+                              <div>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>PG Lease Rent</span>
+                                <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                                  Paid: {new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                </p>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 10, color: '#64748b', fontWeight: 700 }}>Details ➔</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Category 6: Petty Cash Allocations */}
+                  {(selectedMonth.details.petty > 0 || (selectedMonth.details.pettyItems?.length > 0)) && (
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, marginBottom: 12, overflow: 'hidden' }}>
+                      <div 
+                        onClick={() => toggleBreakdown('petty')}
+                        style={{ padding: '12px 14px', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: expandedBreakdown.petty ? '1px solid #e2e8f0' : 'none' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#e11d48' }}>payments</span>
+                          <span style={{ fontSize: 13.5, fontWeight: 700, color: '#0f172a' }}>Petty Cash Allocations</span>
+                          <span style={{ fontSize: 11, background: '#fff1f2', color: '#e11d48', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }}>
+                            {selectedMonth.details.pettyItems?.length || 0}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: '#e11d48' }}>- ₹{selectedMonth.details.petty.toLocaleString('en-IN')}</span>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>
+                            {expandedBreakdown.petty ? 'expand_less' : 'expand_more'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {expandedBreakdown.petty && (
+                        <div style={{ padding: '8px 12px', background: 'white' }}>
+                          {selectedMonth.details.pettyItems?.map((item, idx) => (
+                            <div 
+                              key={item.id || idx}
+                              onClick={() => setSelectedBreakdownItem({ type: 'petty', data: item })}
+                              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 8px', borderBottom: idx < selectedMonth.details.pettyItems.length - 1 ? '1px solid #f1f5f9' : 'none', cursor: 'pointer' }}
+                            >
+                              <div>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{item.staffName}</span>
+                                <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
+                                  {item.purpose} · {new Date(item.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                </p>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: 13.5, fontWeight: 800, color: '#e11d48', display: 'block' }}>- ₹{Number(item.amount).toLocaleString('en-IN')}</span>
+                                <span style={{ fontSize: 10, color: '#d97706', fontWeight: 700 }}>Details ➔</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Summary Totals */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16, paddingTop: 14, borderTop: '1.5px solid #e2e8f0' }}>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Total Month Income</span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: '#059669' }}>₹{selectedMonth.totalIncome.toLocaleString('en-IN')}</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Total Month Collections</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: '#059669' }}>+ ₹{selectedMonth.totalIncome.toLocaleString('en-IN')}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, paddingBottom: 8 }}>
                     <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Total Month Expenses</span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: '#e11d48' }}>₹{selectedMonth.expenses.toLocaleString('en-IN')}</span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: '#e11d48' }}>- ₹{selectedMonth.expenses.toLocaleString('en-IN')}</span>
                   </div>
                 </div>
+
                 <div style={{ padding: '0 16px 16px' }}>
                   <button onClick={() => setSelectedMonth(null)} style={{ width: '100%', padding: 12, background: '#f1f5f9', border: 'none', borderRadius: 10, fontWeight: 700, cursor: 'pointer', color: '#475569' }}>← Back to All Months</button>
                 </div>
@@ -2781,6 +3283,127 @@ export default function ManageAccount() {
       {/* Modals for Detailed Receipt Breakdown */}
       {activeReceipt && (
         <DetailedReceiptModal receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />
+      )}
+
+      {/* Detail Modal for Vendor, Staff, Meter, Lease, Petty Breakdown Items */}
+      {selectedBreakdownItem && (
+        <div 
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, backdropFilter: 'blur(4px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setSelectedBreakdownItem(null); }}
+        >
+          <div style={{ background: 'white', width: '100%', maxWidth: 420, borderRadius: 20, padding: 22, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', fontFamily: "'Hanken Grotesk',sans-serif" }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 22, color: selectedBreakdownItem.type === 'meter' ? '#059669' : '#e11d48' }}>
+                  {selectedBreakdownItem.type === 'vendor' ? 'local_shipping' : selectedBreakdownItem.type === 'staff' ? 'badge' : selectedBreakdownItem.type === 'meter' ? 'electric_meter' : selectedBreakdownItem.type === 'lease' ? 'receipt_long' : 'payments'}
+                </span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
+                  {selectedBreakdownItem.type === 'vendor' ? 'Vendor Transaction' : selectedBreakdownItem.type === 'staff' ? 'Staff Salary Slip' : selectedBreakdownItem.type === 'meter' ? 'Electricity Bill' : selectedBreakdownItem.type === 'lease' ? 'Lease Payment' : 'Petty Cash Allocation'}
+                </span>
+              </div>
+              <button onClick={() => setSelectedBreakdownItem(null)} style={{ background: '#f1f5f9', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', display: 'flex' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#64748b' }}>close</span>
+              </button>
+            </div>
+
+            <div style={{ textAlign: 'center', padding: '16px 0', background: selectedBreakdownItem.type === 'meter' ? '#ecfdf5' : '#fff1f2', borderRadius: 14, marginBottom: 16 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: selectedBreakdownItem.type === 'meter' ? '#059669' : '#e11d48' }}>
+                {selectedBreakdownItem.type === 'meter' ? 'Collection' : 'Expense Outflow'}
+              </span>
+              <p style={{ fontFamily: "'Bricolage Grotesque',sans-serif", fontSize: 28, fontWeight: 900, color: selectedBreakdownItem.type === 'meter' ? '#059669' : '#e11d48', margin: '4px 0 0' }}>
+                {selectedBreakdownItem.type === 'meter' ? '+' : '-'} ₹{Number(selectedBreakdownItem.data.amount || 0).toLocaleString('en-IN')}
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13, marginBottom: 20 }}>
+              {selectedBreakdownItem.data.name && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Entity Name</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.name}</span>
+                </div>
+              )}
+              {selectedBreakdownItem.data.staffName && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Staff Member</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.staffName}</span>
+                </div>
+              )}
+              {selectedBreakdownItem.data.tenantName && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Tenant</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.tenantName}</span>
+                </div>
+              )}
+              {selectedBreakdownItem.data.room && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Room</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.room}</span>
+                </div>
+              )}
+              {selectedBreakdownItem.data.category && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Category</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.category}</span>
+                </div>
+              )}
+              {selectedBreakdownItem.data.role && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Role</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.role}</span>
+                </div>
+              )}
+              {selectedBreakdownItem.data.description && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Description</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a', textAlign: 'right', maxWidth: '60%' }}>{selectedBreakdownItem.data.description}</span>
+                </div>
+              )}
+              {selectedBreakdownItem.data.purpose && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Purpose</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a', textAlign: 'right', maxWidth: '60%' }}>{selectedBreakdownItem.data.purpose}</span>
+                </div>
+              )}
+              {selectedBreakdownItem.data.month && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Billing Month</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.month}</span>
+                </div>
+              )}
+              {selectedBreakdownItem.data.date && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Date Recorded</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>
+                    {new Date(selectedBreakdownItem.data.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+                </div>
+              )}
+              {selectedBreakdownItem.data.paymentMode && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                  <span style={{ color: '#64748b' }}>Payment Mode</span>
+                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{selectedBreakdownItem.data.paymentMode}</span>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button 
+                onClick={() => setSelectedBreakdownItem(null)}
+                style={{ flex: 1, padding: '12px', background: '#f1f5f9', border: 'none', borderRadius: 10, fontWeight: 700, color: '#475569', cursor: 'pointer' }}
+              >
+                Close
+              </button>
+              {selectedBreakdownItem.type === 'vendor' && (
+                <button 
+                  onClick={() => { setSelectedBreakdownItem(null); navigate('/vendor-transactions'); }}
+                  style={{ flex: 1, padding: '12px', background: '#8b5cf6', border: 'none', borderRadius: 10, fontWeight: 700, color: 'white', cursor: 'pointer' }}
+                >
+                  Vendor Account ➔
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Outstanding Dues Modal */}
