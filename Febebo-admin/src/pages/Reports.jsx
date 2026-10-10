@@ -1146,9 +1146,46 @@ function ServicesTab({ onBack, dbData }) {
 }
 
 function EnquiriesTab({ onBack, dbData }) {
-  const totalEnq = ENQUIRY_WEEKLY.reduce((a, b) => a + b.enquiries, 0);
-  const totalConv = ENQUIRY_WEEKLY.reduce((a, b) => a + b.converted, 0);
-  const convRate = Math.round((totalConv / totalEnq) * 100);
+  const enquiriesList = dbData?.enquiries || [];
+  const applicationsList = dbData?.applications || [];
+  const tenantsList = dbData?.tenants || [];
+
+  const hasRealData = enquiriesList.length > 0 || applicationsList.length > 0;
+
+  const totalEnq = hasRealData ? (enquiriesList.length + applicationsList.length) : ENQUIRY_WEEKLY.reduce((a, b) => a + b.enquiries, 0);
+  const totalConv = hasRealData 
+    ? (applicationsList.filter(a => a.status === 'Approved').length + enquiriesList.filter(e => e.status === 'Converted' || e.status === 'Approved').length) 
+    : ENQUIRY_WEEKLY.reduce((a, b) => a + b.converted, 0);
+  const convRate = totalEnq > 0 ? Math.round((totalConv / totalEnq) * 100) : 0;
+
+  // Real Sources
+  let realSources = [...LEAD_SOURCES];
+  if (hasRealData) {
+    const srcMap = {};
+    [...enquiriesList, ...applicationsList].forEach(e => {
+      const s = e.source || e.platform || 'Direct Enquiry';
+      srcMap[s] = (srcMap[s] || 0) + 1;
+    });
+    if (Object.keys(srcMap).length > 0) {
+      realSources = Object.entries(srcMap).map(([name, value]) => ({ name, value })).sort((a,b)=>b.value-a.value);
+    }
+  }
+
+  // Real Cities
+  let realCities = [...ENQUIRY_CITIES];
+  if (hasRealData || tenantsList.length > 0) {
+    const cityMap = {};
+    [...enquiriesList, ...applicationsList, ...tenantsList].forEach(e => {
+      const c = e.city || e.hometown || e.address;
+      if (c && typeof c === 'string') {
+        const cleanC = c.split(',')[0].trim();
+        if (cleanC && cleanC.length > 2) cityMap[cleanC] = (cityMap[cleanC] || 0) + 1;
+      }
+    });
+    if (Object.keys(cityMap).length > 0) {
+      realCities = Object.entries(cityMap).map(([city, count]) => ({ city, count })).sort((a,b)=>b.count-a.count).slice(0, 5);
+    }
+  }
 
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: C.bg, fontFamily: "'Hanken Grotesk',sans-serif", paddingBottom: 40 }}>
@@ -1183,16 +1220,16 @@ function EnquiriesTab({ onBack, dbData }) {
           <Card style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <ResponsiveContainer width={150} height={150}>
               <PieChart>
-                <Pie data={LEAD_SOURCES} cx="50%" cy="50%" innerRadius={46} outerRadius={68} dataKey="value" paddingAngle={3}>
-                  {LEAD_SOURCES.map((_, i) => <Cell key={i} fill={CHART_COLORS[i]} />)}
+                <Pie data={realSources} cx="50%" cy="50%" innerRadius={46} outerRadius={68} dataKey="value" paddingAngle={3}>
+                  {realSources.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={CUSTOM_TOOLTIP_STYLE} />
               </PieChart>
             </ResponsiveContainer>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {LEAD_SOURCES.map((d, i) => (
+              {realSources.map((d, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 9, height: 9, borderRadius: 2, background: CHART_COLORS[i] }} />
+                  <div style={{ width: 9, height: 9, borderRadius: 2, background: CHART_COLORS[i % CHART_COLORS.length] }} />
                   <span style={{ fontSize: 12, color: C.text, flex: 1 }}>{d.name}</span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: C.muted }}>{d.value}</span>
                 </div>
@@ -1203,7 +1240,7 @@ function EnquiriesTab({ onBack, dbData }) {
 
         <Section title="Top Cities by Enquiries">
           <Card>
-            <RankedList items={ENQUIRY_CITIES} keyField="city" valueField="count" valueLabel=" leads" color={C.sky} />
+            <RankedList items={realCities} keyField="city" valueField="count" valueLabel=" leads" color={C.sky} />
           </Card>
         </Section>
 
@@ -1233,6 +1270,280 @@ function EnquiriesTab({ onBack, dbData }) {
   );
 }
 
+// ─── INVENTORY ANALYTICS TAB ──────────────────────────────────────────────────
+function InventoryTab({ onBack, dbData }) {
+  const inventoryItems = dbData?.inventory || [];
+  const vendorTxns = dbData?.vendors || [];
+
+  // Gather all item purchases across vendor_transactions and inventory items
+  const allPurchases = [];
+  const itemMap = {};
+  const categoryMap = {};
+
+  // Track each month over last 6 months
+  const now = new Date();
+  const monthsList = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = d.toISOString().slice(0, 7);
+    const label = d.toLocaleDateString('en-IN', { month: 'short' });
+    monthsList.push({ key, label, spend: 0, itemsCount: 0 });
+  }
+
+  const currentMKey = now.toISOString().slice(0, 7);
+  const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMKey = prevDate.toISOString().slice(0, 7);
+
+  // Aggregate from vendor_transactions
+  vendorTxns.forEach(tx => {
+    if (!Array.isArray(tx.items)) return;
+    const txDate = tx.date || tx.createdAt || '';
+    const mKey = typeof txDate === 'string' ? txDate.slice(0, 7) : '';
+    const vendorName = tx.vendorName || tx.vendorStore || 'Vendor';
+    const buyer = tx.purchasedBy || tx.actorName || 'Admin';
+
+    tx.items.forEach(row => {
+      const name = (row.item || row.name || row.itemName || '').trim();
+      if (!name) return;
+      const q = parseFloat(row.qty || row.quantity || 1);
+      const r = parseFloat(row.rate || 0);
+      const p = parseFloat(row.price) || (q * r);
+      const u = row.unit || 'kg';
+
+      const entry = {
+        name,
+        qty: q,
+        unit: u,
+        rate: r,
+        price: p,
+        date: txDate,
+        monthKey: mKey,
+        vendor: vendorName,
+        buyer
+      };
+      allPurchases.push(entry);
+
+      // Monthly aggregation
+      const mObj = monthsList.find(m => m.key === mKey);
+      if (mObj) {
+        mObj.spend += p;
+        mObj.itemsCount += 1;
+      }
+
+      // Item map
+      if (!itemMap[name]) itemMap[name] = { name, totalQty: 0, totalSpend: 0, unit: u, count: 0, thisMonthSpend: 0, lastMonthSpend: 0, thisMonthQty: 0, lastMonthQty: 0 };
+      itemMap[name].totalQty += q;
+      itemMap[name].totalSpend += p;
+      itemMap[name].count += 1;
+
+      if (mKey === currentMKey) {
+        itemMap[name].thisMonthSpend += p;
+        itemMap[name].thisMonthQty += q;
+      } else if (mKey === prevMKey) {
+        itemMap[name].lastMonthSpend += p;
+        itemMap[name].lastMonthQty += q;
+      }
+    });
+  });
+
+  // Also include inventory items purchaseHistory
+  inventoryItems.forEach(inv => {
+    const rawCat = inv.category || 'kitchen';
+    const catName = rawCat === 'kitchen' ? 'Kitchen Groceries' : (rawCat === 'pg' ? 'PG Maintenance' : rawCat);
+    categoryMap[catName] = (categoryMap[catName] || 0) + (parseFloat(inv.totalQty) || 0);
+
+    if (Array.isArray(inv.purchaseHistory)) {
+      inv.purchaseHistory.forEach(h => {
+        const mKey = (h.monthKey || (h.date ? h.date.slice(0, 7) : ''));
+        const p = parseFloat(h.price) || ((parseFloat(h.qty) || 0) * (parseFloat(h.rate) || 0));
+        const mObj = monthsList.find(m => m.key === mKey);
+        if (mObj && !allPurchases.some(ap => ap.id === h.id)) {
+          mObj.spend += p;
+        }
+
+        const name = inv.name || inv.itemName;
+        if (name) {
+          if (!itemMap[name]) itemMap[name] = { name, totalQty: 0, totalSpend: 0, unit: inv.unit || 'kg', count: 0, thisMonthSpend: 0, lastMonthSpend: 0, thisMonthQty: 0, lastMonthQty: 0 };
+          if (mKey === currentMKey) {
+            itemMap[name].thisMonthSpend += p;
+            itemMap[name].thisMonthQty += (parseFloat(h.qty) || 0);
+          } else if (mKey === prevMKey) {
+            itemMap[name].lastMonthSpend += p;
+            itemMap[name].lastMonthQty += (parseFloat(h.qty) || 0);
+          }
+        }
+      });
+    }
+  });
+
+  const thisMonthData = monthsList.find(m => m.key === currentMKey) || { spend: 0 };
+  const lastMonthData = monthsList.find(m => m.key === prevMKey) || { spend: 0 };
+
+  const thisMonthSpend = Math.round(thisMonthData.spend);
+  const lastMonthSpend = Math.round(lastMonthData.spend);
+
+  const momChange = lastMonthSpend > 0 
+    ? Math.round(((thisMonthSpend - lastMonthSpend) / lastMonthSpend) * 100)
+    : 0;
+
+  // Category Pie Data
+  const categoryData = Object.entries(categoryMap).length > 0 
+    ? Object.entries(categoryMap).map(([name, value]) => ({ name, value }))
+    : [
+        { name: 'Kitchen Groceries', value: 65 },
+        { name: 'Vegetables & Dairy', value: 25 },
+        { name: 'PG Provisions', value: 10 }
+      ];
+
+  // Top Items
+  const topItemsList = Object.values(itemMap)
+    .sort((a, b) => b.totalSpend - a.totalSpend)
+    .slice(0, 6);
+
+  // Month-over-month comparison items
+  const comparisonItems = Object.values(itemMap)
+    .filter(it => it.thisMonthSpend > 0 || it.lastMonthSpend > 0)
+    .sort((a, b) => (b.thisMonthSpend + b.lastMonthSpend) - (a.thisMonthSpend + a.lastMonthSpend))
+    .slice(0, 8);
+
+  return (
+    <div style={{ maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: C.bg, fontFamily: "'Hanken Grotesk',sans-serif", paddingBottom: 40 }}>
+      <TopBar title="Inventory Analytics" subtitle="Stock, consumption & monthly comparison" onBack={onBack} />
+      <div style={{ padding: '20px 16px 0' }}>
+        {/* Key Metrics */}
+        <Section title="Key Metrics">
+          <div style={{ display: 'flex', gap: 10 }}>
+            <KpiCard label="Items in Stock" value={inventoryItems.length} color={C.primary} icon="inventory_2" />
+            <KpiCard label="This Month Spend" value={`₹${(thisMonthSpend / 1000).toFixed(1)}k`} color={C.success} icon="payments" />
+            <KpiCard label="Last Month" value={`₹${(lastMonthSpend / 1000).toFixed(1)}k`} color={C.indigo} icon="history" />
+          </div>
+        </Section>
+
+        {/* Month-over-Month Spending Comparison Chart */}
+        <Section title="Month-over-Month Inventory Spending">
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 700, color: C.text, margin: 0 }}>Monthly Purchase Expense</p>
+                <p style={{ fontSize: 11, color: C.muted, margin: '2px 0 0' }}>
+                  {momChange >= 0 ? `+${momChange}% vs last month` : `${momChange}% vs last month`}
+                </p>
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 800, color: momChange <= 0 ? C.success : C.warn, background: C.bg, padding: '4px 8px', borderRadius: 8 }}>
+                {momChange <= 0 ? '▼ Efficient' : '▲ Higher Spend'}
+              </span>
+            </div>
+            <ResponsiveContainer width="100%" height={210}>
+              <BarChart data={monthsList} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: C.muted }} />
+                <YAxis tick={{ fontSize: 10, fill: C.muted }} tickFormatter={v => `₹${v >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
+                <Tooltip contentStyle={CUSTOM_TOOLTIP_STYLE} formatter={v => `₹${v.toLocaleString()}`} />
+                <Bar dataKey="spend" name="Purchase Spend" fill={C.primary} radius={[6, 6, 0, 0]}>
+                  {monthsList.map((m, i) => (
+                    <Cell key={i} fill={m.key === currentMKey ? C.primary : '#94a3b8'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+        </Section>
+
+        {/* Side-by-Side Comparison: Current Month vs Last Month Consumption */}
+        <Section title="Current vs Previous Month Comparison">
+          <Card>
+            <p style={{ fontSize: 12, color: C.muted, margin: '0 0 12px' }}>
+              Direct comparison of item spend and consumption across this month and last month:
+            </p>
+            {comparisonItems.length === 0 ? (
+              <p style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', margin: '16px 0' }}>
+                Make purchases across consecutive months to see side-by-side consumption comparisons!
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {comparisonItems.map(it => {
+                  const diff = it.thisMonthSpend - it.lastMonthSpend;
+                  return (
+                    <div key={it.name} style={{ borderBottom: `1px solid ${C.border}`, paddingBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontWeight: 800, fontSize: 14, color: C.text }}>{it.name}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: diff <= 0 ? C.success : C.warn }}>
+                          {diff > 0 ? `+₹${diff.toLocaleString()} more` : diff < 0 ? `₹${Math.abs(diff).toLocaleString()} less` : 'Same'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, background: C.bg, padding: '8px 12px', borderRadius: 10 }}>
+                        <div>
+                          <p style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', margin: '0 0 2px' }}>This Month</p>
+                          <p style={{ fontSize: 13, fontWeight: 800, color: C.primary, margin: 0 }}>
+                            {it.thisMonthQty} {it.unit} <span style={{ fontSize: 11, color: C.muted }}>(₹{it.thisMonthSpend})</span>
+                          </p>
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', margin: '0 0 2px' }}>Last Month</p>
+                          <p style={{ fontSize: 13, fontWeight: 800, color: '#475569', margin: 0 }}>
+                            {it.lastMonthQty} {it.unit} <span style={{ fontSize: 11, color: C.muted }}>(₹{it.lastMonthSpend})</span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </Section>
+
+        {/* Top Purchased Items */}
+        <Section title="Top Consumed Items by Value">
+          <Card>
+            {topItemsList.length === 0 ? (
+              <p style={{ fontSize: 13, color: '#94a3b8', textAlign: 'center', margin: '16px 0' }}>No purchase history recorded yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {topItemsList.map((it, i) => (
+                  <div key={it.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: C.muted, width: 20 }}>#{i + 1}</span>
+                      <div>
+                        <p style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0 }}>{it.name}</p>
+                        <p style={{ fontSize: 11, color: C.muted, margin: '2px 0 0' }}>{it.totalQty} {it.unit} purchased ({it.count} refills)</p>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: C.primary }}>₹{Math.round(it.totalSpend).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </Section>
+
+        {/* Category Breakdown */}
+        <Section title="Category Share">
+          <Card style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <ResponsiveContainer width={150} height={150}>
+              <PieChart>
+                <Pie data={categoryData} cx="50%" cy="50%" innerRadius={46} outerRadius={68} dataKey="value" paddingAngle={3}>
+                  {categoryData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={CUSTOM_TOOLTIP_STYLE} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {categoryData.map((d, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 9, height: 9, borderRadius: 2, background: CHART_COLORS[i % CHART_COLORS.length] }} />
+                  <span style={{ fontSize: 12, color: C.text, flex: 1 }}>{d.name}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.muted }}>{d.value}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </Section>
+      </div>
+    </div>
+  );
+}
+
 // ─── MENU CATEGORIES ──────────────────────────────────────────────────────────
 
 const ANALYTICS_MENU = [
@@ -1243,6 +1554,14 @@ const ANALYTICS_MENU = [
     icon: 'account_balance_wallet',
     gradient: 'linear-gradient(135deg, #059669, #047857)',
     kpis: ['₹2.2L Revenue', '₹78k Expenses', '₹21k Pending'],
+  },
+  {
+    key: 'inventory',
+    label: 'Inventory',
+    subtitle: 'Stock, consumption & monthly comparison',
+    icon: 'inventory_2',
+    gradient: 'linear-gradient(135deg, #0284c7, #0891b2)',
+    kpis: ['Active Stock', 'MoM Spend', 'Category Share'],
   },
   {
     key: 'occupancy',
@@ -1309,7 +1628,10 @@ export default function Reports() {
       setLoading(true);
       try {
         const adminId = user.uid;
-        const [receiptsSnap, roomsSnap, tenantsSnap, staffSnap, leavesSnap, complaintsSnap, messSnap, vendorSnap] = await Promise.all([
+        const [
+          receiptsSnap, roomsSnap, tenantsSnap, staffSnap, leavesSnap, complaintsSnap, 
+          messSnap, vendorSnap, inventorySnap, enquiriesSnap, appsSnap, staffAttSnap
+        ] = await Promise.all([
           getDocs(query(collection(db, 'rent_receipts'), where('adminId', '==', adminId))),
           getDocs(query(collection(db, 'rooms'), where('adminId', '==', adminId))),
           getDocs(query(collection(db, 'tenants'), where('adminId', '==', adminId))),
@@ -1317,13 +1639,21 @@ export default function Reports() {
           getDocs(query(collection(db, 'leave_requests'), where('adminId', '==', adminId))),
           getDocs(query(collection(db, 'complaints'), where('adminId', '==', adminId))),
           getDocs(query(collection(db, 'mess_headcount'), where('adminId', '==', adminId))),
-          getDocs(query(collection(db, 'vendor_transactions'), where('adminId', '==', adminId)))
+          getDocs(query(collection(db, 'vendor_transactions'), where('adminId', '==', adminId))),
+          getDocs(query(collection(db, 'pg_inventory_master'), where('adminId', '==', adminId))),
+          getDocs(query(collection(db, 'enquiries'), where('adminId', '==', adminId))),
+          getDocs(query(collection(db, 'pg_applications'), where('adminId', '==', adminId))),
+          getDocs(query(collection(db, 'staff_attendance'), where('ownerUid', '==', adminId)))
         ]);
 
         let staffDocs = staffSnap.docs;
         if (staffDocs.length === 0) {
-          const altStaff = await getDocs(query(collection(db, 'staff'), where('ownerUid', '==', adminId)));
-          staffDocs = altStaff.docs;
+          const altStaff = await getDocs(query(collection(db, 'staff_tokens'), where('ownerUid', '==', adminId)));
+          if (altStaff.docs.length > 0) staffDocs = altStaff.docs;
+          else {
+            const altStaff2 = await getDocs(query(collection(db, 'staff'), where('ownerUid', '==', adminId)));
+            staffDocs = altStaff2.docs;
+          }
         }
         let leavesDocs = leavesSnap.docs;
         if (leavesDocs.length === 0) {
@@ -1332,14 +1662,18 @@ export default function Reports() {
         }
 
         setDbData({
-          receipts: receiptsSnap.docs.map(d => d.data()),
-          rooms: roomsSnap.docs.map(d => d.data()),
-          tenants: tenantsSnap.docs.map(d => d.data()),
-          staff: staffDocs.map(d => d.data()),
-          leaves: leavesDocs.map(d => d.data()),
-          complaints: complaintsSnap.docs.map(d => d.data()),
-          mess: messSnap.docs.map(d => d.data()),
-          vendors: vendorSnap.docs.map(d => d.data())
+          receipts: receiptsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+          rooms: roomsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+          tenants: tenantsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+          staff: staffDocs.map(d => ({ id: d.id, ...d.data() })),
+          leaves: leavesDocs.map(d => ({ id: d.id, ...d.data() })),
+          complaints: complaintsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+          mess: messSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+          vendors: vendorSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+          inventory: inventorySnap.docs.map(d => ({ id: d.id, ...d.data() })),
+          enquiries: enquiriesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+          applications: appsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+          staffAttendance: staffAttSnap.docs.map(d => ({ id: d.id, ...d.data() }))
         });
       } catch (err) {
         console.error(err);
@@ -1360,6 +1694,7 @@ export default function Reports() {
   }
 
   if (activeTab === 'finance')   return <FinanceTab    onBack={() => setActiveTab(null)} dbData={dbData} />;
+  if (activeTab === 'inventory') return <InventoryTab  onBack={() => setActiveTab(null)} dbData={dbData} />;
   if (activeTab === 'occupancy') return <OccupancyTab  onBack={() => setActiveTab(null)} dbData={dbData} />;
   if (activeTab === 'students')  return <StudentsTab   onBack={() => setActiveTab(null)} dbData={dbData} />;
   if (activeTab === 'staff')     return <StaffTab      onBack={() => setActiveTab(null)} dbData={dbData} />;
@@ -1403,8 +1738,9 @@ export default function Reports() {
   const occRate = totalRoomsCapacity ? Math.round((occupiedRooms / totalRoomsCapacity) * 100) : 0;
   const vacantRooms = Math.max(0, totalRoomsCapacity - occupiedRooms);
 
-  const totalLeads = dbData?.tenants ? dbData.tenants.length : 0;
-  const convRate = totalLeads ? Math.round(((activeTenants + noticeTenants) / totalLeads) * 100) : 0;
+  const totalLeads = (dbData?.enquiries?.length || 0) + (dbData?.applications?.length || 0) || (dbData?.tenants ? dbData.tenants.length : 0);
+  const totalConverted = (dbData?.applications?.filter(a => a.status === 'Approved')?.length || 0) + (dbData?.enquiries?.filter(e => e.status === 'Converted')?.length || 0) || (activeTenants + noticeTenants);
+  const convRate = totalLeads ? Math.round((totalConverted / totalLeads) * 100) : 0;
 
   const totalStaff = dbData?.staff ? dbData.staff.length : 0;
   const openComplaints = dbData?.complaints ? dbData.complaints.filter(c => c.status !== 'Closed').length : 0;
@@ -1431,11 +1767,27 @@ export default function Reports() {
       }
       return { ...item, kpis: [`₹${(currentMonthRev/1000).toFixed(0)}k This Mth`, `₹${(mthExp/1000).toFixed(0)}k Expenses`, `₹${(totalPendingDues/1000).toFixed(0)}k Pending`] };
     }
+    if (item.key === 'inventory') {
+      const invCount = dbData?.inventory ? dbData.inventory.length : 0;
+      let invSpend = 0;
+      const curMonth = new Date().toISOString().slice(0, 7);
+      if (dbData?.vendors) {
+        dbData.vendors.forEach(v => {
+          const vDate = v.date || v.createdAt || '';
+          if (typeof vDate === 'string' && vDate.startsWith(curMonth) && Array.isArray(v.items)) {
+            v.items.forEach(it => {
+              invSpend += (parseFloat(it.price) || ((parseFloat(it.qty) || 1) * (parseFloat(it.rate) || 0)));
+            });
+          }
+        });
+      }
+      return { ...item, kpis: [`${invCount} Items in Stock`, `₹${(invSpend/1000).toFixed(1)}k This Mth`, 'MoM Comparison'] };
+    }
     if (item.key === 'occupancy') return { ...item, kpis: [`${occRate}% Occupancy`, `${occupiedRooms} Occupied`, `${vacantRooms} Vacant`] };
     if (item.key === 'students') return { ...item, kpis: [`${totalLeads} Total`, `${activeTenants} Active`, `${noticeTenants} Notice`] };
     if (item.key === 'staff') return { ...item, kpis: [`${totalStaff} Staff`, '93% Avg Att.', `1.1L Paid`] };
     if (item.key === 'services') return { ...item, kpis: [`${openComplaints} Open/In Prog`, `${closedComplaints} Resolved`] };
-    if (item.key === 'enquiries') return { ...item, kpis: [`${totalLeads} Leads`, `${activeTenants+noticeTenants} Converted`, `${convRate}% Conv.`] };
+    if (item.key === 'enquiries') return { ...item, kpis: [`${totalLeads} Leads`, `${totalConverted} Converted`, `${convRate}% Conv.`] };
     return item;
   });
 
@@ -1449,7 +1801,7 @@ export default function Reports() {
           </button>
           <div style={{ flex: 1 }}>
             <p style={{ fontSize: 20, fontWeight: 800, color: 'white', margin: 0 }}>Reports & Analytics</p>
-            <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>7 analytics sections</p>
+            <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>8 analytics sections</p>
           </div>
           <span className="material-symbols-outlined" style={{ color: '#94a3b8', fontSize: 24 }}>bar_chart</span>
         </div>

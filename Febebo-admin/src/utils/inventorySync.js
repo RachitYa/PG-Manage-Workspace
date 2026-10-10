@@ -44,17 +44,30 @@ export const calculateItemTotal = (qty, unit, rate) => {
 };
 
 /**
- * Synchronizes purchased or requested items directly into pg_inventory_master under category: 'kitchen'
+ * Synchronizes purchased or requested items directly into pg_inventory_master
  */
-export const syncItemsToKitchenInventory = async (db, { adminId, pgId = 'primary', items = [], source = 'Purchase', actorName = 'Admin' }) => {
+export const syncItemsToKitchenInventory = async (db, {
+  adminId,
+  pgId = 'primary',
+  items = [],
+  source = 'Purchase',
+  actorName = 'Admin',
+  vendorName = '',
+  date = null,
+  monthKey = null,
+  category = 'kitchen'
+}) => {
   if (!db || !adminId || !items || !items.length) return;
 
+  const txnDate = date || new Date().toISOString();
+  const currentMonthKey = monthKey || (typeof txnDate === 'string' ? txnDate.slice(0, 7) : new Date().toISOString().slice(0, 7));
+
   try {
-    // 1. Fetch all existing kitchen inventory items for this PG admin
+    // 1. Fetch all existing inventory items for this PG admin & category
     const q = query(
       collection(db, 'pg_inventory_master'),
       where('adminId', '==', adminId),
-      where('category', '==', 'kitchen')
+      where('category', '==', category || 'kitchen')
     );
     const snap = await getDocs(q);
     const existingList = snap.docs.map(d => ({ docId: d.id, ...d.data() }));
@@ -67,15 +80,31 @@ export const syncItemsToKitchenInventory = async (db, { adminId, pgId = 'primary
       const rawQty = item.qty !== undefined ? item.qty : (item.quantity !== undefined ? item.quantity : 1);
       const parsedQty = parseFloat(String(rawQty).replace(/[^0-9.]/g, '')) || 1;
       const unit = (item.unit || String(rawQty).replace(/[0-9.]/g, '').trim() || 'kg').toLowerCase();
+      const itemRate = parseFloat(item.rate) || 0;
+      const itemPrice = parseFloat(item.price) || calculateItemTotal(parsedQty, unit, itemRate);
+
+      const purchaseEntry = {
+        id: `${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+        date: txnDate,
+        monthKey: currentMonthKey,
+        qty: parsedQty,
+        unit: unit,
+        rate: itemRate,
+        price: itemPrice,
+        purchasedBy: actorName || 'Admin',
+        vendorName: vendorName || '',
+        source: source || 'Purchase',
+        createdAt: new Date().toISOString()
+      };
 
       // Case-insensitive name match
       const matched = existingList.find(ex => (ex.name || '').trim().toLowerCase() === rawName.toLowerCase());
 
       if (matched) {
         const currentQty = parseFloat(matched.totalQty) || 0;
-        const matchedUnit = (matched.unit || 'kg').toLowerCase();
+        const matchedUnit = (matched.unit || unit || 'kg').toLowerCase();
 
-        // Normalize quantity if units differ between inventory and purchase (e.g. inventory in kg, purchase in g)
+        // Normalize quantity if units differ between inventory and purchase
         let normalizedIncomingQty = parsedQty;
         if ((unit === 'g' || unit === 'gm') && (matchedUnit === 'kg')) {
           normalizedIncomingQty = parsedQty / 1000;
@@ -88,26 +117,39 @@ export const syncItemsToKitchenInventory = async (db, { adminId, pgId = 'primary
         }
 
         const newQty = Math.round((currentQty + normalizedIncomingQty) * 100) / 100;
+        const existingHistory = Array.isArray(matched.purchaseHistory) ? matched.purchaseHistory : [];
+        const updatedHistory = [purchaseEntry, ...existingHistory];
+
         await updateDoc(doc(db, 'pg_inventory_master', matched.docId), {
           totalQty: newQty,
+          unit: matchedUnit,
           lastUpdated: new Date().toISOString(),
           lastUpdatedBy: actorName,
-          lastSource: source
+          lastSource: source,
+          lastPurchasedDate: txnDate,
+          lastVendorName: vendorName || matched.lastVendorName || '',
+          monthKey: currentMonthKey,
+          purchaseHistory: updatedHistory
         });
         matched.totalQty = newQty;
+        matched.purchaseHistory = updatedHistory;
       } else {
         const newDocRef = await addDoc(collection(db, 'pg_inventory_master'), {
           adminId,
           pgId: pgId || 'primary',
-          category: 'kitchen',
+          category: category || 'kitchen',
           name: rawName,
           totalQty: parsedQty,
           unit: unit,
-          icon: 'kitchen',
+          icon: category === 'kitchen' ? 'kitchen' : 'inventory_2',
           createdAt: new Date().toISOString(),
           lastUpdated: new Date().toISOString(),
           lastUpdatedBy: actorName,
-          lastSource: source
+          lastSource: source,
+          lastPurchasedDate: txnDate,
+          lastVendorName: vendorName || '',
+          monthKey: currentMonthKey,
+          purchaseHistory: [purchaseEntry]
         });
         existingList.push({
           docId: newDocRef.id,
@@ -115,7 +157,8 @@ export const syncItemsToKitchenInventory = async (db, { adminId, pgId = 'primary
           totalQty: parsedQty,
           unit,
           adminId,
-          category: 'kitchen'
+          category: category || 'kitchen',
+          purchaseHistory: [purchaseEntry]
         });
       }
     }

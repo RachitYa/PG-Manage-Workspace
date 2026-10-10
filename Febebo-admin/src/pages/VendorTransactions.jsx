@@ -643,7 +643,10 @@ export default function VendorTransactions() {
           pgId: pgId || activePgId || 'primary',
           items,
           source: 'Admin Purchase',
-          actorName: 'Admin'
+          actorName: 'Admin',
+          vendorName: vObj?.name || vObj?.store || 'Vendor',
+          date: date || new Date().toISOString(),
+          monthKey: (date || '').slice(0, 7) || new Date().toISOString().slice(0, 7)
         });
       }
     } catch (e) {

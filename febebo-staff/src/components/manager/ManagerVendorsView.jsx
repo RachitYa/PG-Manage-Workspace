@@ -284,7 +284,10 @@ export default function ManagerVendorsView({ adminId, onBack, showToast, current
           pgId: 'primary',
           items,
           source: 'Manager Purchase',
-          actorName: `${currentStaffName} (Manager)`
+          actorName: `${currentStaffName} (Manager)`,
+          vendorName: purchaseVendor.name || purchaseVendor.store || 'Vendor',
+          date: purchaseDate,
+          monthKey: purchaseDate.slice(0, 7)
         });
       }
 

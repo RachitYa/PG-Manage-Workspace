@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, addDoc, doc, setDoc, getDoc, deleteDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
+import { syncItemsToKitchenInventory, calculateItemTotal, isKitchenRelatedCategory } from '../utils/inventorySync';
 
 const BASE = { maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#f1f5f9', fontFamily: "'Hanken Grotesk',sans-serif", paddingBottom: 40 };
 const cyan = '#0891b2';
@@ -56,49 +57,81 @@ function Fab({ onClick }) {
   );
 }
 
-function ItemRow({ item, onQtyChange, onRemove }) {
+function ItemRow({ item, onQtyChange, onRemove, readOnlyQty = false, onClick }) {
   const [showImg, setShowImg] = React.useState(false);
   return (
-    <div style={{ borderBottom: '1px solid #f1f5f9' }}>
+    <div style={{ borderBottom: '1px solid #f1f5f9', cursor: readOnlyQty ? 'pointer' : 'default', transition: 'background 0.15s' }}
+      onClick={(e) => {
+        if (readOnlyQty && onClick) {
+          // If clicked on remove button or photo expander, ignore row click
+          if (e.target.closest('button') || e.target.closest('.photo-expander')) return;
+          onClick(item);
+        }
+      }}
+      onMouseEnter={(e) => { if (readOnlyQty) e.currentTarget.style.background = '#f8fafc'; }}
+      onMouseLeave={(e) => { if (readOnlyQty) e.currentTarget.style.background = 'transparent'; }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
           {item.conditionImage ? (
             <img
               src={item.conditionImage}
               alt="Condition"
-              onClick={() => setShowImg(s => !s)}
-              style={{ width: 40, height: 40, borderRadius: 10, objectFit: 'cover', border: `2px solid ${cyan}`, cursor: 'pointer' }}
+              onClick={(e) => { e.stopPropagation(); setShowImg(s => !s); }}
+              style={{ width: 42, height: 42, borderRadius: 12, objectFit: 'cover', border: `2px solid ${cyan}`, cursor: 'pointer', flexShrink: 0 }}
             />
           ) : (
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span className="material-symbols-outlined" style={{ color: cyan }}>{item.icon || 'inventory_2'}</span>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span className="material-symbols-outlined" style={{ color: cyan, fontSize: 22 }}>{item.icon || 'inventory_2'}</span>
             </div>
           )}
-          <div>
-            <p style={{ fontWeight: 600, fontSize: 15, color: '#0f172a', margin: 0 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <p style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {item.itemName} {item.unit ? <span style={{ fontSize: 12, fontWeight: 700, color: cyan }}>({item.unit})</span> : ''}
             </p>
-            {item.lastUpdatedBy && (
-              <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-                Updated by: {item.lastUpdatedBy}
-              </p>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
+              {item.lastPurchasedDate ? (
+                <span style={{ fontSize: 11, color: '#64748b' }}>
+                  🕒 {new Date(item.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                  {item.lastUpdatedBy ? ` · ${item.lastUpdatedBy}` : ''}
+                </span>
+              ) : item.lastUpdatedBy ? (
+                <span style={{ fontSize: 11, color: '#64748b' }}>
+                  Updated by: {item.lastUpdatedBy}
+                </span>
+              ) : (
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>Tap to view purchase details</span>
+              )}
+            </div>
             {item.conditionImage && (
-              <p onClick={() => setShowImg(s => !s)} style={{ margin: '2px 0 0', fontSize: 11, color: cyan, fontWeight: 600, cursor: 'pointer' }}>
+              <p className="photo-expander" onClick={(e) => { e.stopPropagation(); setShowImg(s => !s); }} style={{ margin: '3px 0 0', fontSize: 11, color: cyan, fontWeight: 600, cursor: 'pointer' }}>
                 {showImg ? 'Hide photo ▲' : 'View condition photo ▼'}
               </p>
             )}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', borderRadius: 8, overflow: 'hidden' }}>
-            <button onClick={() => onQtyChange(item.qty - 1)} style={{ width: 32, height: 32, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#64748b' }}>-</button>
-            <span style={{ width: 30, textAlign: 'center', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{item.qty}</span>
-            <button onClick={() => onQtyChange(item.qty + 1)} style={{ width: 32, height: 32, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16, color: '#64748b' }}>+</button>
-          </div>
-          <button onClick={onRemove} style={{ background: '#fee2e2', border: 'none', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#ef4444' }}>delete</span>
-          </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          {readOnlyQty ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ background: '#ecfeff', border: '1px solid #cffafe', padding: '6px 12px', borderRadius: 10, textAlign: 'right', display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                <span style={{ fontSize: 16, fontWeight: 900, color: cyan }}>{item.qty}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#0e7490' }}>{item.unit || ''}</span>
+              </div>
+              <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#94a3b8' }}>chevron_right</span>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', background: '#f1f5f9', borderRadius: 8, overflow: 'hidden' }}>
+              <button onClick={() => onQtyChange(item.qty - 1)} style={{ width: 32, height: 32, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 18, color: '#64748b' }}>-</button>
+              <span style={{ width: 30, textAlign: 'center', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{item.qty}</span>
+              <button onClick={() => onQtyChange(item.qty + 1)} style={{ width: 32, height: 32, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16, color: '#64748b' }}>+</button>
+            </div>
+          )}
+
+          {onRemove && (
+            <button onClick={(e) => { e.stopPropagation(); onRemove(); }} style={{ background: '#fee2e2', border: 'none', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#ef4444' }}>delete</span>
+            </button>
+          )}
         </div>
       </div>
       {showImg && item.conditionImage && (
@@ -214,20 +247,299 @@ function AllocationView({ targetId, targetType, personData, title, onBack }) {
   );
 }
 
+// ─── ITEM DETAILS MODAL ────────────────────────────────────────────
+function ItemDetailModal({ item, onClose, onRestock }) {
+  if (!item) return null;
+  const history = Array.isArray(item.purchaseHistory) ? item.purchaseHistory : [];
+  const totalSpent = history.reduce((sum, h) => sum + (parseFloat(h.price) || 0), 0);
+  const totalPurchasedQty = history.reduce((sum, h) => sum + (parseFloat(h.qty) || 0), 0);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', zIndex: 100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(3px)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: 'white', width: '100%', maxWidth: 480, borderRadius: '24px 24px 0 0', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }}>
+        {/* Handle */}
+        <div style={{ width: 44, height: 4, background: '#cbd5e1', borderRadius: 99, margin: '12px auto 6px' }} />
+
+        {/* Modal Header */}
+        <div style={{ padding: '12px 20px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="material-symbols-outlined" style={{ color: cyan, fontSize: 24 }}>{item.icon || 'inventory_2'}</span>
+            </div>
+            <div>
+              <p style={{ fontWeight: 800, fontSize: 17, color: '#0f172a', margin: 0 }}>{item.itemName}</p>
+              <p style={{ fontSize: 12, color: '#64748b', margin: 0, textTransform: 'capitalize' }}>{item.category || 'General'} Inventory</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: 10, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#64748b' }}>close</span>
+          </button>
+        </div>
+
+        {/* Scrollable Content */}
+        <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Current Stock Banner */}
+          <div style={{ background: 'linear-gradient(135deg, #0891b2, #0e7490)', borderRadius: 16, padding: '16px 18px', color: 'white' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.9 }}>
+                {item.isUsed ? 'Past Month Consumption' : 'Current Total Stock'}
+              </span>
+              <span style={{ background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700 }}>
+                {item.unit ? item.unit.toUpperCase() : 'UNITS'}
+              </span>
+            </div>
+            <p style={{ fontSize: 28, fontWeight: 900, margin: '0 0 6px' }}>
+              {item.qty} <span style={{ fontSize: 16, fontWeight: 600 }}>{item.unit || ''}</span>
+            </p>
+            <p style={{ fontSize: 12, opacity: 0.85, margin: 0 }}>
+              {item.lastPurchasedDate ? `Last refilled ${new Date(item.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Direct stock entry'}
+            </p>
+          </div>
+
+          {/* Quick Stats Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px', textAlign: 'center' }}>
+              <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, margin: '0 0 4px' }}>Total Spent</p>
+              <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>₹{Math.round(totalSpent).toLocaleString('en-IN')}</p>
+            </div>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px', textAlign: 'center' }}>
+              <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, margin: '0 0 4px' }}>Total Qty</p>
+              <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>{totalPurchasedQty || item.qty} {item.unit || ''}</p>
+            </div>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px', textAlign: 'center' }}>
+              <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, margin: '0 0 4px' }}>Refills</p>
+              <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0 }}>{history.length || 1}</p>
+            </div>
+          </div>
+
+          {/* Purchase History Ledger */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <p style={{ fontWeight: 800, fontSize: 14, color: '#0f172a', margin: 0 }}>Purchase & Refill History</p>
+              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{history.length} logged</span>
+            </div>
+
+            {history.length === 0 ? (
+              <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 12, padding: 20, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#94a3b8', display: 'block', margin: '0 auto 6px' }}>receipt_long</span>
+                No individual purchase log recorded yet for this item.<br />
+                <span style={{ fontSize: 11, color: '#94a3b8' }}>Future purchases will automatically log here!</span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {history.map((h, i) => (
+                  <div key={h.id || i} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 14, padding: '12px 14px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                      <div>
+                        <p style={{ fontWeight: 800, fontSize: 15, color: '#0f172a', margin: 0 }}>
+                          +{h.qty} {h.unit || item.unit || ''}
+                          {h.rate ? <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginLeft: 6 }}>@ ₹{h.rate}/{h.unit || item.unit || 'unit'}</span> : null}
+                        </p>
+                        <p style={{ fontSize: 12, color: cyan, fontWeight: 700, margin: '2px 0 0' }}>
+                          ₹{Math.round(h.price || (h.qty * (h.rate || 0))).toLocaleString('en-IN')}
+                        </p>
+                      </div>
+                      <span style={{ background: '#f1f5f9', color: '#475569', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6 }}>
+                        {h.date ? new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Logged'}
+                      </span>
+                    </div>
+
+                    <div style={{ borderTop: '1px dashed #f1f5f9', paddingTop: 8, marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: '#64748b' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#94a3b8' }}>person</span>
+                        {h.purchasedBy || 'Admin'}
+                      </span>
+                      {h.vendorName && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#94a3b8' }}>store</span>
+                          {h.vendorName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer Action */}
+        <div style={{ padding: '14px 20px', borderTop: '1px solid #f1f5f9', background: 'white', borderRadius: '0 0 24px 24px' }}>
+          <button onClick={() => { onClose(); onRestock(item); }}
+            style={{ width: '100%', padding: '12px', background: cyan, color: 'white', border: 'none', borderRadius: 12, fontWeight: 800, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>shopping_cart</span>
+            Purchase / Restock This Item
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PURCHASE / RESTOCK MODAL ──────────────────────────────────────
+function PurchaseItemModal({ defaultCategory, defaultItemName = '', defaultUnit = 'kg', onClose, onSaved }) {
+  const { user, activePgId } = useAuth();
+  const [name, setName] = useState(defaultItemName);
+  const [category, setCategory] = useState(defaultCategory || 'kitchen');
+  const [qty, setQty] = useState('');
+  const [unit, setUnit] = useState(defaultUnit || 'kg');
+  const [rate, setRate] = useState('');
+  const [vendorName, setVendorName] = useState('');
+  const [purchasedBy, setPurchasedBy] = useState('Admin');
+  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const calculatedTotal = (parseFloat(qty) || 0) * (parseFloat(rate) || 0);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return alert('Please enter item name');
+    const parsedQty = parseFloat(qty);
+    if (!parsedQty || parsedQty <= 0) return alert('Please enter a valid quantity');
+
+    setSubmitting(true);
+    try {
+      const items = [{
+        item: name.trim(),
+        qty: parsedQty,
+        unit: unit.trim().toLowerCase(),
+        rate: parseFloat(rate) || 0,
+        price: calculatedTotal
+      }];
+
+      await syncItemsToKitchenInventory(db, {
+        adminId: user.uid,
+        pgId: activePgId || 'primary',
+        items,
+        source: 'Direct Purchase Entry',
+        actorName: purchasedBy || 'Admin',
+        vendorName: vendorName.trim() || 'Vendor / Store',
+        date,
+        monthKey: date.slice(0, 7),
+        category: category || 'kitchen'
+      });
+
+      onSaved?.();
+      onClose();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save purchase: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', zIndex: 110, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', backdropFilter: 'blur(3px)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: 'white', width: '100%', maxWidth: 480, borderRadius: '24px 24px 0 0', maxHeight: '90vh', overflowY: 'auto', padding: '20px 20px 32px' }}>
+        <div style={{ width: 44, height: 4, background: '#cbd5e1', borderRadius: 99, margin: '0 auto 16px' }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <p style={{ fontWeight: 800, fontSize: 18, color: '#0f172a', margin: 0 }}>Record Item Purchase</p>
+          <button onClick={onClose} style={{ background: '#f1f5f9', border: 'none', borderRadius: 10, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#64748b' }}>close</span>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6 }}>Item Name *</label>
+            <input required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Milk, Rice, Potato, Floor Cleaner"
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6 }}>Quantity *</label>
+              <input required type="number" step="any" min="0.01" value={qty} onChange={e => setQty(e.target.value)} placeholder="e.g. 5"
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6 }}>Unit *</label>
+              <select value={unit} onChange={e => setUnit(e.target.value)}
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 14, outline: 'none', background: 'white', boxSizing: 'border-box' }}>
+                <option value="kg">kg</option>
+                <option value="g">grams (g)</option>
+                <option value="litre">litre (L)</option>
+                <option value="ml">ml</option>
+                <option value="packet">packet / pack</option>
+                <option value="piece">piece / pcs</option>
+                <option value="box">box</option>
+                <option value="cylinder">cylinder</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6 }}>Rate per unit (₹)</label>
+              <input type="number" step="any" min="0" value={rate} onChange={e => setRate(e.target.value)} placeholder="e.g. 60"
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6 }}>Total Cost</label>
+              <div style={{ padding: '12px 14px', borderRadius: 12, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 14, fontWeight: 800, color: cyan }}>
+                ₹{Math.round(calculatedTotal).toLocaleString('en-IN')}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6 }}>Vendor / Store</label>
+              <input value={vendorName} onChange={e => setVendorName(e.target.value)} placeholder="e.g. Sharma Kirana"
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6 }}>Purchased By</label>
+              <input value={purchasedBy} onChange={e => setPurchasedBy(e.target.value)} placeholder="e.g. Admin, Manager"
+                style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6 }}>Purchase Date</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #cbd5e1', fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+
+          <button type="submit" disabled={submitting}
+            style={{ width: '100%', padding: '14px', background: cyan, color: 'white', border: 'none', borderRadius: 12, fontWeight: 800, fontSize: 15, cursor: submitting ? 'not-allowed' : 'pointer', marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>done</span>
+            {submitting ? 'Recording Purchase...' : 'Save & Update Inventory'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── MASTER INVENTORY VIEWS (PG, Kitchen) ──────────────────────────
 function MasterInventoryView({ category, title, onBack }) {
   const { user, activePgId } = useAuth();
   const [items, setItems] = useState([]);
+  const [vendorTxns, setVendorTxns] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('current'); // 'current' | 'used'
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [detailItem, setDetailItem] = useState(null);
+  const [purchaseModal, setPurchaseModal] = useState({ open: false, defaultItemName: '', defaultUnit: 'kg' });
+  const [search, setSearch] = useState('');
 
+  const currentMonthKey = new Date().toISOString().slice(0, 7); // e.g. "2026-10"
+
+  // 1. Listen to pg_inventory_master & vendor_transactions
   useEffect(() => {
     if (!user?.uid) return;
-    const q = query(
+
+    // Listen to inventory master
+    const qInv = query(
       collection(db, 'pg_inventory_master'), 
       where('adminId', '==', user.uid), 
       where('category', '==', category)
     );
-    const unsub = onSnapshot(q, (snap) => {
+    const unsubInv = onSnapshot(qInv, (snap) => {
       let mapped = snap.docs.map(d => ({
         docId: d.id,
         itemName: d.data().name,
@@ -235,7 +547,12 @@ function MasterInventoryView({ category, title, onBack }) {
         unit: d.data().unit || '',
         icon: d.data().icon || (category === 'kitchen' ? 'kitchen' : 'inventory_2'),
         pgId: d.data().pgId,
-        lastUpdatedBy: d.data().lastUpdatedBy
+        category: d.data().category || category,
+        lastUpdatedBy: d.data().lastUpdatedBy,
+        lastPurchasedDate: d.data().lastPurchasedDate || d.data().lastUpdated,
+        lastVendorName: d.data().lastVendorName,
+        monthKey: d.data().monthKey || (d.data().createdAt ? d.data().createdAt.slice(0, 7) : currentMonthKey),
+        purchaseHistory: d.data().purchaseHistory || []
       }));
       if (activePgId && activePgId !== 'all') {
         mapped = mapped.filter(d => !d.pgId || d.pgId === activePgId || d.pgId === 'primary');
@@ -246,32 +563,150 @@ function MasterInventoryView({ category, title, onBack }) {
       console.error(err);
       setLoading(false);
     });
-    return () => unsub();
+
+    // Listen to vendor_transactions to cross-reference any older or external purchases
+    const qTxns = query(
+      collection(db, 'vendor_transactions'),
+      where('adminId', '==', user.uid)
+    );
+    const unsubTxns = onSnapshot(qTxns, (snap) => {
+      const txns = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setVendorTxns(txns);
+    });
+
+    return () => {
+      unsubInv();
+      unsubTxns();
+    };
   }, [user?.uid, category, activePgId]);
 
-  const updateQty = async (idx, val) => {
-    const target = items[idx];
-    if (!target) return;
-    const newQty = Math.max(0, val);
-    setItems(p => p.map((it, i) => i === idx ? { ...it, qty: newQty } : it));
-    if (target.docId) {
-      try {
-        await updateDoc(doc(db, 'pg_inventory_master', target.docId), {
-          totalQty: newQty,
-          lastUpdated: new Date().toISOString(),
-          lastUpdatedBy: 'Admin'
-        });
-      } catch (e) {
-        console.error('Error updating inventory item qty:', e);
-      }
-    }
-  };
+  // 2. Merge vendor_transactions into each item's purchase history if not already present
+  const enrichedItems = React.useMemo(() => {
+    return items.map(it => {
+      const existingHistory = [...(it.purchaseHistory || [])];
+      const itNameLower = (it.itemName || '').trim().toLowerCase();
 
-  const handleRemove = async (idx) => {
-    const target = items[idx];
+      // Find any purchases from vendor_transactions that mention this item
+      vendorTxns.forEach(tx => {
+        if (!Array.isArray(tx.items)) return;
+        const txDate = tx.date || tx.createdAt || '';
+        const txMonthKey = typeof txDate === 'string' ? txDate.slice(0, 7) : '';
+
+        tx.items.forEach(row => {
+          const rowName = (row.item || row.name || row.itemName || '').trim().toLowerCase();
+          if (rowName === itNameLower) {
+            // Check if already in history
+            const alreadyExists = existingHistory.some(h => 
+              (h.date && h.date === txDate) || (h.id && h.id === tx.id)
+            );
+            if (!alreadyExists) {
+              existingHistory.push({
+                id: tx.id,
+                date: txDate,
+                monthKey: txMonthKey || currentMonthKey,
+                qty: row.qty || row.quantity || 1,
+                unit: row.unit || it.unit || 'kg',
+                rate: row.rate || 0,
+                price: row.price || ((row.qty || 1) * (row.rate || 0)),
+                purchasedBy: tx.purchasedBy || tx.actorName || 'Admin',
+                vendorName: tx.vendorName || tx.vendorStore || '',
+                source: tx.source || 'Vendor Purchase',
+                createdAt: tx.createdAt
+              });
+            }
+          }
+        });
+      });
+
+      // Sort history newest first
+      existingHistory.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+      return {
+        ...it,
+        purchaseHistory: existingHistory
+      };
+    });
+  }, [items, vendorTxns, currentMonthKey]);
+
+  // 3. Derive past months available in history
+  const pastMonthsList = React.useMemo(() => {
+    const monthsSet = new Set();
+    enrichedItems.forEach(it => {
+      if (it.monthKey && it.monthKey < currentMonthKey) {
+        monthsSet.add(it.monthKey);
+      }
+      (it.purchaseHistory || []).forEach(h => {
+        if (h.monthKey && h.monthKey < currentMonthKey) {
+          monthsSet.add(h.monthKey);
+        }
+      });
+    });
+    const sorted = Array.from(monthsSet).sort().reverse();
+    return sorted;
+  }, [enrichedItems, currentMonthKey]);
+
+  // Set default selected past month
+  useEffect(() => {
+    if (!selectedMonth && pastMonthsList.length > 0) {
+      setSelectedMonth(pastMonthsList[0]);
+    }
+  }, [pastMonthsList, selectedMonth]);
+
+  // 4. Split into CURRENT vs USED
+  // - CURRENT: Items with purchases / activity in current calendar month
+  // - USED: Grouped by past month
+  const currentItems = React.useMemo(() => {
+    return enrichedItems.filter(it => {
+      // If item has a purchase this month or its monthKey is currentMonthKey
+      const hasThisMonthPurchase = (it.purchaseHistory || []).some(h => (h.monthKey || '').slice(0, 7) === currentMonthKey);
+      return hasThisMonthPurchase || it.monthKey === currentMonthKey || (!it.monthKey && (it.purchaseHistory || []).length === 0);
+    });
+  }, [enrichedItems, currentMonthKey]);
+
+  const usedItemsForSelectedMonth = React.useMemo(() => {
+    if (!selectedMonth) return [];
+    const list = [];
+    enrichedItems.forEach(it => {
+      // Find purchases for this selected past month
+      const monthPurchases = (it.purchaseHistory || []).filter(h => (h.monthKey || '').slice(0, 7) === selectedMonth);
+      if (monthPurchases.length > 0) {
+        const monthQty = monthPurchases.reduce((s, p) => s + (parseFloat(p.qty) || 0), 0);
+        list.push({
+          ...it,
+          qty: monthQty,
+          isUsed: true,
+          purchaseHistory: monthPurchases,
+          lastPurchasedDate: monthPurchases[0]?.date || it.lastPurchasedDate
+        });
+      } else if (it.monthKey === selectedMonth) {
+        list.push({
+          ...it,
+          isUsed: true
+        });
+      }
+    });
+    return list;
+  }, [enrichedItems, selectedMonth]);
+
+  // Display items based on activeTab
+  const displayedItems = activeTab === 'current' ? currentItems : usedItemsForSelectedMonth;
+  const filteredItems = displayedItems.filter(it => 
+    (it.itemName || '').toLowerCase().includes(search.toLowerCase())
+  );
+
+  // Month totals
+  const currentMonthTotalSpend = currentItems.reduce((sum, it) => {
+    const mPurchases = (it.purchaseHistory || []).filter(h => (h.monthKey || '').slice(0, 7) === currentMonthKey);
+    return sum + mPurchases.reduce((s, p) => s + (parseFloat(p.price) || 0), 0);
+  }, 0);
+
+  const usedMonthTotalSpend = usedItemsForSelectedMonth.reduce((sum, it) => {
+    return sum + (it.purchaseHistory || []).reduce((s, p) => s + (parseFloat(p.price) || 0), 0);
+  }, 0);
+
+  const handleRemove = async (target) => {
     if (!target) return;
     if (window.confirm(`Delete ${target.itemName} from inventory?`)) {
-      setItems(p => p.filter((_, i) => i !== idx));
       if (target.docId) {
         try {
           await deleteDoc(doc(db, 'pg_inventory_master', target.docId));
@@ -282,49 +717,143 @@ function MasterInventoryView({ category, title, onBack }) {
     }
   };
 
-  const handleAddItem = async () => {
-    const name = window.prompt("Enter new item name:");
-    if (!name || !name.trim()) return;
-    const unit = window.prompt("Enter unit (e.g. kg, litre, pack, piece):", "kg") || "kg";
-    const qtyStr = window.prompt("Enter initial quantity:", "1") || "1";
-    const qty = parseFloat(qtyStr) || 1;
-    try {
-      await addDoc(collection(db, 'pg_inventory_master'), {
-        adminId: user.uid,
-        pgId: activePgId || 'primary',
-        category,
-        name: name.trim(),
-        totalQty: qty,
-        unit: unit.trim(),
-        icon: category === 'kitchen' ? 'kitchen' : 'inventory_2',
-        createdAt: new Date().toISOString(),
-        lastUpdated: new Date().toISOString(),
-        lastUpdatedBy: 'Admin'
-      });
-    } catch (e) {
-      console.error('Error adding inventory item:', e);
-    }
+  const formatMonthName = (mKey) => {
+    if (!mKey) return '';
+    const [y, m] = mKey.split('-');
+    const date = new Date(parseInt(y), parseInt(m) - 1, 1);
+    return date.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
   };
 
   return (
     <div style={BASE}>
-      <Header title={title} onBack={onBack} action={<span style={{fontSize:12, fontWeight:800, color:cyan}}>✓ Live Synced</span>} />
-      <div style={{ padding: 16 }}>
+      <Header title={title} onBack={onBack} action={<span style={{ fontSize: 12, fontWeight: 800, color: cyan }}>✓ Live Synced</span>} />
+
+      <div style={{ padding: '16px 16px 24px' }}>
+        {/* iOS-Style Segmented Control: Current vs Used */}
+        <div style={{ background: '#e2e8f0', borderRadius: 12, padding: 4, display: 'flex', gap: 4, marginBottom: 16 }}>
+          <button
+            onClick={() => setActiveTab('current')}
+            style={{
+              flex: 1, padding: '10px 12px', border: 'none', borderRadius: 9,
+              fontWeight: 800, fontSize: 13, cursor: 'pointer', transition: 'all 0.2s',
+              background: activeTab === 'current' ? 'white' : 'transparent',
+              color: activeTab === 'current' ? cyan : '#64748b',
+              boxShadow: activeTab === 'current' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none'
+            }}>
+            📦 Current (This Month)
+          </button>
+          <button
+            onClick={() => setActiveTab('used')}
+            style={{
+              flex: 1, padding: '10px 12px', border: 'none', borderRadius: 9,
+              fontWeight: 800, fontSize: 13, cursor: 'pointer', transition: 'all 0.2s',
+              background: activeTab === 'used' ? 'white' : 'transparent',
+              color: activeTab === 'used' ? cyan : '#64748b',
+              boxShadow: activeTab === 'used' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none'
+            }}>
+            🗂️ Used (Past Months)
+          </button>
+        </div>
+
+        {/* If in 'used' tab: Month selector chips */}
+        {activeTab === 'used' && (
+          <div style={{ marginBottom: 14 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, margin: '0 0 8px' }}>
+              Select Past Month Archive
+            </p>
+            {pastMonthsList.length === 0 ? (
+              <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#64748b', textAlign: 'center' }}>
+                No completed months yet. Current month items automatically archive here at the end of every month.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6 }}>
+                {pastMonthsList.map(mKey => (
+                  <button key={mKey}
+                    onClick={() => setSelectedMonth(mKey)}
+                    style={{
+                      padding: '8px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', flexShrink: 0,
+                      fontWeight: 700, fontSize: 12, transition: 'all 0.2s',
+                      background: selectedMonth === mKey ? cyan : '#e2e8f0',
+                      color: selectedMonth === mKey ? 'white' : '#475569'
+                    }}>
+                    {formatMonthName(mKey)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Month Summary Bar */}
+        <div style={{ background: 'white', borderRadius: 14, border: '1px solid #e2e8f0', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', margin: '0 0 2px' }}>
+              {activeTab === 'current' ? `This Month (${formatMonthName(currentMonthKey)})` : `Archive (${formatMonthName(selectedMonth)})`}
+            </p>
+            <p style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: 0 }}>
+              {displayedItems.length} Items Listed
+            </p>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', margin: '0 0 2px' }}>Total Spend</p>
+            <p style={{ fontSize: 16, fontWeight: 900, color: cyan, margin: 0 }}>
+              ₹{Math.round(activeTab === 'current' ? currentMonthTotalSpend : usedMonthTotalSpend).toLocaleString('en-IN')}
+            </p>
+          </div>
+        </div>
+
+        {/* Search */}
+        <SearchBar value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${activeTab === 'current' ? 'current' : 'used'} items...`} />
+
+        {/* Inventory List */}
         {loading ? <Loader /> : (
           <div style={{ background: 'white', borderRadius: 16, border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-            {items.length === 0 ? (
-              <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>No items in inventory. Add an item or purchase kitchen supplies to see them here!</div>
+            {filteredItems.length === 0 ? (
+              <div style={{ padding: 32, textAlign: 'center', color: '#94a3b8' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 36, color: '#cbd5e1', display: 'block', margin: '0 auto 8px' }}>
+                  {activeTab === 'current' ? 'inventory_2' : 'history_toggle_off'}
+                </span>
+                <p style={{ fontWeight: 700, fontSize: 14, color: '#475569', margin: '0 0 4px' }}>
+                  {activeTab === 'current' ? 'No items in Current Inventory' : 'No used items recorded for this month'}
+                </p>
+                <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
+                  {activeTab === 'current' ? 'Record a purchase below or purchase from vendors to auto-sync!' : 'Items from this past month will appear here.'}
+                </p>
+              </div>
             ) : (
-              items.map((item, idx) => (
+              filteredItems.map((item, idx) => (
                 <ItemRow key={item.docId || idx} item={item} 
-                  onQtyChange={val => updateQty(idx, val)}
-                  onRemove={() => handleRemove(idx)} />
+                  readOnlyQty={true}
+                  onClick={() => setDetailItem(item)}
+                  onRemove={() => handleRemove(item)} />
               ))
             )}
           </div>
         )}
-        <Fab onClick={handleAddItem} />
+
+        {/* Floating Add Purchase Button */}
+        <Fab onClick={() => setPurchaseModal({ open: true, defaultItemName: '', defaultUnit: 'kg' })} />
       </div>
+
+      {/* Item Detail Modal */}
+      {detailItem && (
+        <ItemDetailModal
+          item={detailItem}
+          onClose={() => setDetailItem(null)}
+          onRestock={(it) => setPurchaseModal({ open: true, defaultItemName: it.itemName, defaultUnit: it.unit || 'kg' })}
+        />
+      )}
+
+      {/* Record Purchase Modal */}
+      {purchaseModal.open && (
+        <PurchaseItemModal
+          defaultCategory={category}
+          defaultItemName={purchaseModal.defaultItemName}
+          defaultUnit={purchaseModal.defaultUnit}
+          onClose={() => setPurchaseModal({ open: false, defaultItemName: '', defaultUnit: 'kg' })}
+          onSaved={() => {}}
+        />
+      )}
     </div>
   );
 }
