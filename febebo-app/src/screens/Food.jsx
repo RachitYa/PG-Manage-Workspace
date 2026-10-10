@@ -20,7 +20,8 @@ import {
   formatDateDisplay,
   buildVacationDoc,
   ALL_MEALS,
-  MEAL_LABELS
+  MEAL_LABELS,
+  isMealOver
 } from '../utils/vacationUtils';
 
 // ── Default Weekly Menu Template (Fallback so students always see the mess timetable) ──
@@ -748,12 +749,43 @@ const Food = () => {
           recentRating: { rating, comment: rateComment, timestamp }
         }, { merge: true });
       } else if (type === 'extra') {
+        const mKey = (extraMeal || '').toLowerCase();
+        const platesCount = Number(extraPlates) || 1;
+        const isForToday = extraDate === getTodayStr();
+
+        let updatedRequests = { ...todayRequests };
+        if (isForToday) {
+          updatedRequests[extraMeal] = 'extra';
+          updatedRequests[`${extraMeal}ExtraPlates`] = platesCount;
+        }
+
         await setDoc(docRef, {
           studentId: user.uid,
           studentName: user.name || 'Unknown',
-          roomNumber: user.subscribedPG.roomNumber || 'Unknown',
-          extraPlatesRequest: { date: extraDate, meal: extraMeal, plates: extraPlates, timestamp }
+          roomNumber: user.subscribedPG?.roomNumber || user.subscribedPG?.roomNo || 'Unknown',
+          ...(isForToday ? { todayStatus: updatedRequests } : {}),
+          extraPlatesRequest: { date: extraDate, meal: extraMeal, plates: platesCount, timestamp }
         }, { merge: true });
+
+        // Sync directly to meal_status so Cook and Admin mess headcount see it immediately!
+        try {
+          await setDoc(doc(db, 'meal_status', `${targetPg}_${extraDate}_${user.uid}`), {
+            adminId: targetPg,
+            tenantId: user.uid,
+            date: extraDate,
+            [mKey]: 'extra',
+            [`${mKey}Details`]: `+${platesCount} Extra Plate(s)`,
+            [`${mKey}ExtraPlates`]: platesCount,
+            lastUpdated: timestamp
+          }, { merge: true });
+        } catch (mErr) {
+          console.warn('Sync meal_status for extra plates error:', mErr);
+        }
+
+        if (isForToday) {
+          setTodayRequests(updatedRequests);
+        }
+        alert(`Extra plate request (${platesCount} plate${platesCount > 1 ? 's' : ''}) for ${extraMeal} on ${extraDate} saved!`);
       }
 
       setActiveModal(null);
@@ -890,6 +922,22 @@ const Food = () => {
       } catch (err) {
         console.warn('Could not update food_requests:', err);
       }
+
+      // Sync meal_status so Cook & Manager see it marked as 'eaten'
+      try {
+        await setDoc(doc(db, 'meal_status', `${activeAdminId}_${today}_${user.uid}`), {
+          adminId: activeAdminId,
+          tenantId: user.uid,
+          date: today,
+          [qrMeal]: 'eaten',
+          [`${qrMeal}EatenAt`]: new Date().toISOString()
+        }, { merge: true });
+      } catch (mErr) {
+        console.warn('Sync meal_status eaten error:', mErr);
+      }
+
+      // Update local state immediately
+      setEatenStatus(prev => ({ ...prev, [qrMeal]: true }));
 
       // Add student notification
       try {
@@ -1310,8 +1358,11 @@ const Food = () => {
                     PAUSED
                   </span>
                 ) : status ? (
-                  <span style={{ fontSize: '11px', fontWeight: '800', padding: '2px 8px', borderRadius: '12px', color: 'white', background: status === 'pack' ? '#0891b2' : status === 'delivery' ? '#ea580c' : '#e11d48' }}>
-                    {status === 'pack' ? 'PACKED (FOR LATER)' : status === 'delivery' ? 'TIFFIN DELIVERY' : 'CANCELED'}
+                  <span style={{
+                    fontSize: '11px', fontWeight: '800', padding: '2px 8px', borderRadius: '12px', color: 'white',
+                    background: status === 'pack' ? '#0891b2' : status === 'delivery' ? '#ea580c' : status === 'extra' ? '#db2777' : '#e11d48'
+                  }}>
+                    {status === 'pack' ? 'PACKED (FOR LATER)' : status === 'delivery' ? 'TIFFIN DELIVERY' : status === 'extra' ? `EXTRA PLATES (+${todayRequests[meal + 'ExtraPlates'] || 1})` : status === 'cancel' ? 'CANCELED' : String(status).toUpperCase()}
                   </span>
                 ) : null}
               </div>
@@ -1400,8 +1451,33 @@ const Food = () => {
                 ) : eatenStatus[meal.toLowerCase()] ? (
                   <button className="meal-btn" style={{ background: '#10b981', color: 'white', border: 'none', width: '100%', padding: '11px', borderRadius: '12px', fontWeight: '800', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                     <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>check_circle</span>
-                    Eaten ✓
+                    {status === 'pack' ? 'Packed & Collected ✓' : status === 'delivery' ? 'Tiffin Delivered ✓' : 'Eaten ✓'}
                   </button>
+                ) : isMealOver(getTodayStr(), meal.toLowerCase()) ? (
+                  <div style={{
+                    background: '#f8fafc',
+                    border: '1.5px solid #e2e8f0',
+                    borderRadius: '12px',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#94a3b8' }}>
+                      history_toggle_off
+                    </span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '12px', fontWeight: '800', color: '#64748b' }}>
+                        Meal Time Ended
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>
+                        {status === 'pack' ? 'Packed box not collected' : 'Status recorded as Not Eaten'}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '11px', fontWeight: '800', padding: '3px 8px', borderRadius: '8px', background: '#fee2e2', color: '#ef4444' }}>
+                      Not Eaten
+                    </span>
+                  </div>
                 ) : (
                   <>
                     <button 

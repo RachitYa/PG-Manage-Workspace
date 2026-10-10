@@ -6,7 +6,7 @@ import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndP
 import { collection, addDoc, doc, setDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, getDocs, getDoc } from 'firebase/firestore';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import QRCode from 'react-qr-code';
-import { isStudentOnVacation, getStudentActiveVacation, formatDateDisplay, isMealPausedOnDate, ALL_MEALS } from '../utils/vacationUtils';
+import { isStudentOnVacation, getStudentActiveVacation, formatDateDisplay, isMealPausedOnDate, ALL_MEALS, isMealOver } from '../utils/vacationUtils';
 import { COMMON_PG_DISHES, DISH_CATEGORIES, getDishPresetImage, DEFAULT_FOOD_PLACEHOLDER } from '../data/commonFoodDishes';
 import ManagerTenantsView from '../components/manager/ManagerTenantsView';
 import ManagerRoomsView from '../components/manager/ManagerRoomsView';
@@ -1344,11 +1344,17 @@ export default function StaffApp(){
     let cachedTenants = [];
     let cachedMeals = [];
     let cachedVacations = [];
+    let cachedHeadcount = {};
 
     const rebuild = () => {
       const currentDateStr = workDate || todayStr;
       const list = cachedTenants.map(t => {
         const mealLog = cachedMeals.find(m => m.tenantId === t.id);
+        const isEatenB = !!cachedHeadcount[`${t.id}_breakfast_eaten`];
+        const isEatenL = !!cachedHeadcount[`${t.id}_lunch_eaten`];
+        const isEatenS = !!cachedHeadcount[`${t.id}_snacks_eaten`];
+        const isEatenD = !!cachedHeadcount[`${t.id}_dinner_eaten`];
+
         const isVacB = isStudentOnVacation(cachedVacations, t.id, currentDateStr, 'breakfast') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'breakfast');
         const isVacL = isStudentOnVacation(cachedVacations, t.id, currentDateStr, 'lunch') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'lunch');
         const isVacS = isStudentOnVacation(cachedVacations, t.id, currentDateStr, 'snacks') || isMealPausedOnDate(t.foodVacation, currentDateStr, 'snacks');
@@ -1357,14 +1363,16 @@ export default function StaffApp(){
         const studentVac = getStudentActiveVacation(cachedVacations, t.id, currentDateStr) || t.foodVacation || null;
         const isFoodIncluded = t.foodIncluded !== false;
 
-        const resolveStatus = (isVac, val) => {
+        const resolveStatus = (isVac, val, isEaten, mealName) => {
           if (!isFoodIncluded) return 'selfCooking';
           if (isVac) return 'onVacation';
           if (val === 'not_eating') return 'notEaten';
-          if (val === 'eaten') return 'eaten';
-          if (val === 'delivery') return 'delivery';
-          if (val === 'pack') return 'pack';
-          if (val === 'extra') return 'extra';
+          if (val === 'eaten' || isEaten) return 'eaten';
+          const mealEnded = isMealOver(currentDateStr, mealName);
+          if (val === 'delivery') return mealEnded ? 'notEaten' : 'delivery';
+          if (val === 'pack') return mealEnded ? 'notEaten' : 'pack';
+          if (val === 'extra') return mealEnded ? 'notEaten' : 'extra';
+          if (mealEnded) return 'notEaten';
           return 'requested';
         };
 
@@ -1377,14 +1385,24 @@ export default function StaffApp(){
           foodIncluded: isFoodIncluded,
           includedFoodPersons: t.includedFoodPersons || 1,
           foodVacation: studentVac,
-          statusB: resolveStatus(isVacB, mealLog?.breakfast),
-          statusL: resolveStatus(isVacL, mealLog?.lunch),
-          statusS: resolveStatus(isVacS, mealLog?.snacks),
-          statusD: resolveStatus(isVacD, mealLog?.dinner),
+          statusB: resolveStatus(isVacB, mealLog?.breakfast, isEatenB, 'breakfast'),
+          statusL: resolveStatus(isVacL, mealLog?.lunch, isEatenL, 'lunch'),
+          statusS: resolveStatus(isVacS, mealLog?.snacks, isEatenS, 'snacks'),
+          statusD: resolveStatus(isVacD, mealLog?.dinner, isEatenD, 'dinner'),
         };
       });
       setStudents(list);
     };
+
+    // Real-time mess headcount
+    const unsubHeadcount = onSnapshot(doc(db, 'mess_headcount', `${adminId}_${todayStr}`), snap => {
+      if (snap.exists()) {
+        cachedHeadcount = snap.data();
+      } else {
+        cachedHeadcount = {};
+      }
+      rebuild();
+    }, err => console.warn('Headcount listener warning:', err));
 
     // Real-time meal status for today
     const qMeal = query(collection(db, 'meal_status'), where('adminId', '==', adminId), where('date', '==', todayStr));
@@ -1434,7 +1452,7 @@ export default function StaffApp(){
       rebuild();
     });
 
-    return () => { unsubMeal(); unsubTenants(); if (unsubVac) unsubVac(); };
+    return () => { unsubMeal(); unsubTenants(); if (unsubVac) unsubVac(); if (unsubHeadcount) unsubHeadcount(); };
   }, [user?.ownerUid, workDate]);
 
   // Transaction History Filters
@@ -3402,6 +3420,19 @@ export default function StaffApp(){
           timestamp: new Date().toISOString()
         }
       }, { merge: true });
+
+      // Keep meal_status synced
+      try {
+        await setDoc(doc(db, 'meal_status', `${user.ownerUid}_${todayStr}_${tenantId}`), {
+          adminId: user.ownerUid,
+          tenantId,
+          date: todayStr,
+          [mealStr]: 'eaten',
+          [`${mealStr}EatenAt`]: new Date().toISOString()
+        }, { merge: true });
+      } catch (mErr) {
+        console.warn('Sync meal_status failed:', mErr);
+      }
       
       await addDoc(collection(db, 'users', tenantId, 'notifications'), {
         title: 'Meal Status: Eaten ✅',
@@ -3410,12 +3441,54 @@ export default function StaffApp(){
         action: 'VIEW_FOOD',
         unread: true,
         createdAt: new Date().toISOString()
-      });
+      }).catch(() => {});
 
       showToast(`${studentName} marked as Eaten!`, 'success');
     } catch (e) {
       console.error(e);
       showToast('Failed to update meal status', 'error');
+    }
+  };
+
+  const markMealNotEaten = async (tenantId, mealKey) => {
+    try {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const todayStr = `${yyyy}-${mm}-${dd}`;
+
+      const mealStr = mealKey.startsWith('status') 
+        ? { statusB: 'breakfast', statusL: 'lunch', statusS: 'snacks', statusD: 'dinner' }[mealKey]
+        : mealKey;
+
+      if (!mealStr) return;
+      const student = students.find(s => s.id === tenantId);
+      const studentName = student ? student.name : 'Student';
+
+      const docRef = doc(db, 'mess_headcount', `${user.ownerUid}_${todayStr}`);
+      await setDoc(docRef, {
+        [`${tenantId}_${mealStr}_eaten`]: false,
+        [`${tenantId}_${mealStr}_audit`]: {
+          confirmedVia: 'manual_cook',
+          markedByName: staffName || 'Cook',
+          markedByRole: `${staffRole || 'Cook'} (Marked Not Eaten)`,
+          timestamp: new Date().toISOString()
+        }
+      }, { merge: true });
+
+      await setDoc(doc(db, 'meal_status', `${user.ownerUid}_${todayStr}_${tenantId}`), {
+        adminId: user.ownerUid,
+        tenantId,
+        date: todayStr,
+        [mealStr]: 'not_eating',
+        [`${mealStr}MarkedNotEatingAt`]: new Date().toISOString()
+      }, { merge: true });
+
+      showToast(`${studentName} marked as Not Eaten`, 'info');
+    } catch (e) {
+      console.error(e);
+      showToast('Failed to update status', 'error');
     }
   };
 
@@ -5315,10 +5388,18 @@ export default function StaffApp(){
 
                              {/* Quick Action button for 'eaten' */}
                              {(selectedStat === 'requested' || selectedStat === 'notEaten') && timeFilter === 'Daily' && (
-                               <button onClick={()=>markMealEaten(s.id, mealKey)}
-                                 style={{padding:'6px 12px',borderRadius:8,border: '1px solid #e2e8f0',background:'#fff',color:'#000',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'inherit',boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
-                                 Mark Eaten
-                               </button>
+                               <div style={{ display: 'flex', gap: 6 }}>
+                                 <button onClick={()=>markMealEaten(s.id, mealKey)}
+                                   style={{padding:'6px 12px',borderRadius:8,border: '1px solid #e2e8f0',background:'#fff',color:'#000',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'inherit',boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
+                                   Mark Eaten
+                                 </button>
+                                 {selectedStat !== 'notEaten' && (
+                                   <button onClick={()=>markMealNotEaten(s.id, mealKey)}
+                                     style={{padding:'6px 10px',borderRadius:8,border:'1px solid #fecaca',background:'#fee2e2',color:'#dc2626',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}}>
+                                     Not Eaten
+                                   </button>
+                                 )}
+                               </div>
                              )}
                              {selectedStat === 'delivery' && (
                                <span style={{padding:'6px 12px', borderRadius:8, background:'#ede9fe', color:'#6d28d9', fontSize:12, fontWeight:800, border: '1px solid #ddd6fe', display:'inline-flex', alignItems:'center', gap:4}}>

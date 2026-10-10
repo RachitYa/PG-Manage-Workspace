@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot, doc, setDoc, addDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { isStudentOnVacation, isMealPausedOnDate } from '../../utils/vacationUtils';
+import { isStudentOnVacation, isMealPausedOnDate, isMealOver } from '../../utils/vacationUtils';
 
 export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager', staffRole = 'Manager', onBack, onOpenFoodMenu, onOpenDelivery, showToast }) {
   const [mealTab, setMealTab] = useState(() => {
@@ -26,6 +26,7 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
   // Audit modal state
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [auditSearchQuery, setAuditSearchQuery] = useState('');
+  const [showMessQRModal, setShowMessQRModal] = useState(false);
 
   // Real-time listeners
   useEffect(() => {
@@ -103,14 +104,16 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
       const isFoodIncluded = t.foodIncluded !== false;
       const deliv = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === mKey) || null;
 
+      const mealEnded = isMealOver(selectedDate, mKey);
       let status = 'requested';
       if (!isFoodIncluded) status = 'selfCooking';
       else if (isVac) status = 'onVacation';
       else if (isEaten) status = 'eaten';
       else if (mealLog?.[mKey] === 'not_eating') status = 'notEaten';
-      else if (deliv || mealLog?.[mKey] === 'delivery') status = 'delivery';
-      else if (mealLog?.[mKey] === 'pack') status = 'pack';
-      else if (mealLog?.[mKey] === 'extra') status = 'extra';
+      else if (deliv || mealLog?.[mKey] === 'delivery') status = (deliv?.status === 'delivered' ? 'eaten' : (mealEnded ? 'notEaten' : 'delivery'));
+      else if (mealLog?.[mKey] === 'pack') status = mealEnded ? 'notEaten' : 'pack';
+      else if (mealLog?.[mKey] === 'extra') status = mealEnded ? 'notEaten' : 'extra';
+      else if (mealEnded) status = 'notEaten';
 
       return {
         id: t.id,
@@ -136,6 +139,7 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
       delivery: students.filter(s => s.status === 'delivery').length,
       extra: students.filter(s => s.status === 'extra').length,
       eaten: students.filter(s => s.status === 'eaten').length,
+      notEaten: students.filter(s => s.status === 'notEaten').length,
       onVacation: students.filter(s => s.status === 'onVacation').length,
       selfCooking: students.filter(s => s.status === 'selfCooking').length,
     };
@@ -172,8 +176,86 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
         updatePayload[`${studentId}_${mKey}_audit`] = null;
       }
       await setDoc(doc(db, 'mess_headcount', `${adminId}_${selectedDate}`), updatePayload, { merge: true });
+
+      // Keep meal_status synced
+      try {
+        await setDoc(doc(db, 'meal_status', `${adminId}_${selectedDate}_${studentId}`), {
+          adminId,
+          tenantId: studentId,
+          date: selectedDate,
+          [mKey]: nextVal ? 'eaten' : 'requested',
+          ...(nextVal ? { [`${mKey}EatenAt`]: new Date().toISOString() } : {})
+        }, { merge: true });
+      } catch (mErr) {
+        console.warn('Sync meal_status failed:', mErr);
+      }
     } catch (err) {
       console.error('Toggle eaten error:', err);
+    }
+  };
+
+  // Mark meal as not eaten
+  const handleMarkNotEaten = async (studentId) => {
+    try {
+      const mKey = mealTab.toLowerCase();
+      await setDoc(doc(db, 'mess_headcount', `${adminId}_${selectedDate}`), {
+        [`${studentId}_${mKey}_eaten`]: false,
+        [`${studentId}_${mKey}_audit`]: {
+          confirmedVia: 'manual_manager',
+          markedByName: staffName || 'Manager',
+          markedByRole: `${staffRole || 'Manager'} (Marked Not Eaten)`,
+          timestamp: new Date().toISOString()
+        }
+      }, { merge: true });
+
+      await setDoc(doc(db, 'meal_status', `${adminId}_${selectedDate}_${studentId}`), {
+        adminId,
+        tenantId: studentId,
+        date: selectedDate,
+        [mKey]: 'not_eating',
+        [`${mKey}MarkedNotEatingAt`]: new Date().toISOString()
+      }, { merge: true });
+
+      showToast?.('Marked as Not Eaten', 'info');
+    } catch (err) {
+      console.error('Mark not eaten error:', err);
+    }
+  };
+
+  // Close meal headcount (Mark all remaining as Not Eaten)
+  const handleCloseMeal = async () => {
+    const mKey = mealTab.toLowerCase();
+    const unserved = students.filter(s => s.status === 'requested' || s.status === 'pack' || s.status === 'extra');
+    if (unserved.length === 0) {
+      showToast?.('All students already processed for this meal.', 'info');
+      return;
+    }
+    if (!window.confirm(`Mark all ${unserved.length} remaining requested students as "Not Eaten" and close ${mealTab.toUpperCase()}?`)) {
+      return;
+    }
+    try {
+      const batchUpdates = [];
+      const headcountUpdates = {};
+      const nowIso = new Date().toISOString();
+      for (const s of unserved) {
+        headcountUpdates[`${s.id}_${mKey}_eaten`] = false;
+        batchUpdates.push(
+          setDoc(doc(db, 'meal_status', `${adminId}_${selectedDate}_${s.id}`), {
+            adminId,
+            tenantId: s.id,
+            date: selectedDate,
+            [mKey]: 'not_eating',
+            [`${mKey}ClosedAt`]: nowIso
+          }, { merge: true })
+        );
+      }
+      batchUpdates.push(
+        setDoc(doc(db, 'mess_headcount', `${adminId}_${selectedDate}`), headcountUpdates, { merge: true })
+      );
+      await Promise.all(batchUpdates);
+      showToast?.(`Closed ${mealTab}! ${unserved.length} students marked as Not Eaten.`, 'success');
+    } catch (err) {
+      console.error('Failed to close meal:', err);
     }
   };
 
@@ -398,33 +480,84 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
 
         {/* Headcount Stat Counters - Hidden when meal is paused */}
         {!isPaused && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 5, marginTop: 10 }}>
-            {[
-              { id: 'all', l: 'Eating', v: counts.requested + counts.eaten, c: '#0891b2', bg: '#ecfeff' },
-              { id: 'pack', l: 'To Pack', v: counts.pack, c: '#d97706', bg: '#fef3c7' },
-              { id: 'delivery', l: 'Delivery', v: counts.delivery, c: '#7c3aed', bg: '#ede9fe' },
-              { id: 'extra', l: 'Extra Plate', v: counts.extra, c: '#0284c7', bg: '#e0f2fe' },
-              { id: 'eaten', l: 'Eaten', v: counts.eaten, c: '#16a34a', bg: '#dcfce7' },
-              { id: 'onVacation', l: 'On Leave', v: counts.onVacation, c: '#dc2626', bg: '#fee2e2' },
-            ].map(k => (
-              <div
-                key={k.id}
-                onClick={() => setFilterStat(k.id === filterStat ? 'all' : k.id)}
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginTop: 10 }}>
+              {[
+                { id: 'all', l: 'Eating', v: counts.requested + counts.eaten, c: '#0891b2', bg: '#ecfeff' },
+                { id: 'pack', l: 'To Pack', v: counts.pack, c: '#d97706', bg: '#fef3c7' },
+                { id: 'delivery', l: 'Delivery', v: counts.delivery, c: '#7c3aed', bg: '#ede9fe' },
+                { id: 'extra', l: 'Extra Plate', v: counts.extra, c: '#0284c7', bg: '#e0f2fe' },
+                { id: 'eaten', l: 'Eaten', v: counts.eaten, c: '#16a34a', bg: '#dcfce7' },
+                { id: 'notEaten', l: 'Not Eaten', v: counts.notEaten, c: '#b91c1c', bg: '#fee2e2' },
+                { id: 'onVacation', l: 'On Leave', v: counts.onVacation, c: '#7c3aed', bg: '#f5f3ff' },
+              ].map(k => (
+                <div
+                  key={k.id}
+                  onClick={() => setFilterStat(k.id === filterStat ? 'all' : k.id)}
+                  style={{
+                    background: filterStat === k.id ? k.c : k.bg,
+                    color: filterStat === k.id ? '#fff' : k.c,
+                    borderRadius: 10,
+                    padding: '6px 2px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    border: `1px solid ${filterStat === k.id ? k.c : '#e2e8f0'}`
+                  }}
+                >
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 900 }}>{k.v}</p>
+                  <p style={{ margin: '2px 0 0', fontSize: 8, fontWeight: 800, textTransform: 'uppercase' }}>{k.l}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Quick Action buttons: Mess Counter QR & Close Meal */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 10 }}>
+              <button
+                onClick={() => setShowMessQRModal(true)}
                 style={{
-                  background: filterStat === k.id ? k.c : k.bg,
-                  color: filterStat === k.id ? '#fff' : k.c,
-                  borderRadius: 10,
-                  padding: '6px 2px',
-                  textAlign: 'center',
+                  background: 'linear-gradient(135deg, #0891b2, #0e7490)',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '9px 4px',
+                  borderRadius: 12,
+                  fontSize: 12,
+                  fontWeight: 900,
                   cursor: 'pointer',
-                  border: `1px solid ${filterStat === k.id ? k.c : '#e2e8f0'}`
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  boxShadow: '0 2px 8px rgba(8,145,178,0.25)'
                 }}
+                title="Display QR code on counter for students to scan"
               >
-                <p style={{ margin: 0, fontSize: 15, fontWeight: 900 }}>{k.v}</p>
-                <p style={{ margin: '2px 0 0', fontSize: 8.5, fontWeight: 800, textTransform: 'uppercase' }}>{k.l}</p>
-              </div>
-            ))}
-          </div>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>qr_code_scanner</span>
+                Mess Counter QR
+              </button>
+
+              <button
+                onClick={handleCloseMeal}
+                style={{
+                  background: 'rgba(239,68,68,0.1)',
+                  color: '#b91c1c',
+                  border: '1.5px solid rgba(239,68,68,0.3)',
+                  padding: '9px 4px',
+                  borderRadius: 12,
+                  fontSize: 12,
+                  fontWeight: 900,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6
+                }}
+                title="Mark all remaining unserved students as Not Eaten and close meal"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#dc2626' }}>cancel_schedule_send</span>
+                Close Meal ({counts.requested + counts.pack})
+              </button>
+            </div>
+          </>
         )}
       </div>
 
@@ -525,27 +658,51 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
                 </div>
 
                 {!isOnLeave ? (
-                  <button
-                    onClick={() => handleToggleEaten(s.id, isEaten)}
-                    style={{
-                      background: isEaten ? '#16a34a' : '#f1f5f9',
-                      color: isEaten ? '#fff' : '#475569',
-                      border: 'none',
-                      borderRadius: 10,
-                      padding: '8px 14px',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4
-                    }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
-                      {isEaten ? 'check_circle' : 'radio_button_unchecked'}
-                    </span>
-                    {isEaten ? 'Eaten ✅' : 'Mark Eaten'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => handleToggleEaten(s.id, isEaten)}
+                      style={{
+                        background: isEaten ? '#16a34a' : '#0f172a',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 10,
+                        padding: '8px 12px',
+                        fontSize: 12,
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                        {isEaten ? 'undo' : 'check'}
+                      </span>
+                      {isEaten ? 'Undo' : 'Eaten'}
+                    </button>
+                    {!isEaten && s.status !== 'notEaten' && (
+                      <button
+                        onClick={() => handleMarkNotEaten(s.id)}
+                        style={{
+                          background: '#fee2e2',
+                          color: '#dc2626',
+                          border: '1px solid #fecaca',
+                          borderRadius: 10,
+                          padding: '8px 10px',
+                          fontSize: 12,
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                        title="Mark Student as Not Eaten"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                        Not Eaten
+                      </button>
+                    )}
+                  </div>
                 ) : (
                   <span style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8' }}>Vacation</span>
                 )}
@@ -741,6 +898,126 @@ export default function ManagerMessHeadcountView({ adminId, staffName = 'Manager
                 });
               })()}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Mess Counter QR Modal ────────────────────────────────────────── */}
+      {showMessQRModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(15, 23, 42, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '24px',
+            width: '100%',
+            maxWidth: '380px',
+            padding: '24px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
+            textAlign: 'center',
+            position: 'relative',
+            animation: 'fadeIn 0.2s ease-out'
+          }}>
+            <button
+              onClick={() => setShowMessQRModal(false)}
+              style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                background: '#f1f5f9',
+                border: 'none',
+                borderRadius: '50%',
+                width: '32px',
+                height: '32px',
+                cursor: 'pointer',
+                color: '#64748b',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>close</span>
+            </button>
+
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: '#ecfeff',
+              color: '#0891b2',
+              padding: '4px 12px',
+              borderRadius: '20px',
+              fontSize: '11px',
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              marginBottom: '10px'
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>qr_code_scanner</span>
+              Mess Counter Pass
+            </div>
+
+            <h3 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: 900, color: '#0f172a', textTransform: 'capitalize' }}>
+              {mealTab} QR Code
+            </h3>
+            <p style={{ margin: '0 0 16px', fontSize: '12px', color: '#64748b', fontWeight: 600 }}>
+              {selectedDate} · Display this on counter for students
+            </p>
+
+            <div style={{
+              background: '#ffffff',
+              padding: '16px',
+              borderRadius: '20px',
+              border: '2px solid #e2e8f0',
+              display: 'inline-block',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.06)',
+              marginBottom: '16px'
+            }}>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(`FEBEBO_MEAL|${adminId}|${mealTab}|${selectedDate}`)}`}
+                alt="Mess Counter QR"
+                style={{ width: '220px', height: '220px', display: 'block', borderRadius: '12px' }}
+              />
+            </div>
+
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '12px',
+              padding: '10px 14px',
+              fontSize: '11px',
+              color: '#475569',
+              fontWeight: 600,
+              lineHeight: 1.5,
+              marginBottom: '16px'
+            }}>
+              Students can open the <strong>Febebo app → Food</strong> tab, tap <strong>"Scan Counter QR"</strong>, and scan this code to mark themselves as Eaten.
+            </div>
+
+            <button
+              onClick={() => setShowMessQRModal(false)}
+              style={{
+                width: '100%',
+                background: '#0f172a',
+                color: '#fff',
+                border: 'none',
+                padding: '12px',
+                borderRadius: '14px',
+                fontWeight: 800,
+                fontSize: '13px',
+                cursor: 'pointer'
+              }}
+            >
+              Done / Close
+            </button>
           </div>
         </div>
       )}

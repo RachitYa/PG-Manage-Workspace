@@ -290,6 +290,31 @@ export function buildVacationDoc(paramsOrTenantId = {}, maybeStartDate, maybeEnd
   };
 }
 
+/**
+ * Checks whether a given meal window has passed for a specific date (YYYY-MM-DD).
+ * @param {string} dateStr - YYYY-MM-DD
+ * @param {string} meal - 'breakfast' | 'lunch' | 'snacks' | 'dinner'
+ * @returns {boolean}
+ */
+export function isMealOver(dateStr, meal) {
+  if (!dateStr || !meal) return false;
+  const today = getTodayStr();
+  if (dateStr < today) return true;
+  if (dateStr > today) return false;
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const mLower = String(meal).toLowerCase().trim();
+  const cutoffs = {
+    breakfast: 10 * 60 + 30, // 10:30 AM
+    lunch: 15 * 60 + 30,     // 3:30 PM
+    snacks: 18 * 60 + 30,    // 6:30 PM
+    dinner: 22 * 60 + 30     // 10:30 PM
+  };
+  const cutoff = cutoffs[mLower] || (24 * 60);
+  return currentMinutes >= cutoff;
+}
+
 export default {
   ALL_MEALS,
   MEAL_LABELS,
@@ -301,5 +326,6 @@ export default {
   isStudentOnVacation,
   getStudentActiveVacation,
   formatDateDisplay,
-  buildVacationDoc
+  buildVacationDoc,
+  isMealOver
 };
