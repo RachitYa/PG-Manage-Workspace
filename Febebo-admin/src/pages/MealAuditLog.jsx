@@ -226,7 +226,7 @@ export default function MealAuditLog() {
   const auditRefCode = `AUD-${selectedDate.replace(/-/g, '')}-${mealTab.toUpperCase().substring(0, 3)}`;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: "'Hanken Grotesk', sans-serif", paddingBottom: 80 }}>
+    <div style={{ minHeight: '100vh', background: '#ffffff', color: '#000000', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif', paddingBottom: 60 }}>
       <style>{`
         @media print {
           body * { visibility: hidden; }
@@ -241,398 +241,415 @@ export default function MealAuditLog() {
         }
       `}</style>
 
-      {/* ── TOP NAV BAR ────────────────────────────────────────────── */}
-      <div className="no-print" style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '12px 20px', position: 'sticky', top: 0, zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      {/* ── TOP NAV BAR (APPLE STYLE BLURRED HEADER) ── */}
+      <div className="no-print" style={{
+        background: 'rgba(255,255,255,0.92)',
+        backdropFilter: 'saturate(180%) blur(20px)',
+        borderBottom: '1px solid #f2f2f7',
+        padding: '12px 16px',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             onClick={() => navigate(-1)}
-            style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#0f172a' }}
+            style={{
+              background: '#f2f2f7',
+              border: 'none',
+              borderRadius: '50%',
+              width: 36,
+              height: 36,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: '#000000'
+            }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back</span>
           </button>
           <div>
-            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 900, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#0891b2' }}>fact_check</span>
-              Meal Audit Log
-            </h2>
-            <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Detailed headcount verification trail</p>
+            <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#000000', letterSpacing: -0.3 }}>
+              Meal Audit
+            </h1>
+            <p style={{ margin: 0, fontSize: 11, color: '#8e8e93', fontWeight: 500 }}>
+              {pgProfile?.pgName || 'Mess Audit'} · #{auditRefCode}
+            </p>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={() => navigate('/mess-headcount')}
-            style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', color: '#0f172a', padding: '7px 12px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+            style={{
+              background: '#f2f2f7',
+              border: 'none',
+              color: '#000000',
+              padding: '6px 12px',
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4
+            }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>restaurant</span>
-            Live Headcount
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>restaurant</span>
+            Live
           </button>
           <button
             onClick={() => window.print()}
-            style={{ background: '#0891b2', border: 'none', color: '#ffffff', padding: '7px 14px', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, boxShadow: '0 2px 8px rgba(8,145,178,0.25)' }}
+            style={{
+              background: '#000000',
+              border: 'none',
+              color: '#ffffff',
+              width: 34,
+              height: 34,
+              borderRadius: '50%',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            title="Print Audit"
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>print</span>
-            Print Audit
           </button>
         </div>
       </div>
 
-      <div id="printable-audit" style={{ maxWidth: 840, margin: '20px auto', padding: '0 16px' }}>
+      <div id="printable-audit" style={{ maxWidth: 680, margin: '0 auto', padding: '16px' }}>
 
-        {/* ── AUDIT RECEIPT HERO CARD ─────────────────────────────────── */}
-        <div style={{
-          background: 'linear-gradient(160deg, #0c1a2e 0%, #0f2847 60%, #0c3461 100%)',
-          borderRadius: 20,
-          padding: '24px 24px 20px',
-          color: '#ffffff',
-          position: 'relative',
-          overflow: 'hidden',
-          boxShadow: '0 10px 30px rgba(12,26,46,0.15)',
-          marginBottom: 16
-        }}>
-          {/* Ambient Glows */}
-          <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(56,189,248,0.12)', pointerEvents: 'none' }} />
-          <div style={{ position: 'absolute', bottom: -20, left: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(99,102,241,0.1)', pointerEvents: 'none' }} />
-
-          {/* Header Row */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px dashed rgba(255,255,255,0.2)', paddingBottom: 16, marginBottom: 16 }}>
-            <div>
-              <span style={{ fontSize: 11, fontWeight: 800, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: 1 }}>
-                Official Verification Audit
-              </span>
-              <h1 style={{ margin: '4px 0 2px', fontSize: 22, fontWeight: 900, color: '#ffffff', letterSpacing: -0.5 }}>
-                {pgProfile?.pgName || 'Febebo PG Living'}
-              </h1>
-              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
-                {pgProfile?.address || 'Primary Campus'} · Food & Mess Operations
-              </p>
-            </div>
-
-            <div style={{ textAlign: 'right' }}>
-              <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Audit Reference</span>
-              <p style={{ margin: '2px 0 0', fontSize: 13, fontWeight: 800, color: '#38bdf8', fontFamily: "'JetBrains Mono', monospace" }}>
-                #{auditRefCode}
-              </p>
-              <p style={{ margin: '2px 0 0', fontSize: 11, color: '#cbd5e1' }}>
-                {new Date(selectedDate).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
-              </p>
-            </div>
-          </div>
-
-          {/* Date & Meal Slot Selector */}
-          <div className="no-print" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            {/* Date Input */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 12, padding: '6px 12px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#38bdf8' }}>calendar_month</span>
+        {/* ── DATE PICKER & APPLE SEGMENTED CONTROL ── */}
+        <div className="no-print" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: '#f2f2f7',
+              borderRadius: 12,
+              padding: '6px 12px',
+              border: '1px solid #ebebf0'
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#636366' }}>calendar_today</span>
               <input
                 type="date"
                 value={selectedDate}
                 onChange={e => setSelectedDate(e.target.value)}
-                style={{ background: 'transparent', border: 'none', color: '#ffffff', fontWeight: 700, fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#000000',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  outline: 'none',
+                  fontFamily: 'inherit'
+                }}
               />
             </div>
-
-            {/* Meal Slot Tabs */}
-            <div style={{ display: 'flex', background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 3, border: '1px solid rgba(255,255,255,0.15)' }}>
-              {[
-                { id: 'breakfast', label: 'Breakfast', icon: 'coffee' },
-                { id: 'lunch',     label: 'Lunch',     icon: 'lunch_dining' },
-                { id: 'snacks',    label: 'Snacks',    icon: 'bakery_dining' },
-                { id: 'dinner',    label: 'Dinner',    icon: 'dinner_dining' },
-              ].map(slot => {
-                const active = mealTab === slot.id;
-                return (
-                  <button
-                    key={slot.id}
-                    onClick={() => setMealTab(slot.id)}
-                    style={{
-                      background: active ? '#38bdf8' : 'transparent',
-                      color: active ? '#0c1a2e' : '#ffffff',
-                      border: 'none',
-                      borderRadius: 9,
-                      padding: '6px 12px',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{slot.icon}</span>
-                    {slot.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Quick Metrics Bar */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-            <div style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase' }}>Total Enrolled</p>
-              <p style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 900, color: '#ffffff' }}>{stats.total}</p>
-            </div>
-            <div style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ margin: 0, fontSize: 10, color: '#6ee7b7', fontWeight: 700, textTransform: 'uppercase' }}>Confirmed Eaten</p>
-              <p style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 900, color: '#34d399' }}>
-                {stats.eaten} <span style={{ fontSize: 11, fontWeight: 700 }}>({Math.round((stats.eaten / (stats.total || 1)) * 100)}%)</span>
-              </p>
-            </div>
-            <div style={{ background: 'rgba(234,88,12,0.15)', border: '1px solid rgba(234,88,12,0.25)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ margin: 0, fontSize: 10, color: '#fdba74', fontWeight: 700, textTransform: 'uppercase' }}>Tiffins & Delivery</p>
-              <p style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 900, color: '#fb923c' }}>{stats.delivery}</p>
-            </div>
-            <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ margin: 0, fontSize: 10, color: '#fca5a5', fontWeight: 700, textTransform: 'uppercase' }}>Unverified / Pending</p>
-              <p style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 900, color: '#f87171' }}>{stats.pending}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* ── MEALS & FOOD DETAILS SECTION (Requested by User) ───────── */}
-        <div style={{ background: '#ffffff', borderRadius: 18, border: '1px solid #e2e8f0', padding: '18px 20px', marginBottom: 16, boxShadow: '0 2px 8px rgba(15,23,42,0.04)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, borderBottom: '1px solid #f1f5f9', paddingBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 38, height: 38, borderRadius: 10, background: '#ede9fe', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>restaurant_menu</span>
-              </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
-                  Meal Details: {mealSlotName} ({dayName})
-                </h3>
-                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
-                  Serving Window: {MEAL_TIMES[mealTab] || 'Standard Time'}
-                </p>
-              </div>
-            </div>
-            <span style={{ fontSize: 11, fontWeight: 800, padding: '4px 10px', borderRadius: 8, background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}>
-              Kitchen Prepared & Verified
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#8e8e93' }}>
+              {new Date(selectedDate).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
             </span>
           </div>
 
-          {/* Dishes tags */}
-          <div>
-            <p style={{ margin: '0 0 6px', fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Scheduled Dishes for {dayName} {mealSlotName}:
-            </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {scheduledDishes.split(/[,;]/).map((dish, i) => (
-                <div
-                  key={i}
+          {/* iOS Segmented Meal Slot Tabs */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            background: '#f2f2f7',
+            borderRadius: 12,
+            padding: 3,
+            border: '1px solid #ebebf0'
+          }}>
+            {[
+              { id: 'breakfast', label: 'Breakfast' },
+              { id: 'lunch',     label: 'Lunch' },
+              { id: 'snacks',    label: 'Snacks' },
+              { id: 'dinner',    label: 'Dinner' },
+            ].map(slot => {
+              const active = mealTab === slot.id;
+              return (
+                <button
+                  key={slot.id}
+                  onClick={() => setMealTab(slot.id)}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: '#f8fafc',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: 10,
-                    padding: '6px 12px',
+                    background: active ? '#ffffff' : 'transparent',
+                    color: active ? '#000000' : '#8e8e93',
+                    border: 'none',
+                    borderRadius: 9,
+                    padding: '8px 4px',
                     fontSize: 12.5,
-                    fontWeight: 700,
-                    color: '#1e293b'
+                    fontWeight: active ? 700 : 500,
+                    cursor: 'pointer',
+                    boxShadow: active ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                    transition: 'all 0.15s ease'
                   }}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: 15, color: '#0891b2' }}>check_circle</span>
-                  {dish.trim()}
-                </div>
-              ))}
-            </div>
+                  {slot.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* ── VERIFICATION CHANNELS BREAKDOWN (Receipt Style) ───────── */}
-        <div style={{ background: '#ffffff', borderRadius: 18, border: '1px solid #e2e8f0', padding: '18px 20px', marginBottom: 16, boxShadow: '0 2px 8px rgba(15,23,42,0.04)' }}>
-          <p style={{ fontSize: 11, fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: 0.8, margin: '0 0 12px', borderBottom: '2px solid #0f172a', paddingBottom: 6 }}>
-            Verification Channel Breakdown
-          </p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '12px', textAlign: 'center' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#16a34a' }}>qr_code_scanner</span>
-              <p style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 900, color: '#16a34a' }}>{stats.counterQr}</p>
-              <p style={{ margin: '2px 0 0', fontSize: 10.5, fontWeight: 700, color: '#64748b' }}>Counter QR Scan</p>
+        {/* ── KPI METRICS (CLEAN APPLE CARDS) ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>
+          <div style={{ background: '#fbfbfd', border: '1px solid #ebebf0', borderRadius: 14, padding: '12px 10px', textAlign: 'center' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: '#8e8e93', textTransform: 'uppercase', letterSpacing: 0.3 }}>Total</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#000000', marginTop: 2 }}>{stats.total}</div>
+          </div>
+          <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: 14, padding: '12px 10px', textAlign: 'center' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: 0.3 }}>Eaten</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#15803d', marginTop: 2 }}>
+              {stats.eaten} <span style={{ fontSize: 11, fontWeight: 600 }}>({Math.round((stats.eaten / (stats.total || 1)) * 100)}%)</span>
             </div>
-
-            <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 12, padding: '12px', textAlign: 'center' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#7c3aed' }}>two_wheeler</span>
-              <p style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 900, color: '#7c3aed' }}>{stats.delivery}</p>
-              <p style={{ margin: '2px 0 0', fontSize: 10.5, fontWeight: 700, color: '#64748b' }}>Tiffin Delivery</p>
-            </div>
-
-            <div style={{ background: '#fffbeb', border: '1px solid #fed7aa', borderRadius: 12, padding: '12px', textAlign: 'center' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#d97706' }}>draw</span>
-              <p style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 900, color: '#d97706' }}>{stats.manual}</p>
-              <p style={{ margin: '2px 0 0', fontSize: 10.5, fontWeight: 700, color: '#64748b' }}>Manual Staff Override</p>
-            </div>
-
-            <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 12, padding: '12px', textAlign: 'center' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#e11d48' }}>event_busy</span>
-              <p style={{ margin: '4px 0 0', fontSize: 18, fontWeight: 900, color: '#e11d48' }}>{stats.vacation}</p>
-              <p style={{ margin: '2px 0 0', fontSize: 10.5, fontWeight: 700, color: '#64748b' }}>On Food Vacation</p>
-            </div>
+          </div>
+          <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', borderRadius: 14, padding: '12px 10px', textAlign: 'center' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#ea580c', textTransform: 'uppercase', letterSpacing: 0.3 }}>Delivery</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#ea580c', marginTop: 2 }}>{stats.delivery}</div>
+          </div>
+          <div style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 14, padding: '12px 10px', textAlign: 'center' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: 0.3 }}>Pending</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#dc2626', marginTop: 2 }}>{stats.pending}</div>
           </div>
         </div>
 
-        {/* ── STUDENT ITEMIZED AUDIT LOG TABLE ──────────────────────── */}
-        <div style={{ background: '#ffffff', borderRadius: 18, border: '1px solid #e2e8f0', padding: '18px 20px', boxShadow: '0 2px 8px rgba(15,23,42,0.04)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <div>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
-                Itemized Verification Trail ({filteredStudents.length})
-              </h3>
-              <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>Individual student verification timestamps & badges</p>
+        {/* ── DISHES & TIMING BANNER (MINIMAL SINGLE ROW) ── */}
+        <div style={{
+          background: '#f8fafc',
+          border: '1px solid #ebebf0',
+          borderRadius: 14,
+          padding: '10px 14px',
+          marginBottom: 14,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#ea580c', flexShrink: 0 }}>restaurant</span>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: '#1c1c1e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {scheduledDishes}
             </div>
           </div>
+          <span style={{ fontSize: 11, color: '#8e8e93', fontWeight: 600, flexShrink: 0 }}>
+            {MEAL_TIMES[mealTab] || ''}
+          </span>
+        </div>
 
-          {/* Search & Filter pills */}
-          <div className="no-print" style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
-            {/* Search Input */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '8px 12px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search student by name, room, verifier..."
-                style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: 13, fontWeight: 600, width: '100%', fontFamily: 'inherit' }}
-              />
-            </div>
+        {/* ── SEARCH & FILTER CONTROLS ── */}
+        <div className="no-print" style={{ marginBottom: 12 }}>
+          {/* iOS Style Search Input */}
+          <div style={{
+            position: 'relative',
+            marginBottom: 10
+          }}>
+            <span className="material-symbols-outlined" style={{
+              position: 'absolute',
+              left: 12,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              fontSize: 18,
+              color: '#8e8e93'
+            }}>search</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search student, room, verifier..."
+              style={{
+                width: '100%',
+                background: '#f2f2f7',
+                border: 'none',
+                borderRadius: 12,
+                padding: '9px 12px 9px 38px',
+                fontSize: 13,
+                fontWeight: 500,
+                color: '#000000',
+                outline: 'none',
+                boxSizing: 'border-box',
+                fontFamily: 'inherit'
+              }}
+            />
+          </div>
 
-            {/* Filter pills */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {[
-                { id: 'all',        label: `All (${students.length})` },
-                { id: 'confirmed',  label: `Confirmed (${stats.eaten})` },
-                { id: 'counter_qr', label: `Counter QR (${stats.counterQr})` },
-                { id: 'delivery',   label: `Delivery (${stats.delivery})` },
-                { id: 'manual',     label: `Manual (${stats.manual})` },
-                { id: 'pending',    label: `Pending (${stats.pending})` },
-              ].map(tab => (
+          {/* Filter Pills */}
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+            {[
+              { id: 'all',        label: `All (${students.length})` },
+              { id: 'confirmed',  label: `Eaten (${stats.eaten})` },
+              { id: 'counter_qr', label: `QR (${stats.counterQr})` },
+              { id: 'delivery',   label: `Delivery (${stats.delivery})` },
+              { id: 'manual',     label: `Manual (${stats.manual})` },
+              { id: 'pending',    label: `Pending (${stats.pending})` },
+            ].map(tab => {
+              const active = filterChannel === tab.id;
+              return (
                 <button
                   key={tab.id}
                   onClick={() => setFilterChannel(tab.id)}
                   style={{
-                    background: filterChannel === tab.id ? '#0891b2' : '#f8fafc',
-                    color: filterChannel === tab.id ? '#ffffff' : '#475569',
-                    border: `1px solid ${filterChannel === tab.id ? '#0891b2' : '#e2e8f0'}`,
-                    borderRadius: 10,
-                    padding: '5px 12px',
+                    background: active ? '#000000' : '#f2f2f7',
+                    color: active ? '#ffffff' : '#636366',
+                    border: 'none',
+                    borderRadius: 20,
+                    padding: '6px 12px',
                     fontSize: 11.5,
-                    fontWeight: 700,
+                    fontWeight: active ? 700 : 500,
                     cursor: 'pointer',
-                    fontFamily: 'inherit',
-                    transition: 'all 0.15s'
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease'
                   }}
                 >
                   {tab.label}
                 </button>
-              ))}
-            </div>
+              );
+            })}
           </div>
+        </div>
 
-          {/* Audit Rows */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {filteredStudents.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '36px 0', color: '#94a3b8' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#cbd5e1' }}>search_off</span>
-                <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 600 }}>No students found matching filters.</p>
-              </div>
-            ) : (
-              filteredStudents.map(s => {
-                const isConfirmed = s.status === 'eaten';
-                const audit = s.audit;
-                const deliv = s.deliv;
+        {/* ── STUDENT ITEMIZED AUDIT LIST (APPLE TABLE VIEW) ── */}
+        <div style={{
+          background: '#ffffff',
+          borderRadius: 16,
+          border: '1px solid #ebebf0',
+          overflow: 'hidden'
+        }}>
+          {filteredStudents.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 16px', color: '#8e8e93' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#d1d1d6' }}>search_off</span>
+              <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 500 }}>No students found</p>
+            </div>
+          ) : (
+            filteredStudents.map((s, idx) => {
+              const isConfirmed = s.status === 'eaten';
+              const audit = s.audit;
+              const deliv = s.deliv;
 
-                return (
-                  <div
-                    key={s.id}
-                    style={{
-                      background: isConfirmed ? '#ffffff' : '#f8fafc',
-                      border: `1px solid ${isConfirmed ? '#cbd5e1' : '#e2e8f0'}`,
-                      borderRadius: 14,
-                      padding: '12px 14px',
+              return (
+                <div
+                  key={s.id}
+                  style={{
+                    padding: '12px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    borderBottom: idx < filteredStudents.length - 1 ? '1px solid #f2f2f7' : 'none',
+                    background: '#ffffff'
+                  }}
+                >
+                  {/* Left: Avatar + Details */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+                    <div style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: '50%',
+                      background: isConfirmed ? '#e8f5e9' : s.status === 'delivery' ? '#fff3e0' : s.status === 'onVacation' ? '#fee2e2' : '#f2f2f7',
+                      color: isConfirmed ? '#2e7d32' : s.status === 'delivery' ? '#e65100' : s.status === 'onVacation' ? '#b91c1c' : '#636366',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 12
-                    }}
-                  >
-                    {/* Student Info */}
+                      justifyContent: 'center',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      flexShrink: 0
+                    }}>
+                      {s.name ? s.name.charAt(0).toUpperCase() : 'S'}
+                    </div>
+
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>{s.name}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, background: '#f1f5f9', color: '#475569', padding: '2px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                          Rm {s.room} · Bed {s.bed}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#000000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.name}
+                        </span>
+                        <span style={{ fontSize: 10.5, fontWeight: 600, background: '#f2f2f7', color: '#636366', padding: '1px 6px', borderRadius: 4, flexShrink: 0 }}>
+                          R-{s.room}
                         </span>
                       </div>
 
-                      {/* Verification Badge */}
-                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {/* Micro Status Label */}
+                      <div style={{ fontSize: 11, color: '#8e8e93', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {isConfirmed && audit ? (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 700,
-                              padding: '3px 8px',
-                              borderRadius: 6,
-                              background: audit.confirmedVia === 'counter_qr' ? '#ecfdf5' : audit.confirmedVia === 'delivery_qr' ? '#f5f3ff' : audit.confirmedVia === 'delivery_boy' ? '#eff6ff' : '#fffbeb',
-                              color: audit.confirmedVia === 'counter_qr' ? '#047857' : audit.confirmedVia === 'delivery_qr' ? '#6d28d9' : audit.confirmedVia === 'delivery_boy' ? '#0284c7' : '#b45309',
-                              border: `1px solid ${audit.confirmedVia === 'counter_qr' ? '#a7f3d0' : audit.confirmedVia === 'delivery_qr' ? '#ddd6fe' : audit.confirmedVia === 'delivery_boy' ? '#bae6fd' : '#fde68a'}`
-                            }}
-                          >
-                            {audit.confirmedVia === 'counter_qr'
-                              ? '🤳 Counter QR Scanned'
-                              : audit.confirmedVia === 'delivery_qr'
-                              ? `🛵 Delivery QR (${audit.markedByName || 'Staff'})`
-                              : audit.confirmedVia === 'delivery_boy'
-                              ? `📦 Marked Delivered: ${audit.markedByName || 'Staff'}`
-                              : `✍️ ${audit.markedByRole || 'Staff'}: ${audit.markedByName || 'Admin'}`}
-                            {audit.timestamp ? ` · ${new Date(audit.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : ''}
+                          <span>
+                            {audit.confirmedVia === 'counter_qr' ? '🤳 Counter QR' :
+                             audit.confirmedVia === 'delivery_qr' ? `🛵 Delivery QR (${audit.markedByName || 'Staff'})` :
+                             audit.confirmedVia === 'delivery_boy' ? `📦 Delivered (${audit.markedByName || 'Staff'})` :
+                             `✍️ ${audit.markedByName || 'Staff'}`}
+                            {audit.timestamp ? ` · ${new Date(audit.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
                           </span>
                         ) : isConfirmed ? (
-                          <span style={{ fontSize: 11, fontWeight: 700, background: '#dcfce7', color: '#166534', padding: '3px 8px', borderRadius: 6 }}>
-                            ✅ Confirmed Eaten
-                          </span>
+                          <span>Marked eaten</span>
                         ) : s.status === 'delivery' ? (
-                          <span style={{ fontSize: 11, fontWeight: 700, background: '#ede9fe', color: '#6d28d9', padding: '3px 8px', borderRadius: 6, border: '1px solid #ddd6fe' }}>
-                            🛵 Tiffin Delivery {deliv ? `(${deliv.destination || deliv.destinationType})` : ''}
+                          <span style={{ color: '#ea580c' }}>
+                            🛵 Delivery {deliv?.destination ? `· ${deliv.destination}` : ''}
                           </span>
                         ) : s.status === 'onVacation' ? (
-                          <span style={{ fontSize: 11, fontWeight: 700, background: '#fee2e2', color: '#b91c1c', padding: '3px 8px', borderRadius: 6, border: '1px solid #fecaca' }}>
-                            🏖️ On Food Vacation / Leave
-                          </span>
+                          <span style={{ color: '#dc2626' }}>🏖️ On food leave</span>
                         ) : (
-                          <span style={{ fontSize: 11, fontWeight: 700, background: '#f1f5f9', color: '#64748b', padding: '3px 8px', borderRadius: 6 }}>
-                            ⏳ Pending Meal Verification
-                          </span>
+                          <span>Not eaten yet</span>
                         )}
                       </div>
                     </div>
-
-                    {/* Right side status pill */}
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 800,
-                          padding: '5px 10px',
-                          borderRadius: 8,
-                          background: isConfirmed ? '#dcfce7' : '#f1f5f9',
-                          color: isConfirmed ? '#15803d' : '#64748b',
-                          border: `1px solid ${isConfirmed ? '#bbf7d0' : '#e2e8f0'}`,
-                          letterSpacing: 0.5
-                        }}
-                      >
-                        {isConfirmed ? 'CONFIRMED' : 'PENDING'}
-                      </span>
-                    </div>
                   </div>
-                );
-              })
-            )}
-          </div>
+
+                  {/* Right: Crisp Apple Pill */}
+                  <div style={{ flexShrink: 0 }}>
+                    {isConfirmed ? (
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '4px 9px',
+                        borderRadius: 14,
+                        background: '#e8f5e9',
+                        color: '#2e7d32'
+                      }}>
+                        ✓ Eaten
+                      </span>
+                    ) : s.status === 'delivery' ? (
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '4px 9px',
+                        borderRadius: 14,
+                        background: '#fff3e0',
+                        color: '#e65100'
+                      }}>
+                        Delivery
+                      </span>
+                    ) : s.status === 'onVacation' ? (
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '4px 9px',
+                        borderRadius: 14,
+                        background: '#fee2e2',
+                        color: '#dc2626'
+                      }}>
+                        Leave
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: '4px 9px',
+                        borderRadius: 14,
+                        background: '#f2f2f7',
+                        color: '#8e8e93'
+                      }}>
+                        Pending
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
 
       </div>

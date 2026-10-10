@@ -269,273 +269,337 @@ export default function DeliveryOrders() {
   const qrPassValue = `FEBEBO_DELIVERY|${user?.uid}|${selectedDate}|${mealTab}|Admin`;
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f1f5f9', fontFamily: "'Hanken Grotesk', sans-serif", paddingBottom: 80 }}>
+    <div style={{ minHeight: '100vh', background: '#ffffff', color: '#000000', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif', paddingBottom: 60 }}>
 
-      {/* ── TOP NAV ────────────────────────────────────────────────── */}
-      <div style={{ background: '#ffffff', borderBottom: '1px solid #e2e8f0', padding: '12px 20px', position: 'sticky', top: 0, zIndex: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      {/* ── TOP NAV BAR (APPLE STYLE BLURRED HEADER) ── */}
+      <div style={{
+        background: 'rgba(255,255,255,0.92)',
+        backdropFilter: 'saturate(180%) blur(20px)',
+        borderBottom: '1px solid #f2f2f7',
+        padding: '12px 16px',
+        position: 'sticky',
+        top: 0,
+        zIndex: 50,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             onClick={() => navigate(-1)}
-            style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#0f172a' }}
+            style={{
+              background: '#f2f2f7',
+              border: 'none',
+              borderRadius: '50%',
+              width: 36,
+              height: 36,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: '#000000'
+            }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back</span>
           </button>
           <div>
-            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 900, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#ea580c' }}>two_wheeler</span>
-              Tiffin & Food Delivery Operations
-            </h2>
-            <p style={{ margin: 0, fontSize: 11, color: '#64748b', fontWeight: 600 }}>Deliver packaged meals to other PGs & campuses</p>
+            <h1 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#000000', letterSpacing: -0.3 }}>
+              Deliveries
+            </h1>
+            <p style={{ margin: 0, fontSize: 11, color: '#8e8e93', fontWeight: 500 }}>
+              {currentOrders.length} {mealTab} orders
+            </p>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={() => setShowQRModal(true)}
-            style={{ background: '#fff7ed', border: '1px solid #fed7aa', color: '#c2410c', padding: '7px 12px', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+            style={{
+              background: '#f2f2f7',
+              border: 'none',
+              color: '#000000',
+              padding: '6px 12px',
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4
+            }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>qr_code_2</span>
-            Delivery QR
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>qr_code_2</span>
+            QR Pass
           </button>
           <button
             onClick={() => setShowAddOrderModal(true)}
-            style={{ background: '#ea580c', border: 'none', color: '#ffffff', padding: '7px 14px', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, boxShadow: '0 2px 8px rgba(234,88,12,0.25)' }}
+            style={{
+              background: '#000000',
+              border: 'none',
+              color: '#ffffff',
+              padding: '6px 14px',
+              borderRadius: 20,
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4
+            }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
-            New Order
+            Order
           </button>
         </div>
       </div>
 
-      <div style={{ maxWidth: 840, margin: '20px auto', padding: '0 16px' }}>
+      <div style={{ maxWidth: 680, margin: '0 auto', padding: '16px' }}>
 
-        {/* ── HERO BANNER ────────────────────────────────────────────── */}
-        <div style={{
-          background: 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)',
-          borderRadius: 20,
-          padding: '24px 24px 20px',
-          color: '#ffffff',
-          position: 'relative',
-          overflow: 'hidden',
-          boxShadow: '0 10px 30px rgba(234,88,12,0.18)',
-          marginBottom: 16
-        }}>
-          <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', pointerEvents: 'none' }} />
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px dashed rgba(255,255,255,0.25)', paddingBottom: 14, marginBottom: 14 }}>
-            <div>
-              <span style={{ fontSize: 11, fontWeight: 800, color: '#ffedd5', textTransform: 'uppercase', letterSpacing: 1 }}>
-                Standalone Delivery Module
-              </span>
-              <h1 style={{ margin: '4px 0 2px', fontSize: 22, fontWeight: 900, color: '#ffffff' }}>
-                Delivery & Tiffin Logistics
-              </h1>
-              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.85)' }}>
-                Track delivery boy dispatch, transit duration & student receipt
-              </p>
-            </div>
-
-            <button
-              onClick={() => navigate('/meal-audit-log', { state: { date: selectedDate, meal: mealTab } })}
-              style={{ background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)', color: '#ffffff', padding: '6px 12px', borderRadius: 10, fontSize: 11.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>fact_check</span>
-              Audit Trail
-            </button>
+        {/* ── DATE PICKER & AUDIT SHORTCUT ── */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            background: '#f2f2f7',
+            borderRadius: 12,
+            padding: '6px 12px',
+            border: '1px solid #ebebf0'
+          }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#636366' }}>calendar_today</span>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={e => setSelectedDate(e.target.value)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#000000',
+                fontWeight: 600,
+                fontSize: 13,
+                outline: 'none',
+                fontFamily: 'inherit'
+              }}
+            />
           </div>
 
-          {/* Date & Meal Slot */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.15)', borderRadius: 12, padding: '6px 12px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#fed7aa' }}>calendar_month</span>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={e => setSelectedDate(e.target.value)}
-                style={{ background: 'transparent', border: 'none', color: '#ffffff', fontWeight: 700, fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', background: 'rgba(0,0,0,0.15)', borderRadius: 12, padding: 3 }}>
-              {['breakfast', 'lunch', 'snacks', 'dinner'].map(slot => {
-                const active = mealTab === slot;
-                return (
-                  <button
-                    key={slot}
-                    onClick={() => setMealTab(slot)}
-                    style={{
-                      background: active ? '#ffffff' : 'transparent',
-                      color: active ? '#c2410c' : '#ffffff',
-                      border: 'none',
-                      borderRadius: 9,
-                      padding: '6px 12px',
-                      fontSize: 12,
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      textTransform: 'capitalize'
-                    }}
-                  >
-                    {slot}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* KPI Strip */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-            <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ margin: 0, fontSize: 10, color: '#ffedd5', fontWeight: 700, textTransform: 'uppercase' }}>Total Orders</p>
-              <p style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 900 }}>{stats.total}</p>
-            </div>
-            <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ margin: 0, fontSize: 10, color: '#ffedd5', fontWeight: 700, textTransform: 'uppercase' }}>Pending Dispatch</p>
-              <p style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 900 }}>{stats.pending}</p>
-            </div>
-            <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ margin: 0, fontSize: 10, color: '#ffedd5', fontWeight: 700, textTransform: 'uppercase' }}>In Transit</p>
-              <p style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 900 }}>{stats.inTransit}</p>
-            </div>
-            <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ margin: 0, fontSize: 10, color: '#ffedd5', fontWeight: 700, textTransform: 'uppercase' }}>Delivered</p>
-              <p style={{ margin: '2px 0 0', fontSize: 18, fontWeight: 900 }}>{stats.delivered}</p>
-            </div>
-          </div>
+          <button
+            onClick={() => navigate('/meal-audit-log', { state: { date: selectedDate, meal: mealTab } })}
+            style={{
+              background: '#f2f2f7',
+              border: 'none',
+              color: '#000000',
+              padding: '6px 12px',
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>fact_check</span>
+            Audit
+          </button>
         </div>
 
-        {/* ── DELIVERY STAFF ON DUTY BANNER ──────────────────────────── */}
-        <div style={{ background: '#ffffff', borderRadius: 16, border: '1px solid #e2e8f0', padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: '#ffedd5', color: '#ea580c', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>sports_motorsports</span>
-            </div>
-            <div>
-              <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: '#0f172a' }}>
-                Delivery Boys & Staff on Duty ({deliveryStaffList.length})
-              </p>
-              <p style={{ margin: '2px 0 0', fontSize: 11, color: '#64748b' }}>
-                Staff members authorized to deliver tiffins & scan confirmation
-              </p>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {deliveryStaffList.map(s => (
-              <span
-                key={s.id}
+        {/* ── iOS SEGMENTED MEAL TABS ── */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          background: '#f2f2f7',
+          borderRadius: 12,
+          padding: 3,
+          border: '1px solid #ebebf0',
+          marginBottom: 14
+        }}>
+          {['breakfast', 'lunch', 'snacks', 'dinner'].map(slot => {
+            const active = mealTab === slot;
+            return (
+              <button
+                key={slot}
+                onClick={() => setMealTab(slot)}
                 style={{
-                  fontSize: 11,
-                  fontWeight: 800,
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  padding: '4px 10px',
-                  borderRadius: 8,
-                  color: '#334155',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4
+                  background: active ? '#ffffff' : 'transparent',
+                  color: active ? '#000000' : '#8e8e93',
+                  border: 'none',
+                  borderRadius: 9,
+                  padding: '8px 4px',
+                  fontSize: 12.5,
+                  fontWeight: active ? 700 : 500,
+                  cursor: 'pointer',
+                  textTransform: 'capitalize',
+                  boxShadow: active ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                  transition: 'all 0.15s ease'
                 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#ea580c' }}>person</span>
-                {s.name} ({s.role})
-              </span>
-            ))}
+                {slot}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── KPI METRICS (CLEAN APPLE CARDS) ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>
+          <div style={{ background: '#fbfbfd', border: '1px solid #ebebf0', borderRadius: 14, padding: '12px 8px', textAlign: 'center' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: '#8e8e93', textTransform: 'uppercase', letterSpacing: 0.3 }}>Total</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#000000', marginTop: 2 }}>{stats.total}</div>
+          </div>
+          <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 14, padding: '12px 8px', textAlign: 'center' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#d97706', textTransform: 'uppercase', letterSpacing: 0.3 }}>Pending</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#b45309', marginTop: 2 }}>{stats.pending}</div>
+          </div>
+          <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', borderRadius: 14, padding: '12px 8px', textAlign: 'center' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#ea580c', textTransform: 'uppercase', letterSpacing: 0.3 }}>In Transit</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#ea580c', marginTop: 2 }}>{stats.inTransit}</div>
+          </div>
+          <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: 14, padding: '12px 8px', textAlign: 'center' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: 0.3 }}>Delivered</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#15803d', marginTop: 2 }}>{stats.delivered}</div>
           </div>
         </div>
 
-        {/* ── CATEGORY SEPARATION TABS (Directly requested by user) ──── */}
-        <div style={{ background: '#ffffff', borderRadius: 16, border: '1px solid #e2e8f0', padding: '16px', marginBottom: 16 }}>
-          <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Filter by Destination & Package Type:
-          </p>
+        {/* ── STAFF ON DUTY (MINIMAL CHIP ROW) ── */}
+        {deliveryStaffList.length > 0 && (
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #ebebf0',
+            borderRadius: 12,
+            padding: '8px 12px',
+            marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            overflowX: 'auto'
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#8e8e93', textTransform: 'uppercase', flexShrink: 0 }}>
+              🛵 Staff:
+            </span>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap' }}>
+              {deliveryStaffList.map(s => (
+                <span
+                  key={s.id}
+                  style={{
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    padding: '2px 8px',
+                    borderRadius: 6,
+                    color: '#0f172a',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {s.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-            {[
-              { id: 'all',        label: 'All Deliveries', icon: 'all_inclusive', count: orders.filter(o => o.date === selectedDate && o.meal?.toLowerCase() === mealTab).length },
-              { id: 'other_pg',   label: 'Other PG Branches', icon: 'domain', count: orders.filter(o => o.date === selectedDate && o.meal?.toLowerCase() === mealTab && o.destinationType === 'other_pg').length },
-              { id: 'college',    label: 'College / Campus', icon: 'school', count: orders.filter(o => o.date === selectedDate && o.meal?.toLowerCase() === mealTab && o.destinationType === 'college').length },
-              { id: 'workplace',  label: 'Workplace / Office', icon: 'business_center', count: orders.filter(o => o.date === selectedDate && o.meal?.toLowerCase() === mealTab && o.destinationType === 'workplace').length },
-              { id: 'pack_later', label: 'Pack for Later (Takeaway)', icon: 'takeout_dining', count: orders.filter(o => o.date === selectedDate && o.meal?.toLowerCase() === mealTab && (o.destinationType === 'pack_later' || o.packType === 'pack_later')).length },
-            ].map(tab => (
+        {/* ── DESTINATION CATEGORY PILLS ── */}
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 10 }}>
+          {[
+            { id: 'all',        label: 'All Destinations' },
+            { id: 'other_pg',   label: '🏢 Other PGs' },
+            { id: 'college',    label: '🎓 Colleges' },
+            { id: 'workplace',  label: '💼 Workplaces' },
+            { id: 'pack_later', label: '🥡 Takeaway' },
+          ].map(tab => {
+            const active = filterType === tab.id;
+            return (
               <button
                 key={tab.id}
                 onClick={() => setFilterType(tab.id)}
                 style={{
-                  background: filterType === tab.id ? (tab.id === 'pack_later' ? '#fef3c7' : '#ffedd5') : '#f8fafc',
-                  color: filterType === tab.id ? (tab.id === 'pack_later' ? '#92400e' : '#c2410c') : '#475569',
-                  border: `1.5px solid ${filterType === tab.id ? (tab.id === 'pack_later' ? '#fcd34d' : '#fed7aa') : '#e2e8f0'}`,
-                  borderRadius: 12,
-                  padding: '8px 14px',
-                  fontSize: 12,
-                  fontWeight: 800,
+                  background: active ? '#000000' : '#f2f2f7',
+                  color: active ? '#ffffff' : '#636366',
+                  border: 'none',
+                  borderRadius: 20,
+                  padding: '6px 12px',
+                  fontSize: 11.5,
+                  fontWeight: active ? 700 : 500,
                   cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  transition: 'all 0.15s'
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease'
                 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{tab.icon}</span>
                 {tab.label}
-                <span style={{ fontSize: 10, background: 'rgba(0,0,0,0.06)', padding: '1px 6px', borderRadius: 6 }}>
-                  {tab.count}
-                </span>
               </button>
-            ))}
+            );
+          })}
+        </div>
+
+        {/* ── SEARCH & STATUS FILTER ── */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <span className="material-symbols-outlined" style={{
+              position: 'absolute',
+              left: 10,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              fontSize: 17,
+              color: '#8e8e93'
+            }}>search</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search student, room, address..."
+              style={{
+                width: '100%',
+                background: '#f2f2f7',
+                border: 'none',
+                borderRadius: 12,
+                padding: '8px 10px 8px 34px',
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: '#000000',
+                outline: 'none',
+                boxSizing: 'border-box',
+                fontFamily: 'inherit'
+              }}
+            />
           </div>
 
-          {/* Search & Status Pill Filter */}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 220, display: 'flex', alignItems: 'center', gap: 8, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '7px 12px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#94a3b8' }}>search</span>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search student, destination, delivery boy..."
-                style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: 12.5, fontWeight: 600, width: '100%', fontFamily: 'inherit' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: 4 }}>
-              {[
-                { id: 'all', label: 'All Status' },
-                { id: 'pending', label: 'Pending' },
-                { id: 'picked_up', label: 'In Transit' },
-                { id: 'delivered', label: 'Delivered' },
-              ].map(st => (
+          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'pending', label: 'Pending' },
+              { id: 'picked_up', label: 'Transit' },
+              { id: 'delivered', label: 'Done' },
+            ].map(st => {
+              const active = statusFilter === st.id;
+              return (
                 <button
                   key={st.id}
                   onClick={() => setStatusFilter(st.id)}
                   style={{
-                    background: statusFilter === st.id ? '#0f172a' : '#f8fafc',
-                    color: statusFilter === st.id ? '#ffffff' : '#475569',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 8,
+                    background: active ? '#000000' : '#f2f2f7',
+                    color: active ? '#ffffff' : '#636366',
+                    border: 'none',
+                    borderRadius: 10,
                     padding: '6px 10px',
                     fontSize: 11,
-                    fontWeight: 700,
+                    fontWeight: active ? 700 : 500,
                     cursor: 'pointer'
                   }}
                 >
                   {st.label}
                 </button>
-              ))}
-            </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* ── ORDERS LIST WITH EXTRA DETAILS ─────────────────────────── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* ── ORDERS LIST (CLEAN APPLE CARDS) ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {currentOrders.length === 0 ? (
-            <div style={{ background: '#ffffff', borderRadius: 16, border: '1px solid #e2e8f0', padding: '40px 20px', textAlign: 'center', color: '#94a3b8' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 40, color: '#cbd5e1' }}>delivery_dining</span>
-              <p style={{ margin: '8px 0 2px', fontSize: 14, fontWeight: 800, color: '#475569' }}>
-                No delivery orders for {mealTab} on this date.
-              </p>
-              <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>
-                Click "+ New Order" to assign a tiffin delivery or pack for later.
-              </p>
+            <div style={{ background: '#ffffff', borderRadius: 16, border: '1px solid #ebebf0', padding: '36px 16px', textAlign: 'center', color: '#8e8e93' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#d1d1d6' }}>local_shipping</span>
+              <p style={{ margin: '8px 0 0', fontSize: 13, fontWeight: 500 }}>No delivery orders</p>
             </div>
           ) : (
             currentOrders.map(order => {
@@ -549,105 +613,87 @@ export default function DeliveryOrders() {
                   key={order.id}
                   style={{
                     background: '#ffffff',
-                    border: `1px solid ${isDelivered ? '#bbf7d0' : isInTransit ? '#fed7aa' : '#e2e8f0'}`,
+                    border: '1px solid #ebebf0',
                     borderRadius: 16,
-                    padding: '16px 18px',
-                    boxShadow: '0 2px 8px rgba(15,23,42,0.03)',
-                    transition: 'all 0.15s'
+                    padding: '14px 16px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <h4 style={{ margin: 0, fontSize: 16, fontWeight: 900, color: '#0f172a' }}>{order.studentName}</h4>
-                        <span style={{ fontSize: 11, fontWeight: 700, background: '#f1f5f9', color: '#475569', padding: '2px 8px', borderRadius: 6 }}>
-                          Rm {order.roomNumber}
+                  {/* Card Header: Student + Status Badge */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: '#000000', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {order.studentName}
+                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 600, background: '#f2f2f7', color: '#636366', padding: '1px 6px', borderRadius: 4, flexShrink: 0 }}>
+                        R-{order.roomNumber || 'N/A'}
+                      </span>
+                      {isPackLater && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: 4, flexShrink: 0 }}>
+                          Takeaway
                         </span>
-                        {isPackLater ? (
-                          <span style={{ fontSize: 10.5, fontWeight: 800, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', padding: '2px 8px', borderRadius: 6 }}>
-                            📦 Pack for Later (Takeaway)
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: 10.5, fontWeight: 800, background: '#ffedd5', color: '#c2410c', border: '1px solid #fed7aa', padding: '2px 8px', borderRadius: 6 }}>
-                            🛵 Tiffin Delivery
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Destination information */}
-                      <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#ea580c' }}>
-                          {order.destinationType === 'college' ? 'school' : order.destinationType === 'workplace' ? 'business_center' : order.destinationType === 'pack_later' ? 'takeout_dining' : 'domain'}
-                        </span>
-                        <span>{order.destination}</span>
-                        {order.destinationType && (
-                          <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>({order.destinationType.replace('_', ' ')})</span>
-                        )}
-                      </p>
+                      )}
                     </div>
 
                     {/* Status Pill */}
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 800,
-                        padding: '4px 10px',
-                        borderRadius: 8,
-                        background: isDelivered ? '#dcfce7' : isInTransit ? '#ffedd5' : '#f1f5f9',
-                        color: isDelivered ? '#15803d' : isInTransit ? '#c2410c' : '#64748b',
-                        border: `1px solid ${isDelivered ? '#bbf7d0' : isInTransit ? '#fed7aa' : '#e2e8f0'}`,
-                        letterSpacing: 0.5
-                      }}
-                    >
-                      {isDelivered ? 'DELIVERED ✅' : isInTransit ? 'IN TRANSIT 🛵' : 'PENDING DISPATCH'}
+                    <div style={{ flexShrink: 0 }}>
+                      {isDelivered ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 12, background: '#e8f5e9', color: '#2e7d32' }}>
+                          ✓ Delivered
+                        </span>
+                      ) : isInTransit ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 12, background: '#fff3e0', color: '#e65100' }}>
+                          🛵 In Transit
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 12, background: '#f2f2f7', color: '#8e8e93' }}>
+                          Ready at Mess
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Destination Row */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: '#1c1c1e', marginBottom: 6 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#ea580c', flexShrink: 0 }}>
+                      {order.destinationType === 'college' ? 'school' : order.destinationType === 'workplace' ? 'business_center' : order.destinationType === 'pack_later' ? 'takeout_dining' : 'location_on'}
+                    </span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {order.destination || 'Campus Location'}
                     </span>
                   </div>
 
-                  {/* ── TIMELINE & EXTRA DETAILS ─────────────────────────────── */}
-                  <div style={{ background: '#f8fafc', borderRadius: 12, padding: '12px 14px', border: '1px solid #f1f5f9', marginBottom: 12 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-                      <div>
-                        <p style={{ margin: 0, fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Assigned Delivery Boy</p>
-                        <p style={{ margin: '2px 0 0', fontSize: 12.5, fontWeight: 800, color: '#0f172a' }}>
-                          {order.assignedStaff || 'Delivery Boy'}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p style={{ margin: 0, fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Kitchen Picked Up</p>
-                        <p style={{ margin: '2px 0 0', fontSize: 12.5, fontWeight: 800, color: order.pickedUpAt ? '#0f172a' : '#94a3b8' }}>
-                          {order.pickedUpAt ? formatTime(order.pickedUpAt) : 'Pending pickup'}
-                        </p>
-                      </div>
-
-                      <div>
-                        <p style={{ margin: 0, fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Delivery Completed</p>
-                        <p style={{ margin: '2px 0 0', fontSize: 12.5, fontWeight: 800, color: order.deliveredAt ? '#15803d' : '#94a3b8' }}>
-                          {order.deliveredAt ? `${formatTime(order.deliveredAt)} (${durationStr})` : 'In progress'}
-                        </p>
-                      </div>
+                  {/* Micro Metadata Row */}
+                  <div style={{ fontSize: 11, color: '#8e8e93', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 4 }}>
+                    <div>
+                      <span>Boy: <strong>{order.assignedStaff || 'Unassigned'}</strong></span>
+                      {order.pickedUpAt && <span> · Picked: {formatTime(order.pickedUpAt)}</span>}
                     </div>
-
-                    {order.specialNotes && (
-                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e2e8f0', fontSize: 11.5, color: '#64748b' }}>
-                        <span style={{ fontWeight: 700, color: '#0f172a' }}>Notes: </span>{order.specialNotes}
-                      </div>
+                    {isDelivered && (
+                      <span style={{ color: '#16a34a', fontWeight: 600 }}>
+                        Done: {formatTime(order.deliveredAt)} {durationStr ? `(${durationStr})` : ''}
+                      </span>
                     )}
                   </div>
 
-                  {/* Action Buttons */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  {order.specialNotes && (
+                    <div style={{ background: '#f8fafc', padding: '6px 10px', borderRadius: 8, fontSize: 11.5, color: '#636366', marginBottom: 10 }}>
+                      Note: {order.specialNotes}
+                    </div>
+                  )}
+
+                  {/* Action Controls */}
+                  <div style={{ display: 'flex', gap: 8, borderTop: '1px solid #f2f2f7', paddingTop: 10 }}>
                     {order.studentPhone && (
                       <a
                         href={`tel:${order.studentPhone}`}
                         style={{
-                          background: '#f1f5f9',
-                          color: '#0f172a',
-                          border: '1px solid #cbd5e1',
+                          background: '#f2f2f7',
+                          color: '#000000',
                           padding: '7px 12px',
                           borderRadius: 8,
                           fontSize: 12,
-                          fontWeight: 700,
+                          fontWeight: 600,
                           textDecoration: 'none',
                           display: 'flex',
                           alignItems: 'center',
@@ -655,7 +701,7 @@ export default function DeliveryOrders() {
                         }}
                       >
                         <span className="material-symbols-outlined" style={{ fontSize: 15 }}>call</span>
-                        Call Student
+                        Call
                       </a>
                     )}
 
@@ -664,21 +710,23 @@ export default function DeliveryOrders() {
                         onClick={() => handleMarkPickedUp(order.id)}
                         disabled={actionLoading}
                         style={{
-                          background: '#ffedd5',
-                          color: '#c2410c',
-                          border: '1px solid #fed7aa',
-                          padding: '7px 12px',
+                          flex: 1,
+                          background: '#f2f2f7',
+                          color: '#000000',
+                          border: 'none',
+                          padding: '8px 12px',
                           borderRadius: 8,
                           fontSize: 12,
-                          fontWeight: 800,
+                          fontWeight: 600,
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
+                          justifyContent: 'center',
                           gap: 4
                         }}
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>check</span>
-                        Mark Picked Up from Kitchen
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>takeout_dining</span>
+                        Pick Up from Mess
                       </button>
                     )}
 
@@ -687,21 +735,22 @@ export default function DeliveryOrders() {
                         onClick={() => handleMarkDelivered(order)}
                         disabled={actionLoading}
                         style={{
-                          background: '#10b981',
+                          flex: 1,
+                          background: '#000000',
                           color: '#ffffff',
                           border: 'none',
-                          padding: '7px 14px',
+                          padding: '8px 14px',
                           borderRadius: 8,
                           fontSize: 12,
-                          fontWeight: 800,
+                          fontWeight: 600,
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 4,
-                          boxShadow: '0 2px 6px rgba(16,185,129,0.25)'
+                          justifyContent: 'center',
+                          gap: 4
                         }}
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>done_all</span>
+                        <span className="material-symbols-outlined" style={{ fontSize: 15 }}>check_circle</span>
                         Mark Delivered
                       </button>
                     )}
@@ -714,71 +763,67 @@ export default function DeliveryOrders() {
 
       </div>
 
-      {/* ── DYNAMIC DELIVERY QR MODAL ───────────────────────────────── */}
+      {/* ── DELIVERY QR MODAL (CLEAN APPLE DIALOG) ── */}
       {showQRModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: '#ffffff', borderRadius: 24, width: '100%', maxWidth: 380, padding: 24, textAlign: 'center', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#ffffff', borderRadius: 24, width: '100%', maxWidth: 360, padding: '24px 20px', textAlign: 'center', boxShadow: '0 20px 40px rgba(0,0,0,0.15)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 900, color: '#0f172a' }}>
-                Delivery Verification QR 🛵
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#000000' }}>
+                Delivery QR Pass
               </h3>
-              <button onClick={() => setShowQRModal(false)} style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              <button onClick={() => setShowQRModal(false)} style={{ background: '#f2f2f7', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#636366' }}>close</span>
               </button>
             </div>
 
-            <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b' }}>
-              Students scan this QR code with their Febeboo App when receiving their tiffin to verify receipt instantly.
-            </p>
-
-            <div style={{ background: '#f8fafc', padding: 20, borderRadius: 16, border: '1px solid #e2e8f0', display: 'inline-block', marginBottom: 16 }}>
+            <div style={{ background: '#ffffff', padding: 16, borderRadius: 18, border: '1px solid #ebebf0', display: 'inline-block', marginBottom: 14 }}>
               <img
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrPassValue)}`}
                 alt="Delivery QR"
-                style={{ width: 190, height: 190, display: 'block', margin: '0 auto' }}
+                style={{ width: 180, height: 180, display: 'block', margin: '0 auto' }}
               />
             </div>
 
-            <div style={{ background: '#f1f5f9', borderRadius: 10, padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 14 }}>
-              Meal: {mealTab.toUpperCase()} · Date: {selectedDate}
-            </div>
+            <p style={{ margin: '0 0 16px', fontSize: 12, color: '#8e8e93' }}>
+              Student scans this pass to verify receipt for {mealTab} ({selectedDate}).
+            </p>
 
             <button
               onClick={() => setShowQRModal(false)}
-              style={{ width: '100%', background: '#0f172a', color: '#ffffff', padding: '12px', borderRadius: 12, fontSize: 13, fontWeight: 800, border: 'none', cursor: 'pointer' }}
+              style={{ width: '100%', background: '#000000', color: '#ffffff', padding: '12px', borderRadius: 14, fontSize: 14, fontWeight: 600, border: 'none', cursor: 'pointer' }}
             >
-              Done / Close
+              Done
             </button>
           </div>
         </div>
       )}
 
-      {/* ── CREATE NEW DELIVERY ORDER MODAL ─────────────────────────── */}
+      {/* ── CREATE NEW ORDER MODAL (CLEAN APPLE SHEET) ── */}
       {showAddOrderModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: '#ffffff', borderRadius: 24, width: '100%', maxWidth: 460, padding: 24, boxShadow: '0 20px 50px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#ffffff', borderRadius: 24, width: '100%', maxWidth: 420, padding: 22, boxShadow: '0 20px 40px rgba(0,0,0,0.15)', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: '#0f172a' }}>
-                New Delivery / Pack Order
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#000000' }}>
+                New Delivery Order
               </h3>
-              <button onClick={() => setShowAddOrderModal(false)} style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              <button onClick={() => setShowAddOrderModal(false)} style={{ background: '#f2f2f7', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#636366' }}>close</span>
               </button>
             </div>
 
-            <form onSubmit={handleCreateOrder} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <form onSubmit={handleCreateOrder} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {/* Select Student */}
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>
-                  Select Student:
+                <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: '#8e8e93', marginBottom: 4 }}>
+                  Student
                 </label>
                 <select
                   value={newOrderForm.studentId}
                   onChange={e => setNewOrderForm({ ...newOrderForm, studentId: e.target.value })}
                   required
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 13, fontWeight: 700, outline: 'none', fontFamily: 'inherit' }}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #ebebf0', background: '#f2f2f7', fontSize: 13, fontWeight: 600, outline: 'none', fontFamily: 'inherit' }}
                 >
-                  <option value="">-- Choose student --</option>
+                  <option value="">Select student</option>
                   {rawTenants.map(t => (
                     <option key={t.id} value={t.id}>
                       {t.name} (Room {t.roomNo || t.room})
@@ -789,49 +834,49 @@ export default function DeliveryOrders() {
 
               {/* Destination Type */}
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>
-                  Destination Category:
+                <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: '#8e8e93', marginBottom: 4 }}>
+                  Category
                 </label>
                 <select
                   value={newOrderForm.destinationType}
                   onChange={e => setNewOrderForm({ ...newOrderForm, destinationType: e.target.value })}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 13, fontWeight: 700, outline: 'none', fontFamily: 'inherit' }}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #ebebf0', background: '#f2f2f7', fontSize: 13, fontWeight: 600, outline: 'none', fontFamily: 'inherit' }}
                 >
                   <option value="other_pg">🏢 Other PG Branch</option>
                   <option value="college">🎓 College / Campus</option>
                   <option value="workplace">💼 Workplace / Office</option>
-                  <option value="pack_later">📦 Pack for Later (Takeaway in Room)</option>
+                  <option value="pack_later">🥡 Pack for Later (Takeaway)</option>
                 </select>
               </div>
 
-              {/* Destination Details / Location */}
+              {/* Destination Details */}
               {newOrderForm.destinationType !== 'pack_later' && (
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>
-                    Destination Address / Building:
+                  <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: '#8e8e93', marginBottom: 4 }}>
+                    Address / Drop Location
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Greenwood PG Block B or ABES Campus Library"
+                    placeholder="e.g. Greenwood PG Block B or Library Gate"
                     value={newOrderForm.destination}
                     onChange={e => setNewOrderForm({ ...newOrderForm, destination: e.target.value })}
-                    style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 13, fontWeight: 600, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #ebebf0', background: '#f2f2f7', fontSize: 13, fontWeight: 500, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
                   />
                 </div>
               )}
 
               {/* Assign Delivery Staff */}
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>
-                  Assign Delivery Staff / Boy:
+                <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: '#8e8e93', marginBottom: 4 }}>
+                  Assign Delivery Partner
                 </label>
                 <select
                   value={newOrderForm.assignedStaff}
                   onChange={e => setNewOrderForm({ ...newOrderForm, assignedStaff: e.target.value })}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 13, fontWeight: 700, outline: 'none', fontFamily: 'inherit' }}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #ebebf0', background: '#f2f2f7', fontSize: 13, fontWeight: 600, outline: 'none', fontFamily: 'inherit' }}
                 >
-                  <option value="">-- Auto-assign or pick staff --</option>
+                  <option value="">Auto-assign or choose</option>
                   {deliveryStaffList.map(s => (
                     <option key={s.id} value={`${s.name} (${s.role})`}>
                       {s.name} ({s.role})
@@ -842,15 +887,15 @@ export default function DeliveryOrders() {
 
               {/* Special Notes */}
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 4 }}>
-                  Special Instructions / Packing Note:
+                <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: '#8e8e93', marginBottom: 4 }}>
+                  Notes (Optional)
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Extra napkins, deliver before 1 PM"
+                  placeholder="e.g. Call when outside"
                   value={newOrderForm.specialNotes}
                   onChange={e => setNewOrderForm({ ...newOrderForm, specialNotes: e.target.value })}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid #e2e8f0', fontSize: 13, fontWeight: 600, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid #ebebf0', background: '#f2f2f7', fontSize: 13, fontWeight: 500, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
                 />
               </div>
 
@@ -859,19 +904,18 @@ export default function DeliveryOrders() {
                 disabled={actionLoading}
                 style={{
                   width: '100%',
-                  padding: '13px',
-                  borderRadius: 12,
-                  background: 'linear-gradient(135deg, #ea580c, #c2410c)',
+                  padding: '12px',
+                  borderRadius: 14,
+                  background: '#000000',
                   color: '#ffffff',
                   fontSize: 14,
-                  fontWeight: 800,
+                  fontWeight: 600,
                   border: 'none',
                   cursor: actionLoading ? 'not-allowed' : 'pointer',
-                  boxShadow: '0 4px 12px rgba(234,88,12,0.3)',
                   marginTop: 6
                 }}
               >
-                {actionLoading ? 'Creating Order...' : '🚀 Dispatch Delivery Order'}
+                {actionLoading ? 'Creating...' : 'Dispatch Order'}
               </button>
             </form>
           </div>
