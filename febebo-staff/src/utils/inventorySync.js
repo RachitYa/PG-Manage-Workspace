@@ -123,6 +123,9 @@ export const syncItemsToKitchenInventory = async (db, {
         await updateDoc(doc(db, 'pg_inventory_master', matched.docId), {
           totalQty: newQty,
           unit: matchedUnit,
+          isUsed: false,
+          usedMonth: null,
+          usedAt: null,
           lastUpdated: new Date().toISOString(),
           lastUpdatedBy: actorName,
           lastSource: source,

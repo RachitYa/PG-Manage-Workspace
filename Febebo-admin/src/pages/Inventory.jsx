@@ -57,13 +57,13 @@ function Fab({ onClick }) {
   );
 }
 
-function ItemRow({ item, onQtyChange, onRemove, readOnlyQty = false, onClick }) {
+function ItemRow({ item, onQtyChange, onRemove, onRestore, readOnlyQty = false, onClick }) {
   const [showImg, setShowImg] = React.useState(false);
   return (
     <div style={{ borderBottom: '1px solid #f1f5f9', cursor: readOnlyQty ? 'pointer' : 'default', transition: 'background 0.15s' }}
       onClick={(e) => {
         if (readOnlyQty && onClick) {
-          // If clicked on remove button or photo expander, ignore row click
+          // If clicked on button or photo expander, ignore row click
           if (e.target.closest('button') || e.target.closest('.photo-expander')) return;
           onClick(item);
         }
@@ -80,16 +80,30 @@ function ItemRow({ item, onQtyChange, onRemove, readOnlyQty = false, onClick }) 
               style={{ width: 42, height: 42, borderRadius: 12, objectFit: 'cover', border: `2px solid ${cyan}`, cursor: 'pointer', flexShrink: 0 }}
             />
           ) : (
-            <div style={{ width: 42, height: 42, borderRadius: 12, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span className="material-symbols-outlined" style={{ color: cyan, fontSize: 22 }}>{item.icon || 'inventory_2'}</span>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: item.isUsed ? '#fef3c7' : '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span className="material-symbols-outlined" style={{ color: item.isUsed ? '#b45309' : cyan, fontSize: 22 }}>
+                {item.isUsed ? 'history_toggle_off' : (item.icon || 'inventory_2')}
+              </span>
             </div>
           )}
           <div style={{ minWidth: 0, flex: 1 }}>
-            <p style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {item.itemName} {item.unit ? <span style={{ fontSize: 12, fontWeight: 700, color: cyan }}>({item.unit})</span> : ''}
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <p style={{ fontWeight: 700, fontSize: 15, color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {item.itemName} {item.unit ? <span style={{ fontSize: 12, fontWeight: 700, color: cyan }}>({item.unit})</span> : ''}
+              </p>
+              {item.isUsed && (
+                <span style={{ fontSize: 10, fontWeight: 800, background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: 6 }}>
+                  USED
+                </span>
+              )}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 3 }}>
-              {item.lastPurchasedDate ? (
+              {item.isUsed && item.usedAt ? (
+                <span style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>
+                  🗂️ Moved to used: {new Date(item.usedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                  {item.usedBy ? ` · ${item.usedBy}` : ''}
+                </span>
+              ) : item.lastPurchasedDate ? (
                 <span style={{ fontSize: 11, color: '#64748b' }}>
                   🕒 {new Date(item.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                   {item.lastUpdatedBy ? ` · ${item.lastUpdatedBy}` : ''}
@@ -113,9 +127,9 @@ function ItemRow({ item, onQtyChange, onRemove, readOnlyQty = false, onClick }) 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           {readOnlyQty ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ background: '#ecfeff', border: '1px solid #cffafe', padding: '6px 12px', borderRadius: 10, textAlign: 'right', display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                <span style={{ fontSize: 16, fontWeight: 900, color: cyan }}>{item.qty}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#0e7490' }}>{item.unit || ''}</span>
+              <div style={{ background: item.isUsed ? '#fef3c7' : '#ecfeff', border: `1px solid ${item.isUsed ? '#fde68a' : '#cffafe'}`, padding: '6px 12px', borderRadius: 10, textAlign: 'right', display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                <span style={{ fontSize: 16, fontWeight: 900, color: item.isUsed ? '#b45309' : cyan }}>{item.qty}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: item.isUsed ? '#92400e' : '#0e7490' }}>{item.unit || ''}</span>
               </div>
               <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#94a3b8' }}>chevron_right</span>
             </div>
@@ -127,8 +141,20 @@ function ItemRow({ item, onQtyChange, onRemove, readOnlyQty = false, onClick }) 
             </div>
           )}
 
+          {onRestore && (
+            <button
+              title="Restore to Current inventory"
+              onClick={(e) => { e.stopPropagation(); onRestore(); }}
+              style={{ background: '#ecfeff', border: '1px solid #cffafe', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: cyan }}>settings_backup_restore</span>
+            </button>
+          )}
+
           {onRemove && (
-            <button onClick={(e) => { e.stopPropagation(); onRemove(); }} style={{ background: '#fee2e2', border: 'none', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <button
+              title={item.isUsed ? "Delete from archive" : "Move to Used inventory"}
+              onClick={(e) => { e.stopPropagation(); onRemove(); }}
+              style={{ background: '#fee2e2', border: 'none', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#ef4444' }}>delete</span>
             </button>
           )}
@@ -248,7 +274,7 @@ function AllocationView({ targetId, targetType, personData, title, onBack }) {
 }
 
 // ─── ITEM DETAILS MODAL ────────────────────────────────────────────
-function ItemDetailModal({ item, onClose, onRestock }) {
+function ItemDetailModal({ item, onClose, onRestock, onRestore }) {
   if (!item) return null;
   const history = Array.isArray(item.purchaseHistory) ? item.purchaseHistory : [];
   const totalSpent = history.reduce((sum, h) => sum + (parseFloat(h.price) || 0), 0);
@@ -264,11 +290,20 @@ function ItemDetailModal({ item, onClose, onRestock }) {
         {/* Modal Header */}
         <div style={{ padding: '12px 20px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 12, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span className="material-symbols-outlined" style={{ color: cyan, fontSize: 24 }}>{item.icon || 'inventory_2'}</span>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: item.isUsed ? '#fef3c7' : '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="material-symbols-outlined" style={{ color: item.isUsed ? '#b45309' : cyan, fontSize: 24 }}>
+                {item.isUsed ? 'history_toggle_off' : (item.icon || 'inventory_2')}
+              </span>
             </div>
             <div>
-              <p style={{ fontWeight: 800, fontSize: 17, color: '#0f172a', margin: 0 }}>{item.itemName}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <p style={{ fontWeight: 800, fontSize: 17, color: '#0f172a', margin: 0 }}>{item.itemName}</p>
+                {item.isUsed && (
+                  <span style={{ fontSize: 10, fontWeight: 800, background: '#fef3c7', color: '#b45309', padding: '2px 8px', borderRadius: 6 }}>
+                    USED
+                  </span>
+                )}
+              </div>
               <p style={{ fontSize: 12, color: '#64748b', margin: 0, textTransform: 'capitalize' }}>{item.category || 'General'} Inventory</p>
             </div>
           </div>
@@ -279,11 +314,25 @@ function ItemDetailModal({ item, onClose, onRestock }) {
 
         {/* Scrollable Content */}
         <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Used Status Banner if item is used */}
+          {item.isUsed && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 14, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, color: '#92400e' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#b45309', flexShrink: 0 }}>inventory_2</span>
+              <div style={{ fontSize: 12, lineHeight: 1.4 }}>
+                <strong>Archived in Used Inventory</strong>
+                <div>
+                  {item.usedAt ? `Moved to used on ${new Date(item.usedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Marked as used / completed stock.'}
+                  {item.usedBy ? ` by ${item.usedBy}` : ''}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Current Stock Banner */}
-          <div style={{ background: 'linear-gradient(135deg, #0891b2, #0e7490)', borderRadius: 16, padding: '16px 18px', color: 'white' }}>
+          <div style={{ background: item.isUsed ? 'linear-gradient(135deg, #b45309, #78350f)' : 'linear-gradient(135deg, #0891b2, #0e7490)', borderRadius: 16, padding: '16px 18px', color: 'white' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.9 }}>
-                {item.isUsed ? 'Past Month Consumption' : 'Current Total Stock'}
+                {item.isUsed ? 'Recorded Used Quantity' : 'Current Total Stock'}
               </span>
               <span style={{ background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700 }}>
                 {item.unit ? item.unit.toUpperCase() : 'UNITS'}
@@ -293,7 +342,7 @@ function ItemDetailModal({ item, onClose, onRestock }) {
               {item.qty} <span style={{ fontSize: 16, fontWeight: 600 }}>{item.unit || ''}</span>
             </p>
             <p style={{ fontSize: 12, opacity: 0.85, margin: 0 }}>
-              {item.lastPurchasedDate ? `Last refilled ${new Date(item.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Direct stock entry'}
+              {item.lastPurchasedDate ? `Last purchased ${new Date(item.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Direct stock entry'}
             </p>
           </div>
 
@@ -364,12 +413,19 @@ function ItemDetailModal({ item, onClose, onRestock }) {
           </div>
         </div>
 
-        {/* Footer Action */}
-        <div style={{ padding: '14px 20px', borderTop: '1px solid #f1f5f9', background: 'white', borderRadius: '0 0 24px 24px' }}>
+        {/* Footer Actions */}
+        <div style={{ padding: '14px 20px', borderTop: '1px solid #f1f5f9', background: 'white', borderRadius: '0 0 24px 24px', display: 'flex', gap: 10 }}>
+          {item.isUsed && onRestore && (
+            <button onClick={() => { onRestore(item); }}
+              style={{ flex: 1, padding: '12px', background: '#ecfeff', color: cyan, border: `1px solid ${cyan}`, borderRadius: 12, fontWeight: 800, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>settings_backup_restore</span>
+              Restore to Current
+            </button>
+          )}
           <button onClick={() => { onClose(); onRestock(item); }}
-            style={{ width: '100%', padding: '12px', background: cyan, color: 'white', border: 'none', borderRadius: 12, fontWeight: 800, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            style={{ flex: item.isUsed ? 1 : undefined, width: item.isUsed ? 'auto' : '100%', padding: '12px', background: cyan, color: 'white', border: 'none', borderRadius: 12, fontWeight: 800, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>shopping_cart</span>
-            Purchase / Restock This Item
+            Purchase / Restock
           </button>
         </div>
       </div>
@@ -552,7 +608,11 @@ function MasterInventoryView({ category, title, onBack }) {
         lastPurchasedDate: d.data().lastPurchasedDate || d.data().lastUpdated,
         lastVendorName: d.data().lastVendorName,
         monthKey: d.data().monthKey || (d.data().createdAt ? d.data().createdAt.slice(0, 7) : currentMonthKey),
-        purchaseHistory: d.data().purchaseHistory || []
+        purchaseHistory: d.data().purchaseHistory || [],
+        isUsed: d.data().isUsed === true,
+        usedMonth: d.data().usedMonth || (d.data().usedAt ? d.data().usedAt.slice(0, 7) : null),
+        usedAt: d.data().usedAt || null,
+        usedBy: d.data().usedBy || null
       }));
       if (activePgId && activePgId !== 'all') {
         mapped = mapped.filter(d => !d.pgId || d.pgId === activePgId || d.pgId === 'primary');
@@ -628,10 +688,14 @@ function MasterInventoryView({ category, title, onBack }) {
     });
   }, [items, vendorTxns, currentMonthKey]);
 
-  // 3. Derive past months available in history
-  const pastMonthsList = React.useMemo(() => {
+  // 3. Derive months available in Used history (both past months and any month where items were moved to used)
+  const usedMonthsList = React.useMemo(() => {
     const monthsSet = new Set();
     enrichedItems.forEach(it => {
+      if (it.isUsed) {
+        const uMonth = it.usedMonth || (it.usedAt ? it.usedAt.slice(0, 7) : it.monthKey) || currentMonthKey;
+        if (uMonth) monthsSet.add(uMonth);
+      }
       if (it.monthKey && it.monthKey < currentMonthKey) {
         monthsSet.add(it.monthKey);
       }
@@ -645,48 +709,70 @@ function MasterInventoryView({ category, title, onBack }) {
     return sorted;
   }, [enrichedItems, currentMonthKey]);
 
-  // Set default selected past month
+  // Set default selected used month
   useEffect(() => {
-    if (!selectedMonth && pastMonthsList.length > 0) {
-      setSelectedMonth(pastMonthsList[0]);
+    if (!selectedMonth) {
+      if (usedMonthsList.length > 0) {
+        setSelectedMonth(usedMonthsList[0]);
+      } else {
+        setSelectedMonth(currentMonthKey);
+      }
     }
-  }, [pastMonthsList, selectedMonth]);
+  }, [usedMonthsList, selectedMonth, currentMonthKey]);
 
   // 4. Split into CURRENT vs USED
-  // - CURRENT: Items with purchases / activity in current calendar month
-  // - USED: Grouped by past month
+  // - CURRENT: Items with purchases / activity in current calendar month and NOT marked as used
+  // - USED: Items marked as used or archived from past months
   const currentItems = React.useMemo(() => {
     return enrichedItems.filter(it => {
-      // If item has a purchase this month or its monthKey is currentMonthKey
+      if (it.isUsed) return false; // Moved to used
       const hasThisMonthPurchase = (it.purchaseHistory || []).some(h => (h.monthKey || '').slice(0, 7) === currentMonthKey);
       return hasThisMonthPurchase || it.monthKey === currentMonthKey || (!it.monthKey && (it.purchaseHistory || []).length === 0);
     });
   }, [enrichedItems, currentMonthKey]);
 
   const usedItemsForSelectedMonth = React.useMemo(() => {
-    if (!selectedMonth) return [];
     const list = [];
     enrichedItems.forEach(it => {
-      // Find purchases for this selected past month
-      const monthPurchases = (it.purchaseHistory || []).filter(h => (h.monthKey || '').slice(0, 7) === selectedMonth);
-      if (monthPurchases.length > 0) {
-        const monthQty = monthPurchases.reduce((s, p) => s + (parseFloat(p.qty) || 0), 0);
-        list.push({
-          ...it,
-          qty: monthQty,
-          isUsed: true,
-          purchaseHistory: monthPurchases,
-          lastPurchasedDate: monthPurchases[0]?.date || it.lastPurchasedDate
-        });
-      } else if (it.monthKey === selectedMonth) {
-        list.push({
-          ...it,
-          isUsed: true
-        });
+      const itemUsedMonth = it.usedMonth || (it.usedAt ? it.usedAt.slice(0, 7) : it.monthKey) || currentMonthKey;
+
+      if (selectedMonth === 'all') {
+        if (it.isUsed) {
+          list.push({ ...it, isUsed: true });
+        } else if (it.monthKey < currentMonthKey) {
+          list.push({ ...it, isUsed: true });
+        }
+        return;
+      }
+
+      // 1. Explicitly moved to used in this selected month
+      if (it.isUsed && itemUsedMonth === selectedMonth) {
+        list.push({ ...it, isUsed: true });
+        return;
+      }
+
+      // 2. Past month purchases archive for this selected month
+      if (selectedMonth && selectedMonth < currentMonthKey) {
+        const monthPurchases = (it.purchaseHistory || []).filter(h => (h.monthKey || '').slice(0, 7) === selectedMonth);
+        if (monthPurchases.length > 0) {
+          const monthQty = monthPurchases.reduce((s, p) => s + (parseFloat(p.qty) || 0), 0);
+          list.push({
+            ...it,
+            qty: monthQty,
+            isUsed: true,
+            purchaseHistory: monthPurchases,
+            lastPurchasedDate: monthPurchases[0]?.date || it.lastPurchasedDate
+          });
+        } else if (it.monthKey === selectedMonth && !it.isUsed) {
+          list.push({
+            ...it,
+            isUsed: true
+          });
+        }
       }
     });
     return list;
-  }, [enrichedItems, selectedMonth]);
+  }, [enrichedItems, selectedMonth, currentMonthKey]);
 
   // Display items based on activeTab
   const displayedItems = activeTab === 'current' ? currentItems : usedItemsForSelectedMonth;
@@ -704,21 +790,72 @@ function MasterInventoryView({ category, title, onBack }) {
     return sum + (it.purchaseHistory || []).reduce((s, p) => s + (parseFloat(p.price) || 0), 0);
   }, 0);
 
+  // When clicking delete: in Current tab, move to Used; in Used tab, prompt permanent removal
   const handleRemove = async (target) => {
     if (!target) return;
-    if (window.confirm(`Delete ${target.itemName} from inventory?`)) {
+    if (activeTab === 'current' || !target.isUsed) {
+      if (window.confirm(`Move "${target.itemName}" to Used inventory?`)) {
+        if (target.docId) {
+          try {
+            await updateDoc(doc(db, 'pg_inventory_master', target.docId), {
+              isUsed: true,
+              usedMonth: currentMonthKey,
+              usedAt: new Date().toISOString(),
+              usedBy: user?.displayName || user?.email || 'Admin',
+              lastUpdated: new Date().toISOString(),
+              lastUpdatedBy: user?.displayName || user?.email || 'Admin'
+            });
+            if (detailItem && detailItem.docId === target.docId) {
+              setDetailItem(prev => ({ ...prev, isUsed: true, usedMonth: currentMonthKey, usedAt: new Date().toISOString() }));
+            }
+          } catch (e) {
+            console.error('Error moving item to used:', e);
+            alert('Failed to move item to used: ' + e.message);
+          }
+        }
+      }
+    } else {
+      if (window.confirm(`Permanently delete "${target.itemName}" from archive?`)) {
+        if (target.docId) {
+          try {
+            await deleteDoc(doc(db, 'pg_inventory_master', target.docId));
+            if (detailItem && detailItem.docId === target.docId) {
+              setDetailItem(null);
+            }
+          } catch (e) {
+            console.error('Error deleting inventory item:', e);
+          }
+        }
+      }
+    }
+  };
+
+  const handleRestore = async (target) => {
+    if (!target) return;
+    if (window.confirm(`Restore "${target.itemName}" back to Current inventory?`)) {
       if (target.docId) {
         try {
-          await deleteDoc(doc(db, 'pg_inventory_master', target.docId));
+          await updateDoc(doc(db, 'pg_inventory_master', target.docId), {
+            isUsed: false,
+            usedMonth: null,
+            usedAt: null,
+            monthKey: currentMonthKey,
+            lastUpdated: new Date().toISOString(),
+            lastUpdatedBy: user?.displayName || user?.email || 'Admin'
+          });
+          if (detailItem && detailItem.docId === target.docId) {
+            setDetailItem(prev => ({ ...prev, isUsed: false, usedMonth: null, usedAt: null }));
+          }
         } catch (e) {
-          console.error('Error deleting inventory item:', e);
+          console.error('Error restoring inventory item:', e);
+          alert('Failed to restore item: ' + e.message);
         }
       }
     }
   };
 
   const formatMonthName = (mKey) => {
-    if (!mKey) return '';
+    if (!mKey || mKey === 'all') return 'All Months';
     const [y, m] = mKey.split('-');
     const date = new Date(parseInt(y), parseInt(m) - 1, 1);
     return date.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
@@ -740,7 +877,7 @@ function MasterInventoryView({ category, title, onBack }) {
               color: activeTab === 'current' ? cyan : '#64748b',
               boxShadow: activeTab === 'current' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none'
             }}>
-            📦 Current (This Month)
+            📦 Current ({currentItems.length})
           </button>
           <button
             onClick={() => setActiveTab('used')}
@@ -751,23 +888,36 @@ function MasterInventoryView({ category, title, onBack }) {
               color: activeTab === 'used' ? cyan : '#64748b',
               boxShadow: activeTab === 'used' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none'
             }}>
-            🗂️ Used (Past Months)
+            🗂️ Used ({enrichedItems.filter(it => it.isUsed || it.monthKey < currentMonthKey).length})
           </button>
         </div>
 
         {/* If in 'used' tab: Month selector chips */}
         {activeTab === 'used' && (
           <div style={{ marginBottom: 14 }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, margin: '0 0 8px' }}>
-              Select Past Month Archive
-            </p>
-            {pastMonthsList.length === 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, margin: 0 }}>
+                Filter Used by Month
+              </p>
+              {usedMonthsList.length > 1 && (
+                <button
+                  onClick={() => setSelectedMonth('all')}
+                  style={{
+                    background: selectedMonth === 'all' ? '#ecfeff' : 'transparent',
+                    color: selectedMonth === 'all' ? cyan : '#64748b',
+                    border: 'none', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700, cursor: 'pointer'
+                  }}>
+                  View All
+                </button>
+              )}
+            </div>
+            {usedMonthsList.length === 0 ? (
               <div style={{ background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 12, padding: '12px 14px', fontSize: 12, color: '#64748b', textAlign: 'center' }}>
-                No completed months yet. Current month items automatically archive here at the end of every month.
+                No items marked as used yet. Deleting an item from Current inventory moves it here.
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6 }}>
-                {pastMonthsList.map(mKey => (
+                {usedMonthsList.map(mKey => (
                   <button key={mKey}
                     onClick={() => setSelectedMonth(mKey)}
                     style={{
@@ -788,7 +938,7 @@ function MasterInventoryView({ category, title, onBack }) {
         <div style={{ background: 'white', borderRadius: 14, border: '1px solid #e2e8f0', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', margin: '0 0 2px' }}>
-              {activeTab === 'current' ? `This Month (${formatMonthName(currentMonthKey)})` : `Archive (${formatMonthName(selectedMonth)})`}
+              {activeTab === 'current' ? `This Month (${formatMonthName(currentMonthKey)})` : `Used Archive (${formatMonthName(selectedMonth)})`}
             </p>
             <p style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: 0 }}>
               {displayedItems.length} Items Listed
@@ -814,10 +964,10 @@ function MasterInventoryView({ category, title, onBack }) {
                   {activeTab === 'current' ? 'inventory_2' : 'history_toggle_off'}
                 </span>
                 <p style={{ fontWeight: 700, fontSize: 14, color: '#475569', margin: '0 0 4px' }}>
-                  {activeTab === 'current' ? 'No items in Current Inventory' : 'No used items recorded for this month'}
+                  {activeTab === 'current' ? 'No items in Current Inventory' : 'No used items for this selection'}
                 </p>
                 <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
-                  {activeTab === 'current' ? 'Record a purchase below or purchase from vendors to auto-sync!' : 'Items from this past month will appear here.'}
+                  {activeTab === 'current' ? 'Record a purchase below or purchase from vendors to auto-sync!' : 'Items moved to used will appear here.'}
                 </p>
               </div>
             ) : (
@@ -825,6 +975,7 @@ function MasterInventoryView({ category, title, onBack }) {
                 <ItemRow key={item.docId || idx} item={item} 
                   readOnlyQty={true}
                   onClick={() => setDetailItem(item)}
+                  onRestore={item.isUsed ? () => handleRestore(item) : undefined}
                   onRemove={() => handleRemove(item)} />
               ))
             )}
@@ -840,6 +991,7 @@ function MasterInventoryView({ category, title, onBack }) {
         <ItemDetailModal
           item={detailItem}
           onClose={() => setDetailItem(null)}
+          onRestore={(it) => { handleRestore(it); setDetailItem(null); }}
           onRestock={(it) => setPurchaseModal({ open: true, defaultItemName: it.itemName, defaultUnit: it.unit || 'kg' })}
         />
       )}
@@ -857,7 +1009,6 @@ function MasterInventoryView({ category, title, onBack }) {
     </div>
   );
 }
-
 // ─── LIST VIEWS ────────────────────────────────────────────────────
 function UserListView({ onBack }) {
   const { user, activePgId } = useAuth();

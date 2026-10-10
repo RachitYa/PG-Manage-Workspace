@@ -932,6 +932,13 @@ export default function StaffApp(){
   const [showAddKitchenItemModal, setShowAddKitchenItemModal] = useState(false);
   const [newKitchenItemForm, setNewKitchenItemForm] = useState({ name: '', qty: '', unit: 'kg' });
   const [kitchenItemSaving, setKitchenItemSaving] = useState(false);
+  const [kitchenSubTab, setKitchenSubTab] = useState('current'); // 'current' | 'used'
+  const [selectedKitchenDetailItem, setSelectedKitchenDetailItem] = useState(null);
+
+  const currentKitchenItems = kitchenInventoryList.filter(it => !it.isUsed);
+  const usedKitchenItems = kitchenInventoryList.filter(it => it.isUsed === true);
+  const activeKitchenList = kitchenSubTab === 'current' ? currentKitchenItems : usedKitchenItems;
+  const filteredKitchenItems = activeKitchenList.filter(it => (it.name || '').toLowerCase().includes(stockSearchQuery.toLowerCase()));
 
   useEffect(() => {
     const adminUid = staffProfile?.ownerUid || user?.ownerUid;
@@ -8769,133 +8776,365 @@ export default function StaffApp(){
           {/* ── TAB 1: KITCHEN INVENTORY ────────────────────────── */}
           {inventoryTab === 'kitchen' && (
             <div style={{display:'flex', flexDirection:'column', gap:12}}>
-              
-              {/* Header Card */}
-              <div style={{background:'#fff', borderRadius:16, border:`1px solid ${C.border}`, padding:14, display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 2px 8px rgba(15,23,42,0.03)'}}>
-                <div>
-                  <span style={{fontSize:10, fontWeight:800, color:'#0891b2', textTransform:'uppercase', letterSpacing:0.5}}>Kitchen Inventory</span>
-                  <h3 style={{margin:'2px 0 0', fontSize:18, fontWeight:900, color:'#0f172a'}}>{kitchenInventoryList.length} Items In Stock</h3>
-                  <span style={{fontSize:11, color:'#16a34a', fontWeight:700}}>✓ Synced with Cook, Manager & Admin</span>
-                </div>
-                <button
-                  onClick={() => setShowAddKitchenItemModal(true)}
-                  style={{display:'flex', alignItems:'center', gap:4, background:'#0891b2', color:'#fff', border:'none', borderRadius:10, padding:'8px 12px', fontSize:12, fontWeight:800, cursor:'pointer'}}
-                >
-                  <span className="material-symbols-outlined" style={{fontSize:16}}>add</span>
-                  <span>Add Item</span>
-                </button>
-              </div>
-
-              {/* Search input */}
-              <div style={{display:'flex', alignItems:'center', gap:8, background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 12px'}}>
-                <span className="material-symbols-outlined" style={{fontSize:18, color:'#94a3b8'}}>search</span>
-                <input
-                  type="text"
-                  value={stockSearchQuery}
-                  onChange={(e) => setStockSearchQuery(e.target.value)}
-                  placeholder="Search kitchen supplies, dal, rice, oil..."
-                  style={{border:'none', outline:'none', width:'100%', fontSize:13, fontFamily:'inherit'}}
-                />
-                {stockSearchQuery && (
-                  <button onClick={() => setStockSearchQuery('')} style={{background:'none', border:'none', cursor:'pointer', color:'#94a3b8', padding:0}}>
-                    <span className="material-symbols-outlined" style={{fontSize:16}}>close</span>
-                  </button>
-                )}
-              </div>
-
-              {/* Items List */}
-              {kitchenInventoryLoading ? (
-                <div style={{textAlign:'center', padding:30, color:'#64748b'}}>
-                  <span className="material-symbols-outlined" style={{fontSize:30, color:'#0891b2', animation:'spin 1s linear infinite'}}>progress_activity</span>
-                  <p style={{margin:'6px 0 0', fontSize:12, fontWeight:700}}>Loading kitchen stock...</p>
-                </div>
-              ) : kitchenInventoryList.length === 0 ? (
-                <div style={{background:'#fff', borderRadius:16, border:'1px dashed #cbd5e1', padding:32, textAlign:'center', color:'#94a3b8'}}>
-                  <span className="material-symbols-outlined" style={{fontSize:40, color:'#cbd5e1', marginBottom:6}}>kitchen</span>
-                  <p style={{margin:0, fontSize:14, fontWeight:800, color:'#475569'}}>Kitchen Inventory is Empty</p>
-                  <p style={{margin:'4px 0 14px', fontSize:12}}>Any kitchen items requested by Cook or purchased by Cook/Manager/Admin will appear here automatically.</p>
+                
+                {/* Header Card */}
+                <div style={{background:'#fff', borderRadius:16, border:`1px solid ${C.border}`, padding:14, display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 2px 8px rgba(15,23,42,0.03)'}}>
+                  <div>
+                    <span style={{fontSize:10, fontWeight:800, color:'#0891b2', textTransform:'uppercase', letterSpacing:0.5}}>Kitchen Inventory</span>
+                    <h3 style={{margin:'2px 0 0', fontSize:18, fontWeight:900, color:'#0f172a'}}>
+                      {kitchenSubTab === 'current' ? `${currentKitchenItems.length} Items In Stock` : `${usedKitchenItems.length} Used / Archived Items`}
+                    </h3>
+                    <span style={{fontSize:11, color: kitchenSubTab === 'current' ? '#16a34a' : '#b45309', fontWeight:700}}>
+                      {kitchenSubTab === 'current' ? '✓ Synced with Cook, Manager & Admin' : '🗂️ Completed & Used Items History'}
+                    </span>
+                  </div>
                   <button
                     onClick={() => setShowAddKitchenItemModal(true)}
-                    style={{background:'#0891b2', color:'#fff', border:'none', borderRadius:10, padding:'8px 16px', fontSize:12, fontWeight:800, cursor:'pointer'}}
+                    style={{display:'flex', alignItems:'center', gap:4, background:'#0891b2', color:'#fff', border:'none', borderRadius:10, padding:'8px 12px', fontSize:12, fontWeight:800, cursor:'pointer'}}
                   >
-                    + Add Item to Stock
+                    <span className="material-symbols-outlined" style={{fontSize:16}}>add</span>
+                    <span>Add Item</span>
                   </button>
                 </div>
-              ) : (
-                <div style={{display:'flex', flexDirection:'column', gap:8}}>
-                  {kitchenInventoryList
-                    .filter(it => (it.name || '').toLowerCase().includes(stockSearchQuery.toLowerCase()))
-                    .map(item => (
-                      <div key={item.docId} style={{background:'#fff', borderRadius:14, border:`1px solid ${C.border}`, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 1px 4px rgba(15,23,42,0.02)'}}>
-                        <div style={{display:'flex', alignItems:'center', gap:10}}>
-                          <div style={{width:36, height:36, borderRadius:10, background:'#ecfeff', display:'flex', alignItems:'center', justifyContent:'center', color:'#0891b2'}}>
-                            <span className="material-symbols-outlined" style={{fontSize:20}}>{item.icon || 'kitchen'}</span>
+
+                {/* Sub-Tab Switcher: Current vs Used */}
+                <div style={{display:'flex', background:'#e2e8f0', borderRadius:10, padding:3, gap:4}}>
+                  <button
+                    onClick={() => setKitchenSubTab('current')}
+                    style={{
+                      flex: 1, padding: '8px 10px', border: 'none', borderRadius: 8,
+                      fontWeight: 800, fontSize: 12, cursor: 'pointer', transition: 'all 0.15s',
+                      background: kitchenSubTab === 'current' ? '#fff' : 'transparent',
+                      color: kitchenSubTab === 'current' ? '#0891b2' : '#64748b',
+                      boxShadow: kitchenSubTab === 'current' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none'
+                    }}>
+                    📦 Current Stock ({currentKitchenItems.length})
+                  </button>
+                  <button
+                    onClick={() => setKitchenSubTab('used')}
+                    style={{
+                      flex: 1, padding: '8px 10px', border: 'none', borderRadius: 8,
+                      fontWeight: 800, fontSize: 12, cursor: 'pointer', transition: 'all 0.15s',
+                      background: kitchenSubTab === 'used' ? '#fff' : 'transparent',
+                      color: kitchenSubTab === 'used' ? '#0891b2' : '#64748b',
+                      boxShadow: kitchenSubTab === 'used' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none'
+                    }}>
+                    🗂️ Used Stock ({usedKitchenItems.length})
+                  </button>
+                </div>
+
+                {/* Search input */}
+                <div style={{display:'flex', alignItems:'center', gap:8, background:'#fff', border:`1px solid ${C.border}`, borderRadius:12, padding:'8px 12px'}}>
+                  <span className="material-symbols-outlined" style={{fontSize:18, color:'#94a3b8'}}>search</span>
+                  <input
+                    type="text"
+                    value={stockSearchQuery}
+                    onChange={(e) => setStockSearchQuery(e.target.value)}
+                    placeholder={kitchenSubTab === 'current' ? "Search current kitchen supplies..." : "Search used items history..."}
+                    style={{border:'none', outline:'none', width:'100%', fontSize:13, fontFamily:'inherit'}}
+                  />
+                  {stockSearchQuery && (
+                    <button onClick={() => setStockSearchQuery('')} style={{background:'none', border:'none', cursor:'pointer', color:'#94a3b8', padding:0}}>
+                      <span className="material-symbols-outlined" style={{fontSize:16}}>close</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Items List */}
+                {kitchenInventoryLoading ? (
+                  <div style={{textAlign:'center', padding:30, color:'#64748b'}}>
+                    <span className="material-symbols-outlined" style={{fontSize:30, color:'#0891b2', animation:'spin 1s linear infinite'}}>progress_activity</span>
+                    <p style={{margin:'6px 0 0', fontSize:12, fontWeight:700}}>Loading kitchen stock...</p>
+                  </div>
+                ) : filteredKitchenItems.length === 0 ? (
+                  <div style={{background:'#fff', borderRadius:16, border:'1px dashed #cbd5e1', padding:32, textAlign:'center', color:'#94a3b8'}}>
+                    <span className="material-symbols-outlined" style={{fontSize:40, color:'#cbd5e1', marginBottom:6}}>
+                      {kitchenSubTab === 'current' ? 'kitchen' : 'history_toggle_off'}
+                    </span>
+                    <p style={{margin:0, fontSize:14, fontWeight:800, color:'#475569'}}>
+                      {kitchenSubTab === 'current' ? 'Current Kitchen Inventory is Empty' : 'No Used Items Yet'}
+                    </p>
+                    <p style={{margin:'4px 0 14px', fontSize:12}}>
+                      {kitchenSubTab === 'current'
+                        ? 'Any kitchen items requested by Cook or purchased will appear here automatically.'
+                        : 'When an item is deleted or completed, it moves here for audit & reporting.'}
+                    </p>
+                    {kitchenSubTab === 'current' && (
+                      <button
+                        onClick={() => setShowAddKitchenItemModal(true)}
+                        style={{background:'#0891b2', color:'#fff', border:'none', borderRadius:10, padding:'8px 16px', fontSize:12, fontWeight:800, cursor:'pointer'}}
+                      >
+                        + Add Item to Stock
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                    {filteredKitchenItems.map(item => (
+                      <div
+                        key={item.docId}
+                        onClick={() => setSelectedKitchenDetailItem(item)}
+                        style={{background:'#fff', borderRadius:14, border:`1px solid ${C.border}`, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', boxShadow:'0 1px 4px rgba(15,23,42,0.02)', cursor:'pointer'}}
+                      >
+                        <div style={{display:'flex', alignItems:'center', gap:10, flex:1, minWidth:0}}>
+                          <div style={{width:36, height:36, borderRadius:10, background: item.isUsed ? '#fef3c7' : '#ecfeff', display:'flex', alignItems:'center', justifyContent:'center', color: item.isUsed ? '#b45309' : '#0891b2', flexShrink:0}}>
+                            <span className="material-symbols-outlined" style={{fontSize:20}}>
+                              {item.isUsed ? 'history_toggle_off' : (item.icon || 'kitchen')}
+                            </span>
                           </div>
-                          <div>
-                            <p style={{margin:0, fontSize:14, fontWeight:800, color:'#0f172a'}}>{item.name}</p>
-                            <span style={{fontSize:11, color:'#64748b', fontWeight:600}}>
-                              {item.lastUpdatedBy ? `By: ${item.lastUpdatedBy}` : 'Kitchen Stock'}
-                              {item.lastSource ? ` · ${item.lastSource}` : ''}
+                          <div style={{minWidth:0, flex:1}}>
+                            <div style={{display:'flex', alignItems:'center', gap:6}}>
+                              <p style={{margin:0, fontSize:14, fontWeight:800, color:'#0f172a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{item.name}</p>
+                              {item.isUsed && (
+                                <span style={{fontSize:10, fontWeight:800, background:'#fef3c7', color:'#b45309', padding:'2px 6px', borderRadius:6}}>
+                                  USED
+                                </span>
+                              )}
+                            </div>
+                            <span style={{fontSize:11, color: item.isUsed ? '#b45309' : '#64748b', fontWeight:600}}>
+                              {item.isUsed && item.usedAt ? (
+                                `🗂️ Moved to used: ${new Date(item.usedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                              ) : item.lastPurchasedDate ? (
+                                `🕒 Purchased: ${new Date(item.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                              ) : item.lastUpdatedBy ? (
+                                `By: ${item.lastUpdatedBy}`
+                              ) : (
+                                'Kitchen Stock'
+                              )}
                             </span>
                           </div>
                         </div>
 
-                        <div style={{display:'flex', alignItems:'center', gap:10}}>
-                          {/* Qty +/- adjust */}
-                          <div style={{display:'flex', alignItems:'center', background:'#f1f5f9', borderRadius:8, overflow:'hidden', border:'1px solid #e2e8f0'}}>
-                            <button
-                              onClick={async () => {
-                                const newQty = Math.max(0, (parseFloat(item.totalQty) || 0) - 1);
-                                try {
-                                  await updateDoc(doc(db, 'pg_inventory_master', item.docId), {
-                                    totalQty: newQty,
-                                    lastUpdated: new Date().toISOString(),
-                                    lastUpdatedBy: `${staffName} (${staffRole})`
-                                  });
-                                } catch (e) { console.error(e); }
-                              }}
-                              style={{width:28, height:28, border:'none', background:'transparent', cursor:'pointer', fontSize:16, fontWeight:800, color:'#64748b', display:'flex', alignItems:'center', justifyContent:'center'}}
-                            >
-                              -
-                            </button>
-                            <span style={{minWidth:36, textAlign:'center', fontSize:13, fontWeight:900, color:'#0f172a', padding:'0 4px'}}>
-                              {item.totalQty} {item.unit || 'kg'}
-                            </span>
-                            <button
-                              onClick={async () => {
-                                const newQty = (parseFloat(item.totalQty) || 0) + 1;
-                                try {
-                                  await updateDoc(doc(db, 'pg_inventory_master', item.docId), {
-                                    totalQty: newQty,
-                                    lastUpdated: new Date().toISOString(),
-                                    lastUpdatedBy: `${staffName} (${staffRole})`
-                                  });
-                                } catch (e) { console.error(e); }
-                              }}
-                              style={{width:28, height:28, border:'none', background:'transparent', cursor:'pointer', fontSize:16, fontWeight:800, color:'#64748b', display:'flex', alignItems:'center', justifyContent:'center'}}
-                            >
-                              +
-                            </button>
+                        <div style={{display:'flex', alignItems:'center', gap:8, flexShrink:0}} onClick={e => e.stopPropagation()}>
+                          {/* Clean Read-Only Quantity Display */}
+                          <div style={{background: item.isUsed ? '#fef3c7' : '#ecfeff', border: `1px solid ${item.isUsed ? '#fde68a' : '#cffafe'}`, padding: '6px 12px', borderRadius: 10, textAlign: 'right', display: 'flex', alignItems: 'baseline', gap: 4}}>
+                            <span style={{fontSize: 15, fontWeight: 900, color: item.isUsed ? '#b45309' : '#0891b2'}}>{item.totalQty}</span>
+                            <span style={{fontSize: 11, fontWeight: 700, color: item.isUsed ? '#92400e' : '#0e7490'}}>{item.unit || 'kg'}</span>
                           </div>
 
+                          {/* If in Used tab: Restore button */}
+                          {item.isUsed && (
+                            <button
+                              title="Restore to Current inventory"
+                              onClick={async () => {
+                                if (window.confirm(`Restore "${item.name}" back to Current inventory?`)) {
+                                  try {
+                                    await updateDoc(doc(db, 'pg_inventory_master', item.docId), {
+                                      isUsed: false,
+                                      usedMonth: null,
+                                      usedAt: null,
+                                      lastUpdated: new Date().toISOString(),
+                                      lastUpdatedBy: `${staffName} (${staffRole})`
+                                    });
+                                    showToast(`"${item.name}" restored to Current stock`, 'success');
+                                  } catch (err) {
+                                    console.error(err);
+                                    showToast('Failed to restore item', 'error');
+                                  }
+                                }
+                              }}
+                              style={{background:'#ecfeff', border:'1px solid #cffafe', borderRadius:8, width:30, height:30, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#0891b2', padding:0}}
+                            >
+                              <span className="material-symbols-outlined" style={{fontSize:18}}>settings_backup_restore</span>
+                            </button>
+                          )}
+
+                          {/* Delete button: In Current, moves to Used; in Used, permanently deletes */}
                           <button
+                            title={item.isUsed ? "Delete from archive" : "Move to Used inventory"}
                             onClick={async () => {
-                              if (window.confirm(`Delete ${item.name} from kitchen inventory?`)) {
-                                try {
-                                  await deleteDoc(doc(db, 'pg_inventory_master', item.docId));
-                                  showToast('Item removed from inventory', 'success');
-                                } catch (e) { console.error(e); }
+                              if (item.isUsed) {
+                                if (window.confirm(`Permanently delete "${item.name}" from archive?`)) {
+                                  try {
+                                    await deleteDoc(doc(db, 'pg_inventory_master', item.docId));
+                                    showToast('Item deleted from archive', 'success');
+                                  } catch (err) { console.error(err); }
+                                }
+                              } else {
+                                if (window.confirm(`Move "${item.name}" to Used inventory?`)) {
+                                  try {
+                                    const currentMonthKey = new Date().toISOString().slice(0, 7);
+                                    await updateDoc(doc(db, 'pg_inventory_master', item.docId), {
+                                      isUsed: true,
+                                      usedMonth: currentMonthKey,
+                                      usedAt: new Date().toISOString(),
+                                      usedBy: `${staffName} (${staffRole})`,
+                                      lastUpdated: new Date().toISOString(),
+                                      lastUpdatedBy: `${staffName} (${staffRole})`
+                                    });
+                                    showToast(`"${item.name}" moved to Used inventory`, 'success');
+                                  } catch (err) {
+                                    console.error(err);
+                                    showToast('Failed to move item to used', 'error');
+                                  }
+                                }
                               }
                             }}
-                            style={{background:'#fee2e2', border:'none', borderRadius:8, width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#ef4444', padding:0}}
+                            style={{background:'#fee2e2', border:'none', borderRadius:8, width:30, height:30, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#ef4444', padding:0}}
                           >
                             <span className="material-symbols-outlined" style={{fontSize:16}}>delete</span>
                           </button>
                         </div>
                       </div>
                     ))}
-                </div>
-              )}
+                  </div>
+                )}
+
+                {/* Item Detailing Modal in Staff App */}
+                {selectedKitchenDetailItem && (
+                  <div style={{position:'fixed', inset:0, background:'rgba(15,23,42,0.6)', zIndex:200, display:'flex', alignItems:'flex-end', justifyContent:'center', backdropFilter:'blur(3px)'}}
+                    onClick={e => { if (e.target === e.currentTarget) setSelectedKitchenDetailItem(null); }}>
+                    <div style={{background:'#fff', width:'100%', maxWidth:480, borderRadius:'24px 24px 0 0', maxHeight:'88vh', display:'flex', flexDirection:'column'}}>
+                      <div style={{width:40, height:4, background:'#e2e8f0', borderRadius:99, margin:'12px auto 6px'}} />
+                      
+                      <div style={{padding:'12px 20px 14px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+                        <div style={{display:'flex', alignItems:'center', gap:10}}>
+                          <div style={{width:38, height:38, borderRadius:12, background: selectedKitchenDetailItem.isUsed ? '#fef3c7' : '#ecfeff', display:'flex', alignItems:'center', justifyContent:'center', color: selectedKitchenDetailItem.isUsed ? '#b45309' : '#0891b2'}}>
+                            <span className="material-symbols-outlined" style={{fontSize:22}}>{selectedKitchenDetailItem.icon || 'kitchen'}</span>
+                          </div>
+                          <div>
+                            <div style={{display:'flex', alignItems:'center', gap:8}}>
+                              <h3 style={{margin:0, fontSize:16, fontWeight:900, color:'#0f172a'}}>{selectedKitchenDetailItem.name}</h3>
+                              {selectedKitchenDetailItem.isUsed && (
+                                <span style={{fontSize:10, fontWeight:800, background:'#fef3c7', color:'#b45309', padding:'2px 8px', borderRadius:6}}>
+                                  USED
+                                </span>
+                              )}
+                            </div>
+                            <span style={{fontSize:12, color:'#64748b'}}>Kitchen Stock Details</span>
+                          </div>
+                        </div>
+                        <button onClick={() => setSelectedKitchenDetailItem(null)} style={{background:'#f1f5f9', border:'none', borderRadius:10, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}>
+                          <span className="material-symbols-outlined" style={{fontSize:18, color:'#64748b'}}>close</span>
+                        </button>
+                      </div>
+
+                      <div style={{padding:'16px 20px', overflowY:'auto', flex:1, display:'flex', flexDirection:'column', gap:14}}>
+                        {/* Status banner */}
+                        {selectedKitchenDetailItem.isUsed && (
+                          <div style={{background:'#fffbeb', border:'1px solid #fde68a', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10, color:'#92400e', fontSize:12}}>
+                            <span className="material-symbols-outlined" style={{fontSize:20, color:'#b45309'}}>history_toggle_off</span>
+                            <div>
+                              <strong>Moved to Used Inventory</strong>
+                              <div>{selectedKitchenDetailItem.usedAt ? `On ${new Date(selectedKitchenDetailItem.usedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''} {selectedKitchenDetailItem.usedBy ? `by ${selectedKitchenDetailItem.usedBy}` : ''}</div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Stock Banner */}
+                        <div style={{background: selectedKitchenDetailItem.isUsed ? 'linear-gradient(135deg, #b45309, #78350f)' : 'linear-gradient(135deg, #0891b2, #0e7490)', borderRadius:16, padding:'16px 18px', color:'#fff'}}>
+                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4}}>
+                            <span style={{fontSize:11, fontWeight:800, textTransform:'uppercase', opacity:0.9}}>
+                              {selectedKitchenDetailItem.isUsed ? 'Recorded Used Quantity' : 'Current Available Stock'}
+                            </span>
+                            <span style={{background:'rgba(255,255,255,0.2)', padding:'2px 8px', borderRadius:8, fontSize:11, fontWeight:800}}>
+                              {(selectedKitchenDetailItem.unit || 'kg').toUpperCase()}
+                            </span>
+                          </div>
+                          <p style={{fontSize:26, fontWeight:900, margin:'0 0 4px'}}>
+                            {selectedKitchenDetailItem.totalQty} <span style={{fontSize:16, fontWeight:700}}>{selectedKitchenDetailItem.unit || 'kg'}</span>
+                          </p>
+                          <p style={{fontSize:12, opacity:0.85, margin:0}}>
+                            {selectedKitchenDetailItem.lastPurchasedDate
+                              ? `Last purchased: ${new Date(selectedKitchenDetailItem.lastPurchasedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                              : `Last updated: ${selectedKitchenDetailItem.lastUpdatedBy || 'Kitchen'}`}
+                          </p>
+                        </div>
+
+                        {/* Purchase History Ledger */}
+                        <div>
+                          <p style={{fontWeight:800, fontSize:14, color:'#0f172a', margin:'0 0 10px'}}>Purchase & Refill History</p>
+                          {Array.isArray(selectedKitchenDetailItem.purchaseHistory) && selectedKitchenDetailItem.purchaseHistory.length > 0 ? (
+                            <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                              {selectedKitchenDetailItem.purchaseHistory.map((h, i) => (
+                                <div key={h.id || i} style={{background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:12, padding:'10px 12px'}}>
+                                  <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:4}}>
+                                    <div>
+                                      <p style={{margin:0, fontWeight:800, fontSize:14, color:'#0f172a'}}>
+                                        +{h.qty} {h.unit || selectedKitchenDetailItem.unit || 'kg'}
+                                        {h.rate ? <span style={{fontSize:12, fontWeight:600, color:'#64748b', marginLeft:6}}>@ ₹{h.rate}/{h.unit || selectedKitchenDetailItem.unit || 'kg'}</span> : null}
+                                      </p>
+                                      {h.price ? (
+                                        <p style={{margin:'2px 0 0', fontSize:12, fontWeight:700, color:'#0891b2'}}>₹{Math.round(h.price).toLocaleString('en-IN')}</p>
+                                      ) : null}
+                                    </div>
+                                    <span style={{background:'#e2e8f0', color:'#475569', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:6}}>
+                                      {h.date ? new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Logged'}
+                                    </span>
+                                  </div>
+                                  <div style={{display:'flex', justifyContent:'space-between', fontSize:11, color:'#64748b', borderTop:'1px dashed #e2e8f0', paddingTop:4, marginTop:4}}>
+                                    <span>👤 {h.purchasedBy || 'Admin/Cook'}</span>
+                                    {h.vendorName && <span>🏪 {h.vendorName}</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{background:'#f8fafc', border:'1px dashed #cbd5e1', borderRadius:12, padding:18, textAlign:'center', color:'#64748b', fontSize:12}}>
+                              <span className="material-symbols-outlined" style={{fontSize:28, color:'#94a3b8', display:'block', margin:'0 auto 4px'}}>receipt_long</span>
+                              Direct inventory item entry. Future vendor purchases will automatically log here!
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Modal Footer Actions */}
+                      <div style={{padding:'14px 20px', borderTop:'1px solid #f1f5f9', background:'#fff', borderRadius:'0 0 24px 24px', display:'flex', gap:10}}>
+                        {selectedKitchenDetailItem.isUsed ? (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await updateDoc(doc(db, 'pg_inventory_master', selectedKitchenDetailItem.docId), {
+                                  isUsed: false,
+                                  usedMonth: null,
+                                  usedAt: null,
+                                  lastUpdated: new Date().toISOString(),
+                                  lastUpdatedBy: `${staffName} (${staffRole})`
+                                });
+                                showToast(`"${selectedKitchenDetailItem.name}" restored to Current stock`, 'success');
+                                setSelectedKitchenDetailItem(null);
+                              } catch (err) {
+                                console.error(err);
+                                showToast('Failed to restore item', 'error');
+                              }
+                            }}
+                            style={{flex:1, padding:'12px', background:'#ecfeff', color:'#0891b2', border:'1px solid #0891b2', borderRadius:12, fontWeight:800, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6}}
+                          >
+                            <span className="material-symbols-outlined" style={{fontSize:18}}>settings_backup_restore</span>
+                            Restore to Current Stock
+                          </button>
+                        ) : (
+                          <button
+                            onClick={async () => {
+                              if (window.confirm(`Move "${selectedKitchenDetailItem.name}" to Used inventory?`)) {
+                                try {
+                                  const currentMonthKey = new Date().toISOString().slice(0, 7);
+                                  await updateDoc(doc(db, 'pg_inventory_master', selectedKitchenDetailItem.docId), {
+                                    isUsed: true,
+                                    usedMonth: currentMonthKey,
+                                    usedAt: new Date().toISOString(),
+                                    usedBy: `${staffName} (${staffRole})`,
+                                    lastUpdated: new Date().toISOString(),
+                                    lastUpdatedBy: `${staffName} (${staffRole})`
+                                  });
+                                  showToast(`"${selectedKitchenDetailItem.name}" moved to Used inventory`, 'success');
+                                  setSelectedKitchenDetailItem(null);
+                                } catch (err) {
+                                  console.error(err);
+                                  showToast('Failed to move item to used', 'error');
+                                }
+                              }
+                            }}
+                            style={{flex:1, padding:'12px', background:'#fff1f2', color:'#ef4444', border:'1px solid #fecaca', borderRadius:12, fontWeight:800, fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6}}
+                          >
+                            <span className="material-symbols-outlined" style={{fontSize:18}}>delete</span>
+                            Move to Used Inventory
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
               {/* Add Kitchen Item Modal */}
               {showAddKitchenItemModal && (
