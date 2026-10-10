@@ -165,6 +165,13 @@ export default function MessHeadcount() {
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [auditSearchQuery, setAuditSearchQuery] = useState('');
   const [deliveryOrders, setDeliveryOrders] = useState([]);
+  const [ticker, setTicker] = useState(Date.now());
+
+  // Periodic ticker to auto-transition expired meals to Not Eaten
+  useEffect(() => {
+    const timer = setInterval(() => setTicker(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Broadcast modal state
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
@@ -409,15 +416,12 @@ export default function MessHeadcount() {
       const getStatus = (isVac, isEaten, val, delivOrder, mealName) => {
         if (!isFoodIncluded) return 'selfCooking';
         if (isVac) return 'onVacation';
-        if (isEaten) return 'eaten';
+        if (isEaten || delivOrder?.status === 'delivered') return 'eaten';
         if (val === 'not_eating') return 'notEaten';
+        if (delivOrder || val === 'delivery') return 'delivery';
+        if (val === 'pack') return 'pack';
+        if (val === 'extra') return 'extra';
         const mealEnded = isMealOver(selectedDate, mealName);
-        if (delivOrder || val === 'delivery') {
-          if (delivOrder?.status === 'delivered') return 'eaten';
-          return mealEnded ? 'notEaten' : 'delivery';
-        }
-        if (val === 'pack') return mealEnded ? 'notEaten' : 'pack';
-        if (val === 'extra') return mealEnded ? 'notEaten' : 'extra';
         if (mealEnded) return 'notEaten';
         return 'requested';
       };
@@ -450,7 +454,7 @@ export default function MessHeadcount() {
         detailsD: mealLog?.dinnerDetails || (delivD ? `🛵 Delivery: ${delivD.destination || delivD.destinationType}` : ''),
       };
     });
-  }, [rawTenants, mealStatusLogs, eatenData, vacations, deliveryOrders, selectedDate]);
+  }, [rawTenants, mealStatusLogs, eatenData, vacations, deliveryOrders, selectedDate, ticker]);
 
   // ── 6. Filter Students for Current Meal Tab ────────────────────────────────
   const mealKey = mealTab === 'breakfast' ? 'statusB' : mealTab === 'lunch' ? 'statusL' : mealTab === 'snacks' ? 'statusS' : 'statusD';
@@ -1089,17 +1093,18 @@ export default function MessHeadcount() {
               </button>
             </div>
 
-            {/* Row 2: Mess Counter QR & Close Meal */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', marginTop: '8px' }}>
+            {/* Row 2: Mess Counter QR */}
+            <div style={{ marginTop: '8px' }}>
               <button
                 onClick={() => setShowMessQRModal(true)}
                 style={{
+                  width: '100%',
                   background: 'linear-gradient(135deg, #0891b2, #0e7490)',
                   color: '#fff',
                   border: 'none',
-                  padding: '9px 4px',
+                  padding: '10px 14px',
                   borderRadius: '12px',
-                  fontSize: '12px',
+                  fontSize: '13px',
                   fontWeight: 900,
                   cursor: 'pointer',
                   display: 'flex',
@@ -1112,28 +1117,6 @@ export default function MessHeadcount() {
               >
                 <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>qr_code_scanner</span>
                 Mess Counter QR
-              </button>
-
-              <button
-                onClick={handleCloseMeal}
-                style={{
-                  background: 'rgba(239,68,68,0.15)',
-                  color: '#fca5a5',
-                  border: '1.5px solid rgba(239,68,68,0.35)',
-                  padding: '9px 4px',
-                  borderRadius: '12px',
-                  fontSize: '12px',
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
-                }}
-                title="Mark all remaining unserved students as Not Eaten and close meal"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#f87171' }}>cancel_schedule_send</span>
-                Close Meal ({statsCount.requested + statsCount.pack})
               </button>
             </div>
           </div>
@@ -1819,52 +1802,27 @@ export default function MessHeadcount() {
                             Undo
                           </button>
                         ) : (
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            <button
-                              onClick={() => handleToggleEaten(s.id, false)}
-                              style={{
-                                background: '#0f172a',
-                                color: '#f8fafc',
-                                border: 'none',
-                                borderRadius: '10px',
-                                padding: '8px 10px',
-                                fontSize: '11px',
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                transition: 'all 0.15s ease'
-                              }}
-                              title="Mark Student as Eaten"
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check</span>
-                              Eaten
-                            </button>
-                            {currentStatus !== 'notEaten' && (
-                              <button
-                                onClick={() => handleMarkNotEaten(s.id)}
-                                style={{
-                                  background: '#fee2e2',
-                                  color: '#dc2626',
-                                  border: '1px solid #fecaca',
-                                  borderRadius: '10px',
-                                  padding: '8px 10px',
-                                  fontSize: '11px',
-                                  fontWeight: 800,
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  transition: 'all 0.15s ease'
-                                }}
-                                title="Mark Student as Not Eaten"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>close</span>
-                                Not Eaten
-                              </button>
-                            )}
-                          </div>
+                          <button
+                            onClick={() => handleToggleEaten(s.id, false)}
+                            style={{
+                              background: '#0f172a',
+                              color: '#f8fafc',
+                              border: 'none',
+                              borderRadius: '10px',
+                              padding: '8px 12px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              transition: 'all 0.15s ease'
+                            }}
+                            title="Mark Student as Eaten"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check</span>
+                            Eaten
+                          </button>
                         )}
                       </div>
                     </div>

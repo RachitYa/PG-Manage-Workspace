@@ -136,9 +136,17 @@ export default function MessHeadcount({ onClose }) {
   const [mealStatusLogs, setMealStatusLogs] = useState([]);
   const [eatenData, setEatenData] = useState({});
   const [vacations, setVacations] = useState([]);
+  const [deliveryOrders, setDeliveryOrders] = useState([]);
+  const [ticker, setTicker] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState('');
   const [showMessQRModal, setShowMessQRModal] = useState(false);
+
+  // Periodic ticker to auto-transition expired meals to Not Eaten
+  useEffect(() => {
+    const timer = setInterval(() => setTicker(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Menu editing state
   const [selectedMenuDay, setSelectedMenuDay] = useState(() => getDayName(getTodayStr()));
@@ -323,6 +331,21 @@ export default function MessHeadcount({ onClose }) {
     return () => unsub();
   }, [user?.ownerUid]);
 
+  // ── 4c. Listen to delivery_orders collection for selectedDate ───────────────
+  useEffect(() => {
+    if (!user?.ownerUid && !user?.uid) return;
+    const targetOwner = user?.ownerUid || user?.uid;
+    const qDeliv = query(
+      collection(db, 'delivery_orders'),
+      where('adminId', '==', targetOwner),
+      where('date', '==', selectedDate)
+    );
+    const unsub = onSnapshot(qDeliv, (snap) => {
+      setDeliveryOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error('MessHeadcount delivery_orders error:', err));
+    return () => unsub();
+  }, [user?.ownerUid, user?.uid, selectedDate]);
+
   // ── 5. Build Unified Student Meal Attendance List ──────────────────────────
   const students = useMemo(() => {
     return rawTenants.map(t => {
@@ -332,6 +355,11 @@ export default function MessHeadcount({ onClose }) {
       const isEatenS = !!eatenData[`${t.id}_snacks_eaten`];
       const isEatenD = !!eatenData[`${t.id}_dinner_eaten`];
 
+      const delivB = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'breakfast') || null;
+      const delivL = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'lunch') || null;
+      const delivS = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'snacks') || null;
+      const delivD = deliveryOrders.find(d => d.studentId === t.id && d.meal?.toLowerCase() === 'dinner') || null;
+
       const isVacB = isStudentOnVacation(vacations, t.id, selectedDate, 'breakfast') || isMealPausedOnDate(t.foodVacation, selectedDate, 'breakfast');
       const isVacL = isStudentOnVacation(vacations, t.id, selectedDate, 'lunch') || isMealPausedOnDate(t.foodVacation, selectedDate, 'lunch');
       const isVacS = isStudentOnVacation(vacations, t.id, selectedDate, 'snacks') || isMealPausedOnDate(t.foodVacation, selectedDate, 'snacks');
@@ -340,15 +368,15 @@ export default function MessHeadcount({ onClose }) {
       const currentVac = getStudentActiveVacation(vacations, t.id, selectedDate) || t.foodVacation || null;
       const isFoodIncluded = t.foodIncluded !== false;
 
-      const getStatus = (isVac, isEaten, val, mealName) => {
+      const getStatus = (isVac, isEaten, val, delivOrder, mealName) => {
         if (!isFoodIncluded) return 'selfCooking';
         if (isVac) return 'onVacation';
-        if (isEaten) return 'eaten';
+        if (isEaten || delivOrder?.status === 'delivered') return 'eaten';
         if (val === 'not_eating') return 'notEaten';
+        if (delivOrder || val === 'delivery') return 'delivery';
+        if (val === 'pack') return 'pack';
+        if (val === 'extra') return 'extra';
         const mealEnded = isMealOver(selectedDate, mealName);
-        if (val === 'delivery') return mealEnded ? 'notEaten' : 'delivery';
-        if (val === 'pack') return mealEnded ? 'notEaten' : 'pack';
-        if (val === 'extra') return mealEnded ? 'notEaten' : 'extra';
         if (mealEnded) return 'notEaten';
         return 'requested';
       };
@@ -363,17 +391,17 @@ export default function MessHeadcount({ onClose }) {
         foodIncluded: isFoodIncluded,
         includedFoodPersons: t.includedFoodPersons || 1,
         foodVacation: currentVac,
-        statusB: getStatus(isVacB, isEatenB, mealLog?.breakfast, 'breakfast'),
-        statusL: getStatus(isVacL, isEatenL, mealLog?.lunch, 'lunch'),
-        statusS: getStatus(isVacS, isEatenS, mealLog?.snacks, 'snacks'),
-        statusD: getStatus(isVacD, isEatenD, mealLog?.dinner, 'dinner'),
+        statusB: getStatus(isVacB, isEatenB, mealLog?.breakfast, delivB, 'breakfast'),
+        statusL: getStatus(isVacL, isEatenL, mealLog?.lunch, delivL, 'lunch'),
+        statusS: getStatus(isVacS, isEatenS, mealLog?.snacks, delivS, 'snacks'),
+        statusD: getStatus(isVacD, isEatenD, mealLog?.dinner, delivD, 'dinner'),
         detailsB: mealLog?.breakfastDetails || '',
         detailsL: mealLog?.lunchDetails || '',
         detailsS: mealLog?.snacksDetails || '',
         detailsD: mealLog?.dinnerDetails || '',
       };
     });
-  }, [rawTenants, mealStatusLogs, eatenData, vacations, selectedDate]);
+  }, [rawTenants, mealStatusLogs, eatenData, vacations, deliveryOrders, selectedDate, ticker]);
 
   // ── 6. Filter Students for Current Meal Tab ────────────────────────────────
   const mealKey = mealTab === 'breakfast' ? 'statusB' : mealTab === 'lunch' ? 'statusL' : mealTab === 'snacks' ? 'statusS' : 'statusD';
@@ -385,6 +413,7 @@ export default function MessHeadcount({ onClose }) {
       requested: students.filter(s => s[mealKey] === 'requested').length,
       pack: students.filter(s => s[mealKey] === 'pack').length,
       extra: students.filter(s => s[mealKey] === 'extra').length,
+      delivery: students.filter(s => s[mealKey] === 'delivery').length,
       eaten: students.filter(s => s[mealKey] === 'eaten').length,
       notEaten: students.filter(s => s[mealKey] === 'notEaten').length,
       onVacation: students.filter(s => s[mealKey] === 'onVacation').length,
@@ -957,17 +986,18 @@ export default function MessHeadcount({ onClose }) {
               </button>
             </div>
 
-            {/* Quick Action Row: Counter QR & Close Meal */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', marginTop: '12px' }}>
+            {/* Quick Action Row: Counter QR */}
+            <div style={{ marginTop: '12px' }}>
               <button
                 onClick={() => setShowMessQRModal(true)}
                 style={{
+                  width: '100%',
                   background: 'linear-gradient(135deg, #0891b2, #0e7490)',
                   color: '#fff',
                   border: 'none',
-                  padding: '9px 4px',
+                  padding: '10px 14px',
                   borderRadius: '12px',
-                  fontSize: '12px',
+                  fontSize: '13px',
                   fontWeight: 900,
                   cursor: 'pointer',
                   display: 'flex',
@@ -980,28 +1010,6 @@ export default function MessHeadcount({ onClose }) {
               >
                 <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>qr_code_scanner</span>
                 Mess Counter QR
-              </button>
-
-              <button
-                onClick={handleCloseMeal}
-                style={{
-                  background: 'rgba(239,68,68,0.15)',
-                  color: '#fca5a5',
-                  border: '1.5px solid rgba(239,68,68,0.35)',
-                  padding: '9px 4px',
-                  borderRadius: '12px',
-                  fontSize: '12px',
-                  fontWeight: 900,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
-                }}
-                title="Mark all remaining unserved students as Not Eaten and close meal"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#f87171' }}>cancel_schedule_send</span>
-                Close Meal ({statsCount.requested + statsCount.pack})
               </button>
             </div>
           </div>
@@ -1179,22 +1187,40 @@ export default function MessHeadcount({ onClose }) {
           })()}
 
           {/* Interactive Stat Breakdown Cards (Cook App style) */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '8px' }}>
             <div
               onClick={() => setSelectedStatFilter(selectedStatFilter === 'pack' ? 'all' : 'pack')}
               style={{
                 background: selectedStatFilter === 'pack' ? '#fef08a' : '#ffffff',
                 border: `2px solid ${selectedStatFilter === 'pack' ? '#000' : '#e2e8f0'}`,
                 borderRadius: '14px',
-                padding: '12px',
+                padding: '12px 6px',
                 textAlign: 'center',
                 cursor: 'pointer',
                 transition: 'all 0.15s ease'
               }}
             >
-              <p style={{ fontSize: '24px', fontWeight: 900, color: '#000', margin: 0 }}>{statsCount.pack}</p>
-              <p style={{ fontSize: '11px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
+              <p style={{ fontSize: '22px', fontWeight: 900, color: '#000', margin: 0 }}>{statsCount.pack}</p>
+              <p style={{ fontSize: '10.5px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
                 📦 To Pack
+              </p>
+            </div>
+
+            <div
+              onClick={() => setSelectedStatFilter(selectedStatFilter === 'delivery' ? 'all' : 'delivery')}
+              style={{
+                background: selectedStatFilter === 'delivery' ? '#ede9fe' : '#ffffff',
+                border: `2px solid ${selectedStatFilter === 'delivery' ? '#000' : '#e2e8f0'}`,
+                borderRadius: '14px',
+                padding: '12px 6px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <p style={{ fontSize: '22px', fontWeight: 900, color: '#6d28d9', margin: 0 }}>{statsCount.delivery}</p>
+              <p style={{ fontSize: '10.5px', fontWeight: 800, color: '#6d28d9', margin: '2px 0 0', textTransform: 'uppercase' }}>
+                🛵 Delivery
               </p>
             </div>
 
@@ -1204,14 +1230,14 @@ export default function MessHeadcount({ onClose }) {
                 background: selectedStatFilter === 'extra' ? '#cffafe' : '#ffffff',
                 border: `2px solid ${selectedStatFilter === 'extra' ? '#000' : '#e2e8f0'}`,
                 borderRadius: '14px',
-                padding: '12px',
+                padding: '12px 6px',
                 textAlign: 'center',
                 cursor: 'pointer',
                 transition: 'all 0.15s ease'
               }}
             >
-              <p style={{ fontSize: '24px', fontWeight: 900, color: '#000', margin: 0 }}>{statsCount.extra}</p>
-              <p style={{ fontSize: '11px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
+              <p style={{ fontSize: '22px', fontWeight: 900, color: '#000', margin: 0 }}>{statsCount.extra}</p>
+              <p style={{ fontSize: '10.5px', fontWeight: 800, color: '#475569', margin: '2px 0 0', textTransform: 'uppercase' }}>
                 ➕ Extra Plate
               </p>
             </div>
@@ -1406,11 +1432,11 @@ export default function MessHeadcount({ onClose }) {
                               textTransform: 'uppercase',
                               padding: '2px 8px',
                               borderRadius: '6px',
-                              background: isEaten ? '#dcfce7' : currentStatus === 'selfCooking' ? '#fff7ed' : currentStatus === 'onVacation' ? '#f5f3ff' : currentStatus === 'notEaten' ? '#fee2e2' : currentStatus === 'pack' ? '#fef08a' : currentStatus === 'extra' ? '#cffafe' : '#fef9c3',
-                              color: isEaten ? '#166534' : currentStatus === 'selfCooking' ? '#ea580c' : currentStatus === 'onVacation' ? '#7c3aed' : currentStatus === 'notEaten' ? '#991b1b' : currentStatus === 'pack' ? '#854d0e' : currentStatus === 'extra' ? '#0e7490' : '#854d0e',
-                              border: currentStatus === 'selfCooking' ? '1px solid #fed7aa' : currentStatus === 'onVacation' ? '1px solid #ddd6fe' : 'none'
+                              background: isEaten ? '#dcfce7' : currentStatus === 'selfCooking' ? '#fff7ed' : currentStatus === 'onVacation' ? '#f5f3ff' : currentStatus === 'delivery' ? '#ede9fe' : currentStatus === 'notEaten' ? '#fee2e2' : currentStatus === 'pack' ? '#fef08a' : currentStatus === 'extra' ? '#cffafe' : '#fef9c3',
+                              color: isEaten ? '#166534' : currentStatus === 'selfCooking' ? '#ea580c' : currentStatus === 'onVacation' ? '#7c3aed' : currentStatus === 'delivery' ? '#6d28d9' : currentStatus === 'notEaten' ? '#991b1b' : currentStatus === 'pack' ? '#854d0e' : currentStatus === 'extra' ? '#0e7490' : '#854d0e',
+                              border: currentStatus === 'selfCooking' ? '1px solid #fed7aa' : currentStatus === 'onVacation' ? '1px solid #ddd6fe' : currentStatus === 'delivery' ? '1px solid #ddd6fe' : 'none'
                             }}>
-                              {isEaten ? 'Eaten ✅' : currentStatus === 'selfCooking' ? '🍳 Self-Cooking' : currentStatus === 'onVacation' ? '🏖️ On Leave' : currentStatus === 'notEaten' ? 'Not Eaten' : currentStatus === 'pack' ? 'To Pack 📦' : currentStatus === 'extra' ? 'Extra Plate ➕' : 'Requested'}
+                              {isEaten ? 'Eaten ✅' : currentStatus === 'selfCooking' ? '🍳 Self-Cooking' : currentStatus === 'onVacation' ? '🏖️ On Leave' : currentStatus === 'delivery' ? '🛵 Delivery' : currentStatus === 'notEaten' ? 'Not Eaten' : currentStatus === 'pack' ? 'To Pack 📦' : currentStatus === 'extra' ? 'Extra Plate ➕' : 'Requested'}
                             </span>
 
                             {s.includedFoodPersons > 1 && s.foodIncluded && (
@@ -1494,52 +1520,27 @@ export default function MessHeadcount({ onClose }) {
                             Undo
                           </button>
                         ) : (
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            <button
-                              onClick={() => handleToggleEaten(s.id, false)}
-                              style={{
-                                background: '#0f172a',
-                                color: '#f8fafc',
-                                border: 'none',
-                                borderRadius: '10px',
-                                padding: '8px 10px',
-                                fontSize: '11px',
-                                fontWeight: 800,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                transition: 'all 0.15s ease'
-                              }}
-                              title="Mark Student as Eaten"
-                            >
-                              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check</span>
-                              Eaten
-                            </button>
-                            {currentStatus !== 'notEaten' && (
-                              <button
-                                onClick={() => handleMarkNotEaten(s.id)}
-                                style={{
-                                  background: '#fee2e2',
-                                  color: '#dc2626',
-                                  border: '1px solid #fecaca',
-                                  borderRadius: '10px',
-                                  padding: '8px 10px',
-                                  fontSize: '11px',
-                                  fontWeight: 800,
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  transition: 'all 0.15s ease'
-                                }}
-                                title="Mark Student as Not Eaten"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>close</span>
-                                Not Eaten
-                              </button>
-                            )}
-                          </div>
+                          <button
+                            onClick={() => handleToggleEaten(s.id, false)}
+                            style={{
+                              background: '#0f172a',
+                              color: '#f8fafc',
+                              border: 'none',
+                              borderRadius: '10px',
+                              padding: '8px 12px',
+                              fontSize: '11px',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              transition: 'all 0.15s ease'
+                            }}
+                            title="Mark Student as Eaten"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check</span>
+                            Eaten
+                          </button>
                         )}
                       </div>
                     </div>

@@ -1368,10 +1368,10 @@ export default function StaffApp(){
           if (isVac) return 'onVacation';
           if (val === 'not_eating') return 'notEaten';
           if (val === 'eaten' || isEaten) return 'eaten';
+          if (val === 'delivery') return 'delivery';
+          if (val === 'pack') return 'pack';
+          if (val === 'extra') return 'extra';
           const mealEnded = isMealOver(currentDateStr, mealName);
-          if (val === 'delivery') return mealEnded ? 'notEaten' : 'delivery';
-          if (val === 'pack') return mealEnded ? 'notEaten' : 'pack';
-          if (val === 'extra') return mealEnded ? 'notEaten' : 'extra';
           if (mealEnded) return 'notEaten';
           return 'requested';
         };
@@ -5261,18 +5261,10 @@ export default function StaffApp(){
 
                              {/* Quick Action button for 'eaten' */}
                              {(selectedStat === 'requested' || selectedStat === 'notEaten') && timeFilter === 'Daily' && (
-                               <div style={{ display: 'flex', gap: 6 }}>
-                                 <button onClick={()=>markMealEaten(s.id, mealKey)}
-                                   style={{padding:'6px 12px',borderRadius:8,border: '1px solid #e2e8f0',background:'#fff',color:'#000',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'inherit',boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
-                                   Mark Eaten
-                                 </button>
-                                 {selectedStat !== 'notEaten' && (
-                                   <button onClick={()=>markMealNotEaten(s.id, mealKey)}
-                                     style={{padding:'6px 10px',borderRadius:8,border:'1px solid #fecaca',background:'#fee2e2',color:'#dc2626',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'inherit'}}>
-                                     Not Eaten
-                                   </button>
-                                 )}
-                               </div>
+                               <button onClick={()=>markMealEaten(s.id, mealKey)}
+                                 style={{padding:'6px 12px',borderRadius:8,border: '1px solid #e2e8f0',background:'#fff',color:'#000',fontSize:12,fontWeight:800,cursor:'pointer',fontFamily:'inherit',boxShadow: '0 2px 8px rgba(15,23,42,0.04)'}}>
+                                 Mark Eaten
+                               </button>
                              )}
                              {selectedStat === 'delivery' && (
                                <span style={{padding:'6px 12px', borderRadius:8, background:'#ede9fe', color:'#6d28d9', fontSize:12, fontWeight:800, border: '1px solid #ddd6fe', display:'inline-flex', alignItems:'center', gap:4}}>

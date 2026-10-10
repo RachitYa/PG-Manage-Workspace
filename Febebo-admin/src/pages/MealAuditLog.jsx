@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { collection, query, where, doc, onSnapshot, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { isStudentOnVacation, isMealPausedOnDate } from '../utils/vacationUtils';
+import { isStudentOnVacation, isMealPausedOnDate, isMealOver } from '../utils/vacationUtils';
 
 const MEAL_TIMES = {
   breakfast: '8:00 AM – 10:30 AM',
@@ -415,7 +415,9 @@ export default function MealAuditLog() {
             <div style={{ fontSize: 20, fontWeight: 800, color: '#ea580c', marginTop: 2 }}>{stats.delivery}</div>
           </div>
           <div style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 14, padding: '12px 10px', textAlign: 'center' }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: 0.3 }}>Pending</div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              {isMealOver(selectedDate, mealTab) ? 'Not Eaten' : 'Pending'}
+            </div>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#dc2626', marginTop: 2 }}>{stats.pending}</div>
           </div>
         </div>
@@ -591,6 +593,8 @@ export default function MealAuditLog() {
                           </span>
                         ) : s.status === 'onVacation' ? (
                           <span style={{ color: '#dc2626' }}>🏖️ On food leave</span>
+                        ) : isMealOver(selectedDate, mealTab) ? (
+                          <span style={{ color: '#dc2626' }}>Not eaten</span>
                         ) : (
                           <span>Not eaten yet</span>
                         )}
@@ -632,6 +636,17 @@ export default function MealAuditLog() {
                         color: '#dc2626'
                       }}>
                         Leave
+                      </span>
+                    ) : isMealOver(selectedDate, mealTab) ? (
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '4px 9px',
+                        borderRadius: 14,
+                        background: '#fee2e2',
+                        color: '#dc2626'
+                      }}>
+                        Not Eaten
                       </span>
                     ) : (
                       <span style={{

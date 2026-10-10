@@ -307,7 +307,7 @@ export function isMealOver(dateStr, meal) {
   const mLower = String(meal).toLowerCase().trim();
   const cutoffs = {
     breakfast: 10 * 60 + 30, // 10:30 AM
-    lunch: 15 * 60 + 30,     // 3:30 PM
+    lunch: 15 * 60,          // 3:00 PM
     snacks: 18 * 60 + 30,    // 6:30 PM
     dinner: 22 * 60 + 30     // 10:30 PM
   };
